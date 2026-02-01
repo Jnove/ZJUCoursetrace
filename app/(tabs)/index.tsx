@@ -1,48 +1,125 @@
-import { ScrollView, Text, View, TouchableOpacity } from "react-native";
-
+import React, { useEffect, useState } from "react";
+import { ScrollView, Text, View, TouchableOpacity, ActivityIndicator, Pressable } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
+import { ScheduleTable } from "@/components/schedule-table";
+import { useSchedule, Course } from "@/lib/schedule-context";
+import { useAuth } from "@/lib/auth-context";
+import { useRouter } from "expo-router";
+import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import { cn } from "@/lib/utils";
 
-/**
- * Home Screen - NativeWind Example
- *
- * This template uses NativeWind (Tailwind CSS for React Native).
- * You can use familiar Tailwind classes directly in className props.
- *
- * Key patterns:
- * - Use `className` instead of `style` for most styling
- * - Theme colors: use tokens directly (bg-background, text-foreground, bg-primary, etc.); no dark: prefix needed
- * - Responsive: standard Tailwind breakpoints work on web
- * - Custom colors defined in tailwind.config.js
- */
 export default function HomeScreen() {
+  const { state: scheduleState, getCoursesForWeek, setCurrentWeek } = useSchedule();
+  const { state: authState, signOut } = useAuth();
+  const router = useRouter();
+  const [selectedWeek, setSelectedWeek] = useState(1);
+
+  const coursesThisWeek = getCoursesForWeek(selectedWeek);
+
+  const handleWeekChange = (direction: "prev" | "next") => {
+    const newWeek = direction === "prev" ? selectedWeek - 1 : selectedWeek + 1;
+    if (newWeek >= 1 && newWeek <= 20) {
+      setSelectedWeek(newWeek);
+      setCurrentWeek(newWeek);
+    }
+  };
+
+  const handleCoursePress = (course: Course) => {
+    router.push(`/course-detail?id=${course.id}`);
+  };
+
+  const handleLogout = async () => {
+    await signOut();
+    router.replace("/login");
+  };
+
   return (
-    <ScreenContainer className="p-6">
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
-        <View className="flex-1 gap-8">
-          {/* Hero Section */}
-          <View className="items-center gap-2">
-            <Text className="text-4xl font-bold text-foreground">Welcome</Text>
-            <Text className="text-base text-muted text-center">
-              Edit app/(tabs)/index.tsx to get started
-            </Text>
-          </View>
-
-          {/* Example Card */}
-          <View className="w-full max-w-sm self-center bg-surface rounded-2xl p-6 shadow-sm border border-border">
-            <Text className="text-lg font-semibold text-foreground mb-2">NativeWind Ready</Text>
-            <Text className="text-sm text-muted leading-relaxed">
-              Use Tailwind CSS classes directly in your React Native components.
-            </Text>
-          </View>
-
-          {/* Example Button */}
-          <View className="items-center">
-            <TouchableOpacity className="bg-primary px-6 py-3 rounded-full active:opacity-80">
-              <Text className="text-background font-semibold">Get Started</Text>
-            </TouchableOpacity>
-          </View>
+    <ScreenContainer className="p-0">
+      {/* 顶部导航栏 */}
+      <View className="flex-row items-center justify-between px-6 py-4 border-b border-border">
+        <View>
+          <Text className="text-foreground font-bold text-lg">我的课表</Text>
+          <Text className="text-muted text-xs mt-1">{authState.username}</Text>
         </View>
-      </ScrollView>
+        <Pressable
+          onPress={handleLogout}
+          className="w-10 h-10 rounded-full bg-surface justify-center items-center"
+        >
+          {({ pressed }) => (
+            <MaterialIcons
+              name="logout"
+              size={20}
+              color={pressed ? "#0a7ea4" : "#687076"}
+            />
+          )}
+        </Pressable>
+      </View>
+
+      {/* 周次选择器 */}
+      <View className="px-6 py-4 border-b border-border bg-surface">
+        <View className="flex-row items-center justify-between mb-3">
+          <Pressable
+            onPress={() => handleWeekChange("prev")}
+            disabled={selectedWeek <= 1}
+            className={cn(
+              "w-10 h-10 rounded-full justify-center items-center",
+              selectedWeek <= 1 ? "bg-border/50" : "bg-primary/10"
+            )}
+          >
+            <MaterialIcons
+              name="chevron-left"
+              size={24}
+              color={selectedWeek <= 1 ? "#9BA1A6" : "#0a7ea4"}
+            />
+          </Pressable>
+
+          <View className="flex-1 items-center">
+            <Text className="text-foreground font-bold text-lg">第 {selectedWeek} 周</Text>
+            <Text className="text-muted text-xs mt-1">{coursesThisWeek.length} 门课程</Text>
+          </View>
+
+          <Pressable
+            onPress={() => handleWeekChange("next")}
+            disabled={selectedWeek >= 20}
+            className={cn(
+              "w-10 h-10 rounded-full justify-center items-center",
+              selectedWeek >= 20 ? "bg-border/50" : "bg-primary/10"
+            )}
+          >
+            <MaterialIcons
+              name="chevron-right"
+              size={24}
+              color={selectedWeek >= 20 ? "#9BA1A6" : "#0a7ea4"}
+            />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* 课表内容 */}
+      <View className="flex-1">
+        {scheduleState.isLoading ? (
+          <View className="flex-1 justify-center items-center">
+            <ActivityIndicator size="large" color="#0a7ea4" />
+            <Text className="text-muted mt-4">加载课表中...</Text>
+          </View>
+        ) : scheduleState.error ? (
+          <View className="flex-1 justify-center items-center px-6">
+            <MaterialIcons name="error-outline" size={48} color="#EF4444" />
+            <Text className="text-foreground text-lg font-semibold mt-4 text-center">
+              加载失败
+            </Text>
+            <Text className="text-muted text-center mt-2">{scheduleState.error}</Text>
+          </View>
+        ) : coursesThisWeek.length === 0 ? (
+          <View className="flex-1 justify-center items-center px-6">
+            <MaterialIcons name="event-busy" size={48} color="#9BA1A6" />
+            <Text className="text-foreground text-lg font-semibold mt-4">这周没有课程</Text>
+            <Text className="text-muted text-center mt-2">享受你的假期吧！</Text>
+          </View>
+        ) : (
+          <ScheduleTable courses={coursesThisWeek} onCoursePress={handleCoursePress} />
+        )}
+      </View>
     </ScreenContainer>
   );
 }
