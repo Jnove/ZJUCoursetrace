@@ -2,113 +2,92 @@ import React from "react";
 import { View, Text, TouchableOpacity, ScrollView } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { useSchedule, Course } from "@/lib/schedule-context";
-import MaterialIcons from "@expo/vector-icons/MaterialIcons";
-
-const DAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+import { cn } from "@/lib/utils";
 
 export default function CourseDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { state } = useSchedule();
 
-  const courseId = params.id as string;
-  const course = state.courses.find((c) => c.id === courseId);
-
-  if (!course) {
-    return (
-      <ScreenContainer className="justify-center items-center">
-        <Text className="text-foreground text-lg">课程未找到</Text>
-        <TouchableOpacity onPress={() => router.back()} className="mt-6">
-          <Text className="text-primary font-semibold">返回</Text>
-        </TouchableOpacity>
-      </ScreenContainer>
-    );
-  }
-
-  const dayName = DAYS[course.dayOfWeek - 1];
-  const periodRange = `第${course.startPeriod}-${course.endPeriod}节`;
-  const weekRange = `第${course.weekStart}-${course.weekEnd}周`;
+  const courseName = params.courseName as string;
+  const teacher = params.teacher as string;
+  const classroom = params.classroom as string;
+  const weekType = params.weekType as string;
 
   return (
-    <ScreenContainer className="p-0">
-      {/* 顶部导航栏 */}
-      <View className="flex-row items-center justify-between px-6 py-4 border-b border-border">
-        <TouchableOpacity onPress={() => router.back()} className="flex-row items-center gap-2">
-          <MaterialIcons name="chevron-left" size={24} color="#0a7ea4" />
-          <Text className="text-primary font-semibold">返回</Text>
-        </TouchableOpacity>
-        <Text className="text-foreground font-bold text-lg">课程详情</Text>
-        <View className="w-12" />
-      </View>
-
-      <ScrollView className="flex-1 px-6 py-6" contentContainerStyle={{ paddingBottom: 32 }}>
-        {/* 课程名称卡片 */}
-        <View
-          className="rounded-2xl p-6 mb-6"
-          style={{ backgroundColor: course.color + "15", borderLeftWidth: 4, borderLeftColor: course.color }}
-        >
-          <Text className="text-3xl font-bold text-foreground">{course.name}</Text>
-          <Text className="text-muted mt-2 text-base">课程代码: {course.id}</Text>
+    <ScreenContainer className="flex-1 bg-background">
+      <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
+        {/* 返回按钮 */}
+        <View className="px-4 py-4">
+          <TouchableOpacity onPress={() => router.back()} className="flex-row items-center gap-2">
+            <Text className="text-primary text-base font-semibold">← 返回</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* 信息卡片 */}
-        <View className="gap-4">
-          {/* 教师信息 */}
-          <View className="bg-surface rounded-xl p-4 flex-row items-center gap-4">
-            <View className="w-12 h-12 rounded-full bg-primary/20 justify-center items-center">
-              <MaterialIcons name="person" size={24} color="#0a7ea4" />
+        {/* 课程信息卡片 */}
+        <View className="px-4 gap-4">
+          {/* 课程名称 */}
+          <View className="bg-surface rounded-lg p-6 gap-2">
+            <Text className="text-xs text-muted font-semibold">课程名称</Text>
+            <Text className="text-2xl font-bold text-foreground">{courseName}</Text>
+          </View>
+
+          {/* 基本信息 */}
+          <View className="bg-surface rounded-lg p-6 gap-4">
+            {/* 教师 */}
+            <View className="gap-2">
+              <Text className="text-xs text-muted font-semibold">授课教师</Text>
+              <Text className="text-base text-foreground">{teacher}</Text>
             </View>
-            <View className="flex-1">
-              <Text className="text-muted text-sm mb-1">授课教师</Text>
-              <Text className="text-foreground font-semibold text-base">{course.teacher}</Text>
+
+            {/* 教室 */}
+            <View className="gap-2 border-t border-border pt-4">
+              <Text className="text-xs text-muted font-semibold">上课地点</Text>
+              <Text className="text-base text-foreground">{classroom}</Text>
+            </View>
+
+            {/* 周次类型 */}
+            <View className="gap-2 border-t border-border pt-4">
+              <Text className="text-xs text-muted font-semibold">周次类型</Text>
+              <View className="flex-row items-center gap-2">
+                <View
+                  className={cn(
+                    "px-3 py-1 rounded-full",
+                    weekType === "single"
+                      ? "bg-primary/20"
+                      : weekType === "double"
+                        ? "bg-warning/20"
+                        : "bg-success/20"
+                  )}
+                >
+                  <Text
+                    className={cn(
+                      "text-sm font-semibold",
+                      weekType === "single"
+                        ? "text-primary"
+                        : weekType === "double"
+                          ? "text-warning"
+                          : "text-success"
+                    )}
+                  >
+                    {weekType === "single" ? "单周" : weekType === "double" ? "双周" : "单双周"}
+                  </Text>
+                </View>
+              </View>
             </View>
           </View>
 
-          {/* 教室信息 */}
-          <View className="bg-surface rounded-xl p-4 flex-row items-center gap-4">
-            <View className="w-12 h-12 rounded-full bg-primary/20 justify-center items-center">
-              <MaterialIcons name="location-on" size={24} color="#0a7ea4" />
-            </View>
-            <View className="flex-1">
-              <Text className="text-muted text-sm mb-1">教室位置</Text>
-              <Text className="text-foreground font-semibold text-base">{course.classroom}</Text>
-            </View>
+          {/* 说明 */}
+          <View className="bg-surface rounded-lg p-4 gap-2">
+            <Text className="text-xs text-muted">
+              💡 <Text className="font-semibold">单周</Text> 表示仅在单数周次（1、3、5、7...）上课
+            </Text>
+            <Text className="text-xs text-muted mt-2">
+              💡 <Text className="font-semibold">双周</Text> 表示仅在双数周次（2、4、6、8...）上课
+            </Text>
+            <Text className="text-xs text-muted mt-2">
+              💡 <Text className="font-semibold">单双周</Text> 表示每周都上课
+            </Text>
           </View>
-
-          {/* 上课时间 */}
-          <View className="bg-surface rounded-xl p-4 flex-row items-center gap-4">
-            <View className="w-12 h-12 rounded-full bg-primary/20 justify-center items-center">
-              <MaterialIcons name="schedule" size={24} color="#0a7ea4" />
-            </View>
-            <View className="flex-1">
-              <Text className="text-muted text-sm mb-1">上课时间</Text>
-              <Text className="text-foreground font-semibold text-base">
-                {dayName} {periodRange}
-              </Text>
-            </View>
-          </View>
-
-          {/* 上课周次 */}
-          <View className="bg-surface rounded-xl p-4 flex-row items-center gap-4">
-            <View className="w-12 h-12 rounded-full bg-primary/20 justify-center items-center">
-              <MaterialIcons name="calendar-today" size={24} color="#0a7ea4" />
-            </View>
-            <View className="flex-1">
-              <Text className="text-muted text-sm mb-1">上课周次</Text>
-              <Text className="text-foreground font-semibold text-base">{weekRange}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* 操作按钮 */}
-        <View className="gap-3 mt-8">
-          <TouchableOpacity className="bg-primary rounded-lg py-4 items-center">
-            <Text className="text-white font-semibold text-base">添加提醒</Text>
-          </TouchableOpacity>
-          <TouchableOpacity className="bg-surface border border-border rounded-lg py-4 items-center">
-            <Text className="text-foreground font-semibold text-base">分享课程</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
     </ScreenContainer>

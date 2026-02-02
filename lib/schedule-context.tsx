@@ -12,6 +12,7 @@ export interface Course {
   weekStart: number;
   weekEnd: number;
   color: string;
+  isSingleWeek?: "single" | "double" | "both"; // single=单周, double=双周, both=单双周
 }
 
 export interface ScheduleState {
@@ -19,6 +20,7 @@ export interface ScheduleState {
   isLoading: boolean;
   error: string | null;
   currentWeek: number;
+  weekType: "all" | "single" | "double"; // Filter type
 }
 
 type ScheduleAction =
@@ -26,6 +28,7 @@ type ScheduleAction =
   | { type: "SET_LOADING"; payload: boolean }
   | { type: "SET_ERROR"; payload: string | null }
   | { type: "SET_CURRENT_WEEK"; payload: number }
+  | { type: "SET_WEEK_TYPE"; payload: "all" | "single" | "double" }
   | { type: "CLEAR_ERROR" };
 
 const initialState: ScheduleState = {
@@ -33,6 +36,7 @@ const initialState: ScheduleState = {
   isLoading: false,
   error: null,
   currentWeek: 1,
+  weekType: "all",
 };
 
 function scheduleReducer(state: ScheduleState, action: ScheduleAction): ScheduleState {
@@ -45,6 +49,8 @@ function scheduleReducer(state: ScheduleState, action: ScheduleAction): Schedule
       return { ...state, error: action.payload };
     case "SET_CURRENT_WEEK":
       return { ...state, currentWeek: action.payload };
+    case "SET_WEEK_TYPE":
+      return { ...state, weekType: action.payload };
     case "CLEAR_ERROR":
       return { ...state, error: null };
     default:
@@ -56,6 +62,7 @@ interface ScheduleContextType {
   state: ScheduleState;
   fetchSchedule: (username: string) => Promise<void>;
   setCurrentWeek: (week: number) => void;
+  setWeekType: (type: "all" | "single" | "double") => void;
   getCoursesForWeek: (week: number) => Course[];
   clearError: () => void;
 }
@@ -77,6 +84,7 @@ function generateMockCourses(): Course[] {
       weekStart: 1,
       weekEnd: 16,
       color: colors[0],
+      isSingleWeek: "both",
     },
     {
       id: "2",
@@ -89,6 +97,7 @@ function generateMockCourses(): Course[] {
       weekStart: 1,
       weekEnd: 16,
       color: colors[1],
+      isSingleWeek: "single",
     },
     {
       id: "3",
@@ -101,6 +110,7 @@ function generateMockCourses(): Course[] {
       weekStart: 1,
       weekEnd: 16,
       color: colors[2],
+      isSingleWeek: "double",
     },
     {
       id: "4",
@@ -113,6 +123,7 @@ function generateMockCourses(): Course[] {
       weekStart: 1,
       weekEnd: 16,
       color: colors[3],
+      isSingleWeek: "both",
     },
     {
       id: "5",
@@ -125,6 +136,7 @@ function generateMockCourses(): Course[] {
       weekStart: 1,
       weekEnd: 16,
       color: colors[4],
+      isSingleWeek: "single",
     },
     {
       id: "6",
@@ -137,6 +149,7 @@ function generateMockCourses(): Course[] {
       weekStart: 1,
       weekEnd: 16,
       color: colors[5],
+      isSingleWeek: "double",
     },
   ];
   return courses;
@@ -153,10 +166,10 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         // 这里应该调用实际的API获取课表数据
         // 目前使用模拟数据
         await new Promise((resolve) => setTimeout(resolve, 800));
-        
+
         const mockCourses = generateMockCourses();
         await AsyncStorage.setItem("courses", JSON.stringify(mockCourses));
-        
+
         dispatch({ type: "SET_COURSES", payload: mockCourses });
         dispatch({ type: "SET_ERROR", payload: null });
       } catch (error) {
@@ -169,21 +182,37 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     setCurrentWeek: (week: number) => {
       dispatch({ type: "SET_CURRENT_WEEK", payload: week });
     },
+    setWeekType: (type: "all" | "single" | "double") => {
+      dispatch({ type: "SET_WEEK_TYPE", payload: type });
+    },
     getCoursesForWeek: (week: number) => {
-      return state.courses.filter(
+      let filtered = state.courses.filter(
         (course) => course.weekStart <= week && week <= course.weekEnd
       );
+
+      // Apply week type filter
+      if (state.weekType === "single") {
+        filtered = filtered.filter((course) => course.isSingleWeek === "single" || course.isSingleWeek === "both");
+        // Only show on odd weeks
+        if (week % 2 === 0) {
+          filtered = filtered.filter((course) => course.isSingleWeek !== "single");
+        }
+      } else if (state.weekType === "double") {
+        filtered = filtered.filter((course) => course.isSingleWeek === "double" || course.isSingleWeek === "both");
+        // Only show on even weeks
+        if (week % 2 === 1) {
+          filtered = filtered.filter((course) => course.isSingleWeek !== "double");
+        }
+      }
+
+      return filtered;
     },
     clearError: () => {
       dispatch({ type: "CLEAR_ERROR" });
     },
   };
 
-  return (
-    <ScheduleContext.Provider value={scheduleContext}>
-      {children}
-    </ScheduleContext.Provider>
-  );
+  return <ScheduleContext.Provider value={scheduleContext}>{children}</ScheduleContext.Provider>;
 }
 
 export function useSchedule() {

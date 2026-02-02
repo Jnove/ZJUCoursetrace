@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertUser, users, courses, InsertCourse, Course, scheduleCache, InsertScheduleCache } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -87,6 +87,115 @@ export async function getUserByOpenId(openId: string) {
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
 
   return result.length > 0 ? result[0] : undefined;
+}
+
+// Course-related database operations
+
+export async function saveCourses(userId: number, courseList: InsertCourse[]): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot save courses: database not available");
+    return;
+  }
+
+  try {
+    // Delete existing courses for this user and semester
+    if (courseList.length > 0) {
+      const semester = courseList[0].semester;
+      await db.delete(courses).where(and(eq(courses.userId, userId), eq(courses.semester, semester)));
+    }
+
+    // Insert new courses
+    if (courseList.length > 0) {
+      await db.insert(courses).values(courseList);
+    }
+  } catch (error) {
+    console.error("[Database] Failed to save courses:", error);
+    throw error;
+  }
+}
+
+export async function getCoursesByUser(userId: number, semester?: string): Promise<Course[]> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get courses: database not available");
+    return [];
+  }
+
+  try {
+    const conditions = [eq(courses.userId, userId)];
+
+    if (semester) {
+      conditions.push(eq(courses.semester, semester));
+    }
+
+    const whereCondition = conditions.length > 1 ? and(...conditions) : conditions[0];
+    const result = await db.select().from(courses).where(whereCondition);
+    return result;
+  } catch (error) {
+    console.error("[Database] Failed to get courses:", error);
+    return [];
+  }
+}
+
+export async function saveScheduleCache(
+  userId: number,
+  semester: string,
+  rawData: string,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot save schedule cache: database not available");
+    return;
+  }
+
+  try {
+    // Check if cache exists
+    const existing = await db
+      .select()
+      .from(scheduleCache)
+      .where(and(eq(scheduleCache.userId, userId), eq(scheduleCache.semester, semester)))
+      .limit(1);
+
+    if (existing.length > 0) {
+      // Update existing cache
+      await db
+        .update(scheduleCache)
+        .set({ rawData })
+        .where(and(eq(scheduleCache.userId, userId), eq(scheduleCache.semester, semester)));
+    } else {
+      // Insert new cache
+      await db.insert(scheduleCache).values({
+        userId,
+        semester,
+        rawData,
+      });
+    }
+  } catch (error) {
+    console.error("[Database] Failed to save schedule cache:", error);
+    throw error;
+  }
+}
+
+export async function getScheduleCache(userId: number, semester: string): Promise<string | null> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get schedule cache: database not available");
+    return null;
+  }
+
+  try {
+    const result = await db
+      .select()
+      .from(scheduleCache)
+      .where(and(eq(scheduleCache.userId, userId), eq(scheduleCache.semester, semester)))
+      .limit(1);
+
+    return result.length > 0 ? result[0].rawData : null;
+  } catch (error) {
+    console.error("[Database] Failed to get schedule cache:", error);
+    return null;
+  }
 }
 
 // TODO: add feature queries here as your schema grows.

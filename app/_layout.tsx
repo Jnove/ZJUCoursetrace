@@ -1,6 +1,6 @@
 import "@/global.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack, useRouter } from "expo-router";
+import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -18,7 +18,7 @@ import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
 
 import { trpc, createTRPCClient } from "@/lib/trpc";
 import { initManusRuntime, subscribeSafeAreaInsets } from "@/lib/_core/manus-runtime";
-import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { AuthProvider } from "@/lib/auth-context";
 import { ScheduleProvider } from "@/lib/schedule-context";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -28,47 +28,6 @@ export const unstable_settings = {
   anchor: "(tabs)",
 };
 
-function RootLayoutContent() {
-  const { state } = useAuth();
-  const router = useRouter();
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            refetchOnWindowFocus: false,
-            retry: 1,
-          },
-        },
-      }),
-  );
-  const [trpcClient] = useState(() => createTRPCClient());
-
-  useEffect(() => {
-    if (state.userToken) {
-      router.replace("/(tabs)");
-    } else if (!state.isLoading) {
-      router.replace("/login");
-    }
-  }, [state.userToken, state.isLoading]);
-
-  return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <trpc.Provider client={trpcClient} queryClient={queryClient}>
-        <QueryClientProvider client={queryClient}>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="login" />
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="course-detail" />
-            <Stack.Screen name="oauth/callback" />
-          </Stack>
-          <StatusBar style="auto" />
-        </QueryClientProvider>
-      </trpc.Provider>
-    </GestureHandlerRootView>
-  );
-}
-
 export default function RootLayout() {
   const initialInsets = initialWindowMetrics?.insets ?? DEFAULT_WEB_INSETS;
   const initialFrame = initialWindowMetrics?.frame ?? DEFAULT_WEB_FRAME;
@@ -76,6 +35,7 @@ export default function RootLayout() {
   const [insets, setInsets] = useState<EdgeInsets>(initialInsets);
   const [frame, setFrame] = useState<Rect>(initialFrame);
 
+  // Initialize Manus runtime for cookie injection from parent container
   useEffect(() => {
     initManusRuntime();
   }, []);
@@ -91,6 +51,23 @@ export default function RootLayout() {
     return () => unsubscribe();
   }, [handleSafeAreaUpdate]);
 
+  // Create clients once and reuse them
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            // Disable automatic refetching on window focus for mobile
+            refetchOnWindowFocus: false,
+            // Retry failed requests once
+            retry: 1,
+          },
+        },
+      }),
+  );
+  const [trpcClient] = useState(() => createTRPCClient());
+
+  // Ensure minimum 8px padding for top and bottom on mobile
   const providerInitialMetrics = useMemo(() => {
     const metrics = initialWindowMetrics ?? { insets: initialInsets, frame: initialFrame };
     return {
@@ -103,15 +80,26 @@ export default function RootLayout() {
     };
   }, [initialInsets, initialFrame]);
 
-  const shouldOverrideSafeArea = Platform.OS === "web";
-
   const content = (
-    <AuthProvider>
-      <ScheduleProvider>
-        <RootLayoutContent />
-      </ScheduleProvider>
-    </AuthProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <trpc.Provider client={trpcClient} queryClient={queryClient}>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <ScheduleProvider>
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="(tabs)" />
+                <Stack.Screen name="oauth/callback" />
+                <Stack.Screen name="course-detail" />
+              </Stack>
+              <StatusBar style="auto" />
+            </ScheduleProvider>
+          </AuthProvider>
+        </QueryClientProvider>
+      </trpc.Provider>
+    </GestureHandlerRootView>
   );
+
+  const shouldOverrideSafeArea = Platform.OS === "web";
 
   if (shouldOverrideSafeArea) {
     return (

@@ -43,6 +43,13 @@ export function ScheduleTable({ courses, onCoursePress }: ScheduleTableProps) {
     return course.endPeriod - course.startPeriod + 1;
   };
 
+  // Get week type indicator
+  const getWeekTypeLabel = (isSingleWeek?: string): string => {
+    if (isSingleWeek === "single") return "单";
+    if (isSingleWeek === "double") return "双";
+    return "";
+  };
+
   return (
     <ScrollView
       horizontal
@@ -55,7 +62,7 @@ export function ScheduleTable({ courses, onCoursePress }: ScheduleTableProps) {
         <View className="w-16 pr-2">
           {/* 标题占位符 */}
           <View className="h-12" />
-          
+
           {/* 时间段 */}
           {PERIODS.map((period) => (
             <View key={period.number} className="h-20 justify-center items-center border-b border-border">
@@ -94,6 +101,8 @@ export function ScheduleTable({ courses, onCoursePress }: ScheduleTableProps) {
                     renderedPeriods.add(period.number + i);
                   }
 
+                  const weekTypeLabel = getWeekTypeLabel(course.isSingleWeek);
+
                   return (
                     <Pressable
                       key={`${dayIndex}-${period.number}`}
@@ -119,6 +128,11 @@ export function ScheduleTable({ courses, onCoursePress }: ScheduleTableProps) {
                           >
                             {course.name}
                           </Text>
+                          {weekTypeLabel && (
+                            <Text className="text-xs text-primary mt-1 font-semibold">
+                              {weekTypeLabel}周
+                            </Text>
+                          )}
                           <Text className="text-xs text-muted mt-1 text-center" numberOfLines={1}>
                             {course.classroom}
                           </Text>
