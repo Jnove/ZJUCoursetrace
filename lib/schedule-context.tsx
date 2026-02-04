@@ -1,27 +1,6 @@
 import React, { createContext, useContext, useReducer, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { trpc } from "./trpc";
-
-/**
- * 后端返回的课程数据类型
- */
-export interface BackendCourse {
-  course_id: string;
-  course_code: string;
-  course_name: string;
-  semester: string;
-  teacher: string;
-  location: string;
-  time_slot: string;
-  exam_time?: string;
-  exam_location?: string;
-  day_of_week?: number;
-  is_single_week?: boolean | null; // true=单周，false=双周，null=单双周
-  period?: string;
-  period_time?: string;
-  week_range?: string;
-  credit?: number;
-}
+import { getApiBaseUrl } from "@/constants/oauth";
 
 /**
  * 前端使用的课程数据类型
@@ -100,7 +79,7 @@ const ScheduleContext = createContext<ScheduleContextType | undefined>(undefined
 /**
  * 将后端课程数据转换为前端格式
  */
-function convertBackendCourse(backendCourse: BackendCourse, index: number): Course {
+function convertBackendCourse(backendCourse: any, index: number): Course {
   const colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#FFA07A", "#98D8C8", "#F7DC6F"];
   const color = colors[index % colors.length];
 
@@ -156,9 +135,6 @@ function convertBackendCourse(backendCourse: BackendCourse, index: number): Cour
 
 export function ScheduleProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(scheduleReducer, initialState);
-  const timetableQuery = trpc.zju.getTimetable.useQuery(undefined, {
-    enabled: false,
-  });
 
   const scheduleContext: ScheduleContextType = {
     state,
@@ -166,22 +142,31 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_LOADING", payload: true });
       try {
         // 调用后端 API 获取课表数据
-        const result = await timetableQuery.refetch();
+        const apiBaseUrl = getApiBaseUrl();
+        const response = await fetch(`${apiBaseUrl}/api/schedule/timetable`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
 
-        if (result.data) {
-          // 转换后端数据格式
-          const convertedCourses = result.data.courses.map((course: BackendCourse, index: number) =>
-            convertBackendCourse(course, index)
-          );
+        const result = await response.json();
 
-          await AsyncStorage.setItem("courses", JSON.stringify(convertedCourses));
-          dispatch({ type: "SET_COURSES", payload: convertedCourses });
-          dispatch({ type: "SET_ERROR", payload: null });
-        } else {
-          throw new Error("获取课表失败");
+        if (!result.success) {
+          throw new Error(result.error || "获取课表失败");
         }
+
+        // 转换后端数据格式
+        const convertedCourses = (result.courses || []).map((course: any, index: number) =>
+          convertBackendCourse(course, index)
+        );
+
+        await AsyncStorage.setItem("courses", JSON.stringify(convertedCourses));
+        dispatch({ type: "SET_COURSES", payload: convertedCourses });
+        dispatch({ type: "SET_ERROR", payload: null });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "获取课表失败";
+        console.error("Fetch schedule error:", error);
         dispatch({ type: "SET_ERROR", payload: errorMessage });
       } finally {
         dispatch({ type: "SET_LOADING", payload: false });

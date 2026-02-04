@@ -1,40 +1,39 @@
-import React, { createContext, useContext, useReducer, useEffect, ReactNode } from "react";
+import React, { createContext, useReducer, useCallback, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { trpc } from "./trpc";
+import { getApiBaseUrl } from "@/constants/oauth";
 
-export interface AuthState {
+export type AuthState = {
   isLoading: boolean;
   isSignout: boolean;
   userToken: string | null;
   username: string | null;
   error: string | null;
-}
+};
+
+export type AuthContextType = {
+  state: AuthState;
+  signIn: (username: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
+  signUp?: (username: string, password: string) => Promise<void>;
+};
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 type AuthAction =
   | { type: "RESTORE_TOKEN"; payload: { token: string | null; username: string | null } }
   | { type: "SIGN_IN_START" }
   | { type: "SIGN_IN_SUCCESS"; payload: { token: string; username: string } }
-  | { type: "SIGN_IN_FAILURE"; payload: string }
-  | { type: "SIGN_OUT" }
-  | { type: "CLEAR_ERROR" };
-
-const initialState: AuthState = {
-  isLoading: true,
-  isSignout: false,
-  userToken: null,
-  username: null,
-  error: null,
-};
+  | { type: "SIGN_IN_FAILURE"; payload: { error: string } }
+  | { type: "SIGN_OUT" };
 
 function authReducer(state: AuthState, action: AuthAction): AuthState {
   switch (action.type) {
     case "RESTORE_TOKEN":
       return {
-        isLoading: false,
-        isSignout: false,
+        ...state,
         userToken: action.payload.token,
         username: action.payload.username,
-        error: null,
+        isLoading: false,
       };
     case "SIGN_IN_START":
       return {
@@ -44,52 +43,38 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
       };
     case "SIGN_IN_SUCCESS":
       return {
-        isLoading: false,
+        ...state,
         isSignout: false,
         userToken: action.payload.token,
         username: action.payload.username,
+        isLoading: false,
         error: null,
       };
     case "SIGN_IN_FAILURE":
       return {
+        ...state,
         isLoading: false,
-        isSignout: false,
-        userToken: null,
-        username: null,
-        error: action.payload,
+        error: action.payload.error,
       };
     case "SIGN_OUT":
       return {
-        isLoading: false,
+        ...state,
         isSignout: true,
         userToken: null,
         username: null,
-        error: null,
       };
-    case "CLEAR_ERROR":
-      return {
-        ...state,
-        error: null,
-      };
-    default:
-      return state;
   }
 }
 
-interface AuthContextType {
-  state: AuthState;
-  signIn: (username: string, password: string) => Promise<void>;
-  signOut: () => Promise<void>;
-  clearError: () => void;
-}
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [state, dispatch] = useReducer(authReducer, {
+    isLoading: true,
+    isSignout: false,
+    userToken: null,
+    username: null,
+    error: null,
+  });
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(authReducer, initialState);
-  const loginMutation = trpc.zju.login.useMutation();
-
-  // 启动时恢复token
   useEffect(() => {
     const bootstrapAsync = async () => {
       try {
@@ -115,13 +100,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         // 调用后端 CAS 登录 API
-        const result = await loginMutation.mutateAsync({
-          username,
-          password,
+        const apiBaseUrl = getApiBaseUrl();
+        const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ username, password }),
         });
 
+        const result = await response.json();
+
         if (!result.success) {
-          throw new Error("登录失败");
+          throw new Error(result.error || "登录失败");
         }
 
         // 生成 token 并保存
@@ -136,32 +127,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "登录失败";
+        console.error("Sign in error:", error);
         dispatch({
           type: "SIGN_IN_FAILURE",
-          payload: errorMessage,
+          payload: { error: errorMessage },
         });
         throw error;
       }
     },
+
     signOut: async () => {
       try {
+        // 调用后端退出登录 API
+        const apiBaseUrl = getApiBaseUrl();
+        await fetch(`${apiBaseUrl}/api/auth/logout`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
         await AsyncStorage.removeItem("userToken");
         await AsyncStorage.removeItem("username");
         dispatch({ type: "SIGN_OUT" });
       } catch (error) {
         console.error("Sign out error:", error);
+        throw error;
       }
-    },
-    clearError: () => {
-      dispatch({ type: "CLEAR_ERROR" });
     },
   };
 
   return <AuthContext.Provider value={authContext}>{children}</AuthContext.Provider>;
 }
 
-export function useAuth() {
-  const context = useContext(AuthContext);
+export function useAuth(): AuthContextType {
+  const context = React.useContext(AuthContext);
   if (!context) {
     throw new Error("useAuth must be used within an AuthProvider");
   }

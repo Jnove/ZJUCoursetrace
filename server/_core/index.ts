@@ -6,6 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import apiRoutes from "../api-routes";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -60,11 +61,24 @@ async function startServer() {
     res.json({ ok: true, timestamp: Date.now() });
   });
 
+  // 注册自定义 API 路由
+  app.use("/api", apiRoutes);
+
   app.use(
     "/api/trpc",
     createExpressMiddleware({
       router: appRouter,
       createContext,
+      responseMeta({ type, errors }) {
+        const allOk = errors.length === 0;
+        const isQuery = type === "query";
+        return {
+          status: allOk ? 200 : 400,
+          headers: {
+            "content-type": "application/json",
+          },
+        };
+      },
     }),
   );
 

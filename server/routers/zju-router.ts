@@ -1,6 +1,6 @@
-import { router, publicProcedure } from "@/server/_core";
+import { router, publicProcedure } from "@/server/_core/trpc";
 import { z } from "zod";
-import { ZJUService, Course } from "@/server/_core/zju-service";
+import { ZJUService } from "@/server/_core/zju-service";
 
 // 全局 ZJU 服务实例
 let zjuService: ZJUService | null = null;
@@ -16,6 +16,19 @@ function getZJUService(): ZJUService {
 }
 
 export const zjuRouter = router({
+  /**
+   * 测试路由
+   */
+  test: publicProcedure
+    .input(
+      z.object({
+        message: z.string(),
+      })
+    )
+    .query(({ input }) => {
+      return { echo: input.message };
+    }),
+
   /**
    * 登录
    */
