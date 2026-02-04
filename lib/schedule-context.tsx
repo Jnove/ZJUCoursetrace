@@ -1,6 +1,31 @@
 import React, { createContext, useContext, useReducer, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { trpc } from "./trpc";
 
+/**
+ * 后端返回的课程数据类型
+ */
+export interface BackendCourse {
+  course_id: string;
+  course_code: string;
+  course_name: string;
+  semester: string;
+  teacher: string;
+  location: string;
+  time_slot: string;
+  exam_time?: string;
+  exam_location?: string;
+  day_of_week?: number;
+  is_single_week?: boolean | null; // true=单周，false=双周，null=单双周
+  period?: string;
+  period_time?: string;
+  week_range?: string;
+  credit?: number;
+}
+
+/**
+ * 前端使用的课程数据类型
+ */
 export interface Course {
   id: string;
   name: string;
@@ -13,6 +38,9 @@ export interface Course {
   weekEnd: number;
   color: string;
   isSingleWeek?: "single" | "double" | "both"; // single=单周, double=双周, both=单双周
+  periodTime?: string; // 具体时间，如"08:00—09:35"
+  courseCode?: string;
+  semester?: string;
 }
 
 export interface ScheduleState {
@@ -60,7 +88,7 @@ function scheduleReducer(state: ScheduleState, action: ScheduleAction): Schedule
 
 interface ScheduleContextType {
   state: ScheduleState;
-  fetchSchedule: (username: string) => Promise<void>;
+  fetchSchedule: () => Promise<void>;
   setCurrentWeek: (week: number) => void;
   setWeekType: (type: "all" | "single" | "double") => void;
   getCoursesForWeek: (week: number) => Course[];
@@ -69,109 +97,89 @@ interface ScheduleContextType {
 
 const ScheduleContext = createContext<ScheduleContextType | undefined>(undefined);
 
-// 生成示例课程数据（用于演示）
-function generateMockCourses(): Course[] {
+/**
+ * 将后端课程数据转换为前端格式
+ */
+function convertBackendCourse(backendCourse: BackendCourse, index: number): Course {
   const colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#FFA07A", "#98D8C8", "#F7DC6F"];
-  const courses: Course[] = [
-    {
-      id: "1",
-      name: "数据结构",
-      teacher: "张三",
-      classroom: "教室A101",
-      dayOfWeek: 1,
-      startPeriod: 1,
-      endPeriod: 2,
-      weekStart: 1,
-      weekEnd: 16,
-      color: colors[0],
-      isSingleWeek: "both",
-    },
-    {
-      id: "2",
-      name: "算法设计",
-      teacher: "李四",
-      classroom: "教室B202",
-      dayOfWeek: 2,
-      startPeriod: 3,
-      endPeriod: 4,
-      weekStart: 1,
-      weekEnd: 16,
-      color: colors[1],
-      isSingleWeek: "single",
-    },
-    {
-      id: "3",
-      name: "数据库系统",
-      teacher: "王五",
-      classroom: "教室C303",
-      dayOfWeek: 3,
-      startPeriod: 1,
-      endPeriod: 2,
-      weekStart: 1,
-      weekEnd: 16,
-      color: colors[2],
-      isSingleWeek: "double",
-    },
-    {
-      id: "4",
-      name: "操作系统",
-      teacher: "赵六",
-      classroom: "教室D404",
-      dayOfWeek: 4,
-      startPeriod: 5,
-      endPeriod: 6,
-      weekStart: 1,
-      weekEnd: 16,
-      color: colors[3],
-      isSingleWeek: "both",
-    },
-    {
-      id: "5",
-      name: "计算机网络",
-      teacher: "孙七",
-      classroom: "教室E505",
-      dayOfWeek: 5,
-      startPeriod: 3,
-      endPeriod: 4,
-      weekStart: 1,
-      weekEnd: 16,
-      color: colors[4],
-      isSingleWeek: "single",
-    },
-    {
-      id: "6",
-      name: "编译原理",
-      teacher: "周八",
-      classroom: "教室F606",
-      dayOfWeek: 2,
-      startPeriod: 7,
-      endPeriod: 8,
-      weekStart: 1,
-      weekEnd: 16,
-      color: colors[5],
-      isSingleWeek: "double",
-    },
-  ];
-  return courses;
+  const color = colors[index % colors.length];
+
+  // 解析周次范围
+  let weekStart = 1;
+  let weekEnd = 20;
+
+  if (backendCourse.week_range) {
+    const match = backendCourse.week_range.match(/(\d+)-(\d+)/);
+    if (match) {
+      weekStart = parseInt(match[1]);
+      weekEnd = parseInt(match[2]);
+    }
+  }
+
+  // 解析节次范围
+  let startPeriod = 1;
+  let endPeriod = 2;
+
+  if (backendCourse.period) {
+    const match = backendCourse.period.match(/(\d+)-?(\d+)?/);
+    if (match) {
+      startPeriod = parseInt(match[1]);
+      endPeriod = match[2] ? parseInt(match[2]) : startPeriod;
+    }
+  }
+
+  // 判断单双周
+  let isSingleWeek: "single" | "double" | "both" = "both";
+  if (backendCourse.is_single_week === true) {
+    isSingleWeek = "single";
+  } else if (backendCourse.is_single_week === false) {
+    isSingleWeek = "double";
+  }
+
+  return {
+    id: backendCourse.course_id,
+    name: backendCourse.course_name,
+    teacher: backendCourse.teacher,
+    classroom: backendCourse.location,
+    dayOfWeek: backendCourse.day_of_week || 1,
+    startPeriod,
+    endPeriod,
+    weekStart,
+    weekEnd,
+    color,
+    isSingleWeek,
+    periodTime: backendCourse.period_time,
+    courseCode: backendCourse.course_code,
+    semester: backendCourse.semester,
+  };
 }
 
 export function ScheduleProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(scheduleReducer, initialState);
+  const timetableQuery = trpc.zju.getTimetable.useQuery(undefined, {
+    enabled: false,
+  });
 
   const scheduleContext: ScheduleContextType = {
     state,
-    fetchSchedule: async (username: string) => {
+    fetchSchedule: async () => {
       dispatch({ type: "SET_LOADING", payload: true });
       try {
-        // 这里应该调用实际的API获取课表数据
-        // 目前使用模拟数据
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        // 调用后端 API 获取课表数据
+        const result = await timetableQuery.refetch();
 
-        const mockCourses = generateMockCourses();
-        await AsyncStorage.setItem("courses", JSON.stringify(mockCourses));
+        if (result.data) {
+          // 转换后端数据格式
+          const convertedCourses = result.data.courses.map((course: BackendCourse, index: number) =>
+            convertBackendCourse(course, index)
+          );
 
-        dispatch({ type: "SET_COURSES", payload: mockCourses });
-        dispatch({ type: "SET_ERROR", payload: null });
+          await AsyncStorage.setItem("courses", JSON.stringify(convertedCourses));
+          dispatch({ type: "SET_COURSES", payload: convertedCourses });
+          dispatch({ type: "SET_ERROR", payload: null });
+        } else {
+          throw new Error("获取课表失败");
+        }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "获取课表失败";
         dispatch({ type: "SET_ERROR", payload: errorMessage });
@@ -190,18 +198,24 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         (course) => course.weekStart <= week && week <= course.weekEnd
       );
 
-      // Apply week type filter
+      // 应用周类型过滤
       if (state.weekType === "single") {
-        filtered = filtered.filter((course) => course.isSingleWeek === "single" || course.isSingleWeek === "both");
-        // Only show on odd weeks
+        // 单周过滤
         if (week % 2 === 0) {
+          // 偶数周，不显示单周课程
           filtered = filtered.filter((course) => course.isSingleWeek !== "single");
+        } else {
+          // 奇数周，不显示双周课程
+          filtered = filtered.filter((course) => course.isSingleWeek !== "double");
         }
       } else if (state.weekType === "double") {
-        filtered = filtered.filter((course) => course.isSingleWeek === "double" || course.isSingleWeek === "both");
-        // Only show on even weeks
+        // 双周过滤
         if (week % 2 === 1) {
+          // 奇数周，不显示双周课程
           filtered = filtered.filter((course) => course.isSingleWeek !== "double");
+        } else {
+          // 偶数周，不显示单周课程
+          filtered = filtered.filter((course) => course.isSingleWeek !== "single");
         }
       }
 

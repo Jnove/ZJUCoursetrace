@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-// import { trpc } from "./trpc";
+import { trpc } from "./trpc";
 
 export interface AuthState {
   isLoading: boolean;
@@ -87,6 +87,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
+  const loginMutation = trpc.zju.login.useMutation();
 
   // 启动时恢复token
   useEffect(() => {
@@ -113,17 +114,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error("用户名和密码不能为空");
         }
 
-        // Call backend API to refresh schedule (which includes CAS authentication)
-        // This will authenticate with CAS and fetch the schedule
-        // Note: In a real app, this would be called from a component using the hook
-        // For now, we'll simulate a successful login
-        const mockResult = { success: true, message: "Authentication successful", courseCount: 0 };
+        // 调用后端 CAS 登录 API
+        const result = await loginMutation.mutateAsync({
+          username,
+          password,
+        });
 
-        if (!mockResult.success) {
+        if (!result.success) {
           throw new Error("登录失败");
         }
 
-        // Generate a token (in production, this would come from the backend)
+        // 生成 token 并保存
         const token = `token_${Date.now()}`;
 
         await AsyncStorage.setItem("userToken", token);
@@ -144,10 +145,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     signOut: async () => {
       try {
-        // Call backend logout API
-        // Note: In a real app, this would be called from a component using the hook
-        // await trpc.auth.logout.mutate();
-
         await AsyncStorage.removeItem("userToken");
         await AsyncStorage.removeItem("username");
         dispatch({ type: "SIGN_OUT" });
