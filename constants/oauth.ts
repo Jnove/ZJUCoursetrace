@@ -43,6 +43,14 @@ export function getApiBaseUrl(): string {
     if (apiHostname !== hostname) {
       return `${protocol}//${apiHostname}`;
     }
+    
+    // If no port replacement happened, try to use localhost:3000 for development
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return `${protocol}//localhost:3000`;
+    }
+    
+    // Otherwise use the current hostname with port 3000
+    return `${protocol}//${hostname.split(":")[0]}:3000`;
   }
 
   // Fallback to empty (will use relative URL)
