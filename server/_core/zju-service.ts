@@ -81,6 +81,13 @@ export class ZJUService {
   }
 
   /**
+   * 延迟函数
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
    * 获取系统中已安装的 Chrome 路径
    */
   private getChromePath(): string | null {
@@ -146,7 +153,7 @@ export class ZJUService {
       await this.page!.goto(fullUrl, { waitUntil: "networkidle2" });
 
       // 等待页面加载
-      await this.page!.waitForTimeout(2000);
+      await this.sleep(2000);
 
       // 查找并填充用户名
       console.log("查找登录表单元素...");
@@ -210,14 +217,14 @@ export class ZJUService {
       }
 
       // 等待 SSO 处理
-      await this.page!.waitForTimeout(2000);
+      await this.sleep(2000);
 
       // 检查并处理 SSO
       const ssoExists = await this._checkSSO();
       if (ssoExists) {
         console.log("检测到 SSO 登录图片，尝试点击...");
         await this._clickSSO();
-        await this.page!.waitForTimeout(2000);
+        await this.sleep(2000);
       }
 
       // 保存 cookies
@@ -283,7 +290,7 @@ export class ZJUService {
         console.log("✅ 课表页面加载成功");
       } catch {
         console.log("⚠️ 课表页面加载较慢，继续等待...");
-        await this.page.waitForTimeout(3000);
+        await this.sleep(3000);
       }
 
       const html = await this.page.content();
