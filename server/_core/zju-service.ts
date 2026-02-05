@@ -48,8 +48,12 @@ export class ZJUService {
 
     console.log("🚀 正在初始化浏览器...");
 
+    // 尝试使用系统已安装的 Chrome/Chromium
+    const executablePath = this.getChromePath();
+    
     this.browser = await puppeteer.launch({
       headless: true,
+      executablePath: executablePath || undefined, // 如果找到系统 Chrome，使用它；否则使用 Puppeteer 管理的版本
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -74,6 +78,38 @@ export class ZJUService {
     });
 
     console.log("✅ 浏览器初始化完成");
+  }
+
+  /**
+   * 获取系统中已安装的 Chrome 路径
+   */
+  private getChromePath(): string | null {
+    const os = require("os");
+    const path = require("path");
+    const fs = require("fs");
+
+    const possiblePaths = [
+      // Windows
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+      path.join(os.homedir(), "AppData\\Local\\Google\\Chrome\\Application\\chrome.exe"),
+      // macOS
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      // Linux
+      "/usr/bin/google-chrome",
+      "/usr/bin/chromium-browser",
+      "/snap/bin/chromium",
+    ];
+
+    for (const chromePath of possiblePaths) {
+      if (fs.existsSync(chromePath)) {
+        console.log(`✅ 找到系统 Chrome: ${chromePath}`);
+        return chromePath;
+      }
+    }
+
+    console.log("⚠️ 未找到系统 Chrome，将使用 Puppeteer 管理的浏览器");
+    return null;
   }
 
   /**
