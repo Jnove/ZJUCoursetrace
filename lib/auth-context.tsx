@@ -101,6 +101,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // 调用后端 CAS 登录 API
         const apiBaseUrl = getApiBaseUrl();
+        console.log("[Auth] API Base URL:", apiBaseUrl);
+        console.log("[Auth] Platform:", typeof window !== "undefined" ? "web" : "native");
+        if (typeof window !== "undefined") {
+          console.log("[Auth] Window location:", window.location.href);
+        }
         const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
           method: "POST",
           headers: {
