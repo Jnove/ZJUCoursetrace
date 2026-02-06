@@ -741,6 +741,165 @@ export class ZJUService {
   }
 
   /**
+   * 获取学年学期选项
+   */
+  async getSemesterOptions(): Promise<any> {
+    if (!this.currentUser) {
+      console.log("❌ 请先登录");
+      return null;
+    }
+
+    try {
+      const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
+      console.log(`访问课表页面获取学年学期选项: ${timetableUrl}`);
+
+      await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
+
+      // 等待页面加载
+      try {
+        await this.page.waitForSelector("#kbgrid_table", { timeout: 10000 });
+      } catch {
+        console.log("⚠️ 课表页面加载较慢...");
+      }
+
+      const html = await this.page.content();
+      const $ = cheerio.load(html);
+
+      // 解析学年选项
+      const yearOptions: any[] = [];
+      $("select#xnm option").each((_, el) => {
+        const value = $(el).attr("value");
+        const text = $(el).text().trim();
+        const selected = $(el).attr("selected") !== undefined;
+        if (value) {
+          yearOptions.push({ value, text, selected });
+        }
+      });
+
+      // 解析学期选项
+      const termOptions: any[] = [];
+      $("select#xqm option").each((_, el) => {
+        const value = $(el).attr("value");
+        const text = $(el).text().trim();
+        const selected = $(el).attr("selected") !== undefined;
+        if (value) {
+          termOptions.push({ value, text, selected });
+        }
+      });
+
+      const currentYear = yearOptions.find((opt) => opt.selected)?.text;
+      const currentTerm = termOptions.find((opt) => opt.selected)?.text;
+
+      console.log(`✅ 获取到学年选项: ${yearOptions.length} 个，学期选项: ${termOptions.length} 个`);
+
+      return {
+        year_options: yearOptions,
+        term_options: termOptions,
+        current_year: currentYear,
+        current_term: currentTerm,
+      };
+    } catch (error) {
+      console.error("❌ 获取学年学期选项时出错:", error);
+      return null;
+    }
+  }
+
+  /**
+   * 选择学年学期
+   */
+  async selectSemester(yearText: string, termText: string): Promise<boolean> {
+    try {
+      console.log(`正在选择学年: ${yearText}, 学期: ${termText}`);
+
+      // 选择学年
+      if (yearText) {
+        await this.page.select("select#xnm", yearText);
+        await this.sleep(500);
+      }
+
+      // 选择学期
+      if (termText) {
+        await this.page.select("select#xqm", termText);
+        await this.sleep(500);
+      }
+
+      // 等待课表刷新
+      try {
+        await this.page.waitForFunction(
+          () => document.getElementById("kbgrid_table") !== null,
+          { timeout: 5000 }
+        );
+      } catch {
+        console.log("⚠️ 课表刷新较慢...");
+      }
+
+      console.log(`✅ 已选择学年: ${yearText}, 学期: ${termText}`);
+      return true;
+    } catch (error) {
+      console.error("❌ 选择学年学期时出错:", error);
+      return false;
+    }
+  }
+
+  /**
+   * 获取指定学年学期的课表
+   */
+  async getTimetableDataForSemester(
+    yearText?: string,
+    termText?: string
+  ): Promise<{ courses: Course[]; semester_info: any } | null> {
+    if (!this.currentUser) {
+      console.log("❌ 请先登录");
+      return null;
+    }
+
+    try {
+      const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
+      console.log(`访问课表页面: ${timetableUrl}`);
+
+      await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
+
+      // 等待课表表格加载
+      try {
+        await this.page.waitForSelector("#kbgrid_table", { timeout: 10000 });
+      } catch {
+        console.log("⚠️ 课表页面加载较慢...");
+      }
+
+      // 如果指定了学年学期，则选择
+      if (yearText || termText) {
+        const success = await this.selectSemester(yearText || "", termText || "");
+        if (!success) {
+          console.log("⚠️ 选择学年学期失败，继续使用当前选择");
+        }
+      }
+
+      const html = await this.page.content();
+      return this.parseTimetable(html);
+    } catch (error) {
+      console.error("❌ 获取课表时出错:", error);
+      return null;
+    }
+  }
+
+  /**
+   * 获取当天课程
+   */
+  getTodaysCourses(allCourses: Course[]): Course[] {
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0=周日, 1=周一, ..., 6=周六
+    const todayDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek; // 转换为 1-7 格式
+
+    // 简单实现：只返回今天的课程
+    // 注意：这里没有考虑周次和单双周，因为需要知道学期开始日期
+    const todaysCourses = allCourses.filter((course) => course.day_of_week === todayDayOfWeek);
+
+    console.log(`📅 今天是星期${todayDayOfWeek}，找到 ${todaysCourses.length} 门课程`);
+
+    return todaysCourses;
+  }
+
+  /**
    * 获取并解析课表数据
    */
   async getTimetableData(): Promise<{ courses: Course[]; semester_info: any } | null> {

@@ -84,6 +84,101 @@ router.get("/schedule/timetable", async (req: Request, res: Response) => {
 });
 
 /**
+ * 获取学年学期选项
+ * GET /api/schedule/semester-options
+ */
+router.get("/schedule/semester-options", async (req: Request, res: Response) => {
+  try {
+    const service = getZJUService();
+    const options = await service.getSemesterOptions();
+
+    if (!options) {
+      return res.status(400).json({
+        success: false,
+        error: "获取学年学期选项失败",
+      });
+    }
+
+    res.json({
+      success: true,
+      ...options,
+    });
+  } catch (error) {
+    console.error("获取学年学期选项错误:", error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "获取学年学期选项失败",
+    });
+  }
+});
+
+/**
+ * 获取指定学年学期的课表
+ * GET /api/schedule/timetable-by-semester?year=2025-2026&term=1
+ */
+router.get("/schedule/timetable-by-semester", async (req: Request, res: Response) => {
+  try {
+    const { year, term } = req.query;
+    const service = getZJUService();
+    const result = await service.getTimetableDataForSemester(
+      year as string,
+      term as string
+    );
+
+    if (!result) {
+      return res.status(400).json({
+        success: false,
+        error: "获取课表失败",
+      });
+    }
+
+    res.json({
+      success: true,
+      courses: result.courses,
+      semester_info: result.semester_info,
+    });
+  } catch (error) {
+    console.error("获取课表错误:", error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "获取课表失败",
+    });
+  }
+});
+
+/**
+ * 获取当天课程
+ * GET /api/schedule/todays-courses
+ */
+router.get("/schedule/todays-courses", async (req: Request, res: Response) => {
+  try {
+    const service = getZJUService();
+    const result = await service.getTimetableData();
+
+    if (!result) {
+      return res.status(400).json({
+        success: false,
+        error: "获取课表失败",
+      });
+    }
+
+    const todaysCourses = service.getTodaysCourses(result.courses);
+
+    res.json({
+      success: true,
+      courses: todaysCourses,
+      total: todaysCourses.length,
+    });
+  } catch (error) {
+    console.error("获取当天课程错误:", error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "获取当天课程失败",
+    });
+  }
+});
+
+/**
  * 关闭浏览器
  * POST /api/auth/logout
  */
