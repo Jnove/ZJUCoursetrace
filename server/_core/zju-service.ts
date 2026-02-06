@@ -211,15 +211,21 @@ export class ZJUService {
       // 等待登录完成
       console.log("等待登录完成...");
       try {
-        await this.page!.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 });
+        await this.page!.waitForFunction(
+          () => !window.location.href.includes('cas/login'),
+          { timeout: 15000 }
+        );
+        console.log("✅ 已离开 CAS 登录页面");
       } catch {
+        const hasError = await this._checkLoginError();
+        if (hasError) {
+          console.log("❌ 登录失败：学号或密码错误");
+          return false;
+        }
         console.log("⚠️ 导航超时，继续...");
       }
 
-      // 等待 SSO 处理
       await this.sleep(2000);
-
-      // 检查并处理 SSO
       const ssoExists = await this._checkSSO();
       if (ssoExists) {
         console.log("检测到 SSO 登录图片，尝试点击...");
@@ -227,16 +233,34 @@ export class ZJUService {
         await this.sleep(2000);
       }
 
-      // 保存 cookies
       this.sessionCookies = await this.page!.cookies();
       console.log(`✅ 登录成功！已保存 ${this.sessionCookies.length} 个 cookies`);
       console.log(`当前 URL: ${this.page!.url()}`);
+      this.currentUser = username;
 
       return true;
     } catch (error) {
       console.error("❌ 登录过程中发生错误:", error);
       return false;
     }
+  }
+
+  /**
+   * 检查登录错误
+   */
+  private async _checkLoginError(): Promise<boolean> {
+    try {
+      const errorSelectors = ['.alert-error', '.error', '#error'];
+      for (const selector of errorSelectors) {
+        const elements = await this.page!.$$(selector);
+        if (elements.length > 0) {
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error("检查错误时出错:", error);
+    }
+    return false;
   }
 
   /**
