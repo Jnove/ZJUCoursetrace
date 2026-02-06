@@ -3,8 +3,17 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/lib/auth-context";
 import { useSchedule } from "@/lib/schedule-context";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import * as Haptics from "expo-haptics";
+import { getApiBaseUrl } from "@/constants/oauth";
+
+interface TodaysCourse {
+  course_name: string;
+  location: string;
+  period_time: string;
+  teacher: string;
+  day_of_week: number;
+}
 
 export default function HomeScreen() {
   const { state: authState, signIn, signOut } = useAuth();
@@ -15,6 +24,28 @@ export default function HomeScreen() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [todaysCourses, setTodaysCourses] = useState<TodaysCourse[]>([]);
+
+  // 获取当天课程
+  useEffect(() => {
+    if (authState.userToken && scheduleState.courses.length > 0) {
+      fetchTodaysCourses();
+    }
+  }, [authState.userToken, scheduleState.courses]);
+
+  const fetchTodaysCourses = async () => {
+    try {
+      const apiBaseUrl = getApiBaseUrl();
+      const response = await fetch(`${apiBaseUrl}/api/schedule/todays-courses`);
+      const data = await response.json();
+
+      if (data.success && data.courses) {
+        setTodaysCourses(data.courses);
+      }
+    } catch (err) {
+      console.error("获取当天课程失败:", err);
+    }
+  };
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) {
@@ -62,6 +93,38 @@ export default function HomeScreen() {
             <View className="items-center gap-2">
               <Text className="text-3xl font-bold text-foreground">欢迎回来</Text>
               <Text className="text-base text-muted">{authState.username}</Text>
+            </View>
+
+            {/* 当天课程 */}
+            <View className="gap-3">
+              <Text className="text-lg font-semibold text-foreground">今天的课程</Text>
+              {todaysCourses.length > 0 ? (
+                <View className="gap-2">
+                  {todaysCourses.map((course, index) => (
+                    <View
+                      key={index}
+                      className="bg-surface border border-border rounded-lg p-4"
+                    >
+                      <Text className="text-base font-semibold text-foreground mb-1">
+                        {course.course_name}
+                      </Text>
+                      <Text className="text-sm text-muted mb-1">
+                        ⏰ {course.period_time}
+                      </Text>
+                      <Text className="text-sm text-muted mb-1">
+                        📍 {course.location}
+                      </Text>
+                      <Text className="text-xs text-muted">
+                        👨‍🏫 {course.teacher}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <View className="bg-surface border border-border rounded-lg p-4 items-center">
+                  <Text className="text-muted text-sm">今天没有课程</Text>
+                </View>
+              )}
             </View>
 
             {/* 课程统计卡片 */}
