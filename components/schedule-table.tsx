@@ -4,14 +4,19 @@ import { Course } from "@/lib/schedule-context";
 import { cn } from "@/lib/utils";
 
 const PERIODS = [
-  { number: 1, time: "08:30-09:15" },
-  { number: 2, time: "09:25-10:10" },
-  { number: 3, time: "10:20-11:05" },
-  { number: 4, time: "11:15-12:00" },
-  { number: 5, time: "13:00-13:45" },
-  { number: 6, time: "13:55-14:40" },
-  { number: 7, time: "14:50-15:35" },
-  { number: 8, time: "15:45-16:30" },
+  { number: 1, startTime: "08:00" },
+  { number: 2, startTime: "08:50" },
+  { number: 3, startTime: "10:00" },
+  { number: 4, startTime: "10:50" },
+  { number: 5, startTime: "11:40" },
+  { number: 6, startTime: "13:25" },
+  { number: 7, startTime: "14:15" },
+  { number: 8, startTime: "15:05" },
+  { number: 9, startTime: "16:15" },
+  { number: 10, startTime: "17:05" },
+  { number: 11, startTime: "18:50" },
+  { number: 12, startTime: "19:40" },
+  { number: 13, startTime: "20:30" },
 ];
 
 const DAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -67,9 +72,8 @@ export function ScheduleTable({ courses, onCoursePress }: ScheduleTableProps) {
           {PERIODS.map((period) => (
             <View key={period.number} className="h-20 justify-center items-center border-b border-border">
               <Text className="text-xs text-muted font-semibold text-center">
-                {period.number}
+                {period.startTime}
               </Text>
-              <Text className="text-xs text-muted mt-1">{period.time}</Text>
             </View>
           ))}
         </View>
@@ -123,16 +127,11 @@ export function ScheduleTable({ courses, onCoursePress }: ScheduleTableProps) {
                           }}
                         >
                           <Text
-                            className="text-xs font-bold text-foreground text-center"
+                            className="text-sm font-bold text-foreground text-center"
                             numberOfLines={2}
                           >
                             {course.name}
                           </Text>
-                          {weekTypeLabel && (
-                            <Text className="text-xs text-primary mt-1 font-semibold">
-                              {weekTypeLabel}周
-                            </Text>
-                          )}
                           <Text className="text-xs text-muted mt-1 text-center" numberOfLines={1}>
                             {course.classroom}
                           </Text>
