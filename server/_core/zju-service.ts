@@ -153,7 +153,7 @@ export class ZJUService {
       await this.page!.goto(fullUrl, { waitUntil: "networkidle2" });
 
       // 等待页面加载
-      await this.sleep(2000);
+      await this.sleep(1000);
 
       // 查找并填充用户名
       console.log("查找登录表单元素...");
@@ -225,12 +225,12 @@ export class ZJUService {
         console.log("⚠️ 导航超时，继续...");
       }
 
-      await this.sleep(2000);
+      await this.sleep(1000);
       const ssoExists = await this._checkSSO();
       if (ssoExists) {
         console.log("检测到 SSO 登录图片，尝试点击...");
         await this._clickSSO();
-        await this.sleep(2000);
+        await this.sleep(1000);
       }
 
       this.sessionCookies = await this.page!.cookies();
