@@ -336,7 +336,7 @@ export class ZJUService {
     try {
       const textLines = fontElement
         .text()
-        .split("\n")
+        .split("-")
         .map((line) => line.trim())
         .filter((line) => line.length > 0);
 
