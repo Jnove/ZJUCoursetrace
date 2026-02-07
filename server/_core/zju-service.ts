@@ -852,7 +852,24 @@ export class ZJUService {
         const success = await this.selectSemester(year.text, term.text);
         if (!success) continue;
 
+        // 检查是否显示"尚无您的课表"
         const noTimetable = await this.page!.evaluate(() => {
+          // 方法1：检查 .nodata 元素
+          const nodataDiv = document.querySelector(".nodata");
+          if (nodataDiv) {
+            return true;
+          }
+          
+          // 方法2：检查 h3.align-center 下的 span 文本
+          const h3Elements = Array.from(document.querySelectorAll("h3.align-center"));
+          for (const h3 of h3Elements) {
+            const span = h3.querySelector("span");
+            if (span && span.textContent?.includes("尚无您的课表")) {
+              return true;
+            }
+          }
+          
+          // 方法3：全局检查 span 文本（兜底）
           const spans = Array.from(document.querySelectorAll("span"));
           return spans.some((span) => span.textContent?.includes("尚无您的课表"));
         });
@@ -983,8 +1000,25 @@ export class ZJUService {
         }
       }
 
-      // 检查是否显示“尚无您的课表”
+      // 检查是否显示"尚无您的课表"
+      // HTML结构：<h3 class="align-center"><div class="nodata"><span>该学年学期尚无您的课表！</span></div></h3>
       const noTimetable = await this.page.evaluate(() => {
+        // 方法1：检查 .nodata 元素
+        const nodataDiv = document.querySelector(".nodata");
+        if (nodataDiv) {
+          return true;
+        }
+        
+        // 方法2：检查 h3.align-center 下的 span 文本
+        const h3Elements = Array.from(document.querySelectorAll("h3.align-center"));
+        for (const h3 of h3Elements) {
+          const span = h3.querySelector("span");
+          if (span && span.textContent?.includes("尚无您的课表")) {
+            return true;
+          }
+        }
+        
+        // 方法3：全局检查 span 文本（兜底）
         const spans = Array.from(document.querySelectorAll("span"));
         return spans.some((span) => span.textContent?.includes("尚无您的课表"));
       });

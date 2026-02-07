@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScheduleTable } from "@/components/schedule-table";
 import { useSchedule } from "@/lib/schedule-context";
@@ -63,11 +64,19 @@ export default function ScheduleScreen() {
   const fetchActiveSemesters = async () => {
     try {
       const apiBaseUrl = getApiBaseUrl();
-      const response = await fetch(`${apiBaseUrl}/api/schedule/active-semesters`);
+      // 从 AsyncStorage 获取用户名
+      const username = await AsyncStorage.getItem("username");
+      if (!username) {
+        console.error("未找到用户名，无法获取有课学期列表");
+        return;
+      }
+      
+      const response = await fetch(`${apiBaseUrl}/api/schedule/active-semesters?username=${encodeURIComponent(username)}`);
       const data = await response.json();
 
       if (data.success && data.semesters) {
         setSemesters(data.semesters);
+        console.log(`✅ 获取到 ${data.semesters.length} 个有课学期`);
       }
     } catch (err) {
       console.error("后台获取活跃学期失败:", err);

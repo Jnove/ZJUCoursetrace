@@ -193,8 +193,14 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_LOADING", payload: true });
       try {
         const apiBaseUrl = getApiBaseUrl();
+        // 从 AsyncStorage 获取用户名
+        const username = await AsyncStorage.getItem("username");
+        if (!username) {
+          throw new Error("未找到用户名，请先登录");
+        }
+        
         const response = await fetch(
-          `${apiBaseUrl}/api/schedule/timetable-by-semester?year=${encodeURIComponent(
+          `${apiBaseUrl}/api/schedule/timetable-by-semester?username=${encodeURIComponent(username)}&year=${encodeURIComponent(
             year
           )}&term=${encodeURIComponent(term)}`,
           {
