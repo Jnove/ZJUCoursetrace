@@ -334,12 +334,27 @@ export class ZJUService {
     const result: Record<string, string> = {};
     console.log(fontElement);
     try {
-      const textLines = fontElement
-        .text()
-        .split("-")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0);
+      // 使用 cheerio 的 contents() 获取所有子节点，然后提取文本
+      // 这模拟了 Python BeautifulSoup 的 stripped_strings 行为
+      const textLines: string[] = [];
+      
+      fontElement.contents().each((_, node) => {
+        if (node.type === 'text') {
+          const text = (node as any).data?.trim();
+          if (text && text.length > 0) {
+            textLines.push(text);
+          }
+        }
+      });
 
+      // 如果直接获取文本为空，尝试获取整个文本然后按换行符分割
+      if (textLines.length === 0) {
+        const fullText = fontElement.text();
+        const lines = fullText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        textLines.push(...lines);
+      }
+
+      // 按照固定顺序解析
       if (textLines.length > 0) {
         result["course_name"] = textLines[0];
       }
@@ -805,7 +820,7 @@ export class ZJUService {
   }
 
   /**
-   * 选择学年学期
+   * 选择学年学期 - 使用 chosen 下拉框
    */
   async selectSemester(yearText: string, termText: string): Promise<boolean> {
     try {
@@ -813,14 +828,14 @@ export class ZJUService {
 
       // 选择学年
       if (yearText) {
-        await this.page.select("select#xnm", yearText);
-        await this.sleep(500);
+        await this.clickChosenDropdownAndSelect("xnm_chosen", yearText);
+        await this.sleep(1000);
       }
 
       // 选择学期
       if (termText) {
-        await this.page.select("select#xqm", termText);
-        await this.sleep(500);
+        await this.clickChosenDropdownAndSelect("xqm_chosen", termText);
+        await this.sleep(1000);
       }
 
       // 等待课表刷新
@@ -838,6 +853,45 @@ export class ZJUService {
     } catch (error) {
       console.error("❌ 选择学年学期时出错:", error);
       return false;
+    }
+  }
+
+  /**
+   * 点击 chosen 下拉框并选择选项
+   */
+  private async clickChosenDropdownAndSelect(chosenId: string, optionText: string): Promise<void> {
+    try {
+      console.log(`正在选择 ${optionText}...`);
+
+      // 点击打开下拉框
+      await this.page.click(`#${chosenId}`);
+      await this.sleep(300);
+
+      // 等待下拉框展开
+      try {
+        await this.page.waitForSelector(".chosen-drop", { timeout: 2000 });
+      } catch {
+        console.log("下拉框展开较慢...");
+      }
+
+      // 在下拉框列表中查找并点击选项
+      await this.page.evaluate((text) => {
+        const dropdown = document.querySelector(".chosen-drop");
+        if (!dropdown) return;
+
+        const options = dropdown.querySelectorAll(".chosen-results li");
+        for (const option of options) {
+          if (option.textContent?.trim() === text) {
+            (option as HTMLElement).click();
+            return;
+          }
+        }
+      }, optionText);
+
+      await this.sleep(500);
+      console.log(`✅ 已选择选项: ${optionText}`);
+    } catch (error) {
+      console.error(`❌ 选择选项时出错: ${error}`);
     }
   }
 
