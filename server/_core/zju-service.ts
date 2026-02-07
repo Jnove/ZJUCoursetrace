@@ -332,7 +332,7 @@ export class ZJUService {
    */
   private _parseCoursDetails(fontElement: cheerio.Cheerio<any>): Record<string, string> {
     const result: Record<string, string> = {};
-
+    console.log(fontElement);
     try {
       const textLines = fontElement
         .text()
@@ -539,7 +539,7 @@ export class ZJUService {
       if (fontElement.length === 0) {
         return null;
       }
-
+      
       const courseDetails = this._parseCoursDetails(fontElement);
 
       return {
