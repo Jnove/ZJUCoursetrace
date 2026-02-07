@@ -33,6 +33,8 @@ export class ZJUService {
   private page: Page | null = null;
   private currentUser: string | null = null;
   private sessionCookies: any[] = [];
+  private currentYear: string | null = null;  // 当前选中的学年
+  private currentTerm: string | null = null;  // 当前选中的学期
 
   private readonly BASE_URL = "https://zdbk.zju.edu.cn";
   private readonly CAS_URL = "https://zjuam.zju.edu.cn/cas/login";
@@ -808,7 +810,12 @@ export class ZJUService {
         currentTerm = await this.page.$eval("select#xqm", (el) => (el as HTMLSelectElement).options[(el as HTMLSelectElement).selectedIndex]?.text);
       }
 
+      // 更新当前选中的学年学期
+      this.currentYear = currentYear;
+      this.currentTerm = currentTerm;
+      
       console.log(`✅ 获取到学年选项: ${yearOptions.length} 个，学期选项: ${termOptions.length} 个`);
+      console.log(`当前选中: 学年=${this.currentYear}, 学期=${this.currentTerm}`);
 
       return {
         year_options: yearOptions,
@@ -893,33 +900,46 @@ export class ZJUService {
   }
 
   /**
-   * 选择学年学期 - 使用 chosen 下拉框
+   * 选择学年学期 - 使用 chosen 下拉框，支持学年记忆
    */
   async selectSemester(yearText: string, termText: string): Promise<boolean> {
     try {
       console.log(`正在选择学年: ${yearText}, 学期: ${termText}`);
+      console.log(`当前选中状态: 学年=${this.currentYear}, 学期=${this.currentTerm}`);
 
-      // 选择学年
-      if (yearText) {
-        await this.clickChosenDropdownAndSelect("xnm_chosen", yearText);
-        await this.sleep(1000);
+      // 只在需要切换时才选择学年
+      if (yearText && yearText !== this.currentYear) {
+        console.log(`需要切换学年: ${this.currentYear} -> ${yearText}`);
+        const success = await this.clickChosenDropdownAndSelect("xnm_chosen", yearText);
+        if (!success) {
+          console.log(`❌ 选择学年失败: ${yearText}`);
+          return false;
+        }
+        await this.sleep(1500);  // 等待学年切换后页面响应
+      } else if (yearText) {
+        console.log(`学年已选中: ${yearText}`);
       }
 
-      // 选择学期
-      if (termText) {
-        await this.clickChosenDropdownAndSelect("xqm_chosen", termText);
-        await this.sleep(1000);
+      // 只在需要切换时才选择学期
+      if (termText && termText !== this.currentTerm) {
+        console.log(`需要切换学期: ${this.currentTerm} -> ${termText}`);
+        const success = await this.clickChosenDropdownAndSelect("xqm_chosen", termText);
+        if (!success) {
+          console.log(`❌ 选择学期失败: ${termText}`);
+          return false;
+        }
+        await this.sleep(1500);  // 等待学期切换后页面响应
+      } else if (termText) {
+        console.log(`学期已选中: ${termText}`);
       }
 
       // 等待课表刷新
       if (this.page) {
         try {
-          await this.page.waitForFunction(
-            () => document.getElementById("kbgrid_table") !== null,
-            { timeout: 5000 }
-          );
+          await this.page.waitForSelector("#kbgrid_table", { timeout: 3000 });
+          console.log("✅ 课表已刷新");
         } catch {
-          console.log("⚠️ 课表刷新较慢...");
+          console.log("⚠️ 课表刷新较慢，继续执行...");
         }
       }
 
@@ -934,8 +954,8 @@ export class ZJUService {
   /**
    * 点击 chosen 下拉框并选择选项
    */
-  private async clickChosenDropdownAndSelect(chosenId: string, optionText: string): Promise<void> {
-    if (!this.page) return;
+  private async clickChosenDropdownAndSelect(chosenId: string, optionText: string): Promise<boolean> {
+    if (!this.page) return false;
     try {
       console.log(`正在选择 ${optionText}...`);
 
@@ -951,23 +971,39 @@ export class ZJUService {
       }
 
       // 在下拉框列表中查找并点击选项
-      await this.page.evaluate((text) => {
+      const found = await this.page.evaluate((text) => {
         const dropdown = document.querySelector(".chosen-drop");
-        if (!dropdown) return;
+        if (!dropdown) return false;
 
         const options = Array.from(dropdown.querySelectorAll(".chosen-results li"));
         for (const option of options) {
           if (option.textContent?.trim() === text) {
             (option as HTMLElement).click();
-            return;
+            return true;
           }
         }
+        return false;
       }, optionText);
+
+      if (!found) {
+        console.log(`❌ 未找到选项: ${optionText}`);
+        return false;
+      }
 
       await this.sleep(500);
       console.log(`✅ 已选择选项: ${optionText}`);
+      
+      // 更新当前选中的学年学期
+      if (chosenId === "xnm_chosen") {
+        this.currentYear = optionText;
+      } else if (chosenId === "xqm_chosen") {
+        this.currentTerm = optionText;
+      }
+      
+      return true;
     } catch (error) {
       console.error(`❌ 选择选项时出错: ${error}`);
+      return false;
     }
   }
 

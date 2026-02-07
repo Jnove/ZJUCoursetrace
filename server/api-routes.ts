@@ -327,19 +327,25 @@ router.get("/schedule/active-semesters", async (req: Request, res: Response) => 
       });
     }
 
-    // 如果缓存不存在或已过期，触发重新获取
+    // 如果缓存不存在或已过期，触发后台获取
     const service = getZJUService();
-    const semesters = await service.getAllActiveSemesters();
-
-    activeSemestersCache.set(username as string, {
-      semesters,
-      timestamp: Date.now()
+    
+    // 在后台异步获取
+    setImmediate(async () => {
+      try {
+        console.log("缓存过期，重新后台获取所有学期课表...");
+        await fetchAllSemestersInBackground(username as string, service);
+      } catch (error) {
+        console.error("后台重新获取学期课表失败:", error);
+      }
     });
 
+    // 返回空列表，提示前端稍后重试
     res.json({
       success: true,
-      semesters,
-      from_cache: false
+      semesters: [],
+      from_cache: false,
+      message: "正在后台获取学期列表，请稍后刷新"
     });
   } catch (error) {
     console.error("获取有课学期错误:", error);
