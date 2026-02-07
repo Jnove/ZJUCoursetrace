@@ -332,7 +332,7 @@ export class ZJUService {
    */
   private _parseCoursDetails(fontElement: cheerio.Cheerio<any>): Record<string, string> {
     const result: Record<string, string> = {};
-    console.log(fontElement);
+    
     try {
       // 使用 cheerio 的 contents() 获取所有子节点，然后提取文本
       // 这模拟了 Python BeautifulSoup 的 stripped_strings 行为
@@ -765,10 +765,10 @@ export class ZJUService {
     }
 
     try {
-      const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
-      console.log(`访问课表页面获取学年学期选项: ${timetableUrl}`);
+      // const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
+      // console.log(`访问课表页面获取学年学期选项: ${timetableUrl}`);
 
-      await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
+      // await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
 
       // 等待页面加载
       try {
@@ -908,17 +908,17 @@ export class ZJUService {
     }
 
     try {
-      const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
-      console.log(`访问课表页面: ${timetableUrl}`);
+      // const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
+      // console.log(`访问课表页面: ${timetableUrl}`);
 
-      await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
+      // await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
 
-      // 等待课表表格加载
-      try {
-        await this.page.waitForSelector("#kbgrid_table", { timeout: 10000 });
-      } catch {
-        console.log("⚠️ 课表页面加载较慢...");
-      }
+      // // 等待课表表格加载
+      // try {
+      //   await this.page.waitForSelector("#kbgrid_table", { timeout: 10000 });
+      // } catch {
+      //   console.log("⚠️ 课表页面加载较慢...");
+      // }
 
       // 如果指定了学年学期，则选择
       if (yearText || termText) {
