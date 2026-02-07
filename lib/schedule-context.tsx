@@ -68,7 +68,7 @@ function scheduleReducer(state: ScheduleState, action: ScheduleAction): Schedule
 interface ScheduleContextType {
   state: ScheduleState;
   fetchSchedule: () => Promise<void>;
-  fetchScheduleBySemester: (year: string, term: string) => Promise<void>;
+  fetchScheduleBySemester: (year: string, term: string, useCache?: boolean) => Promise<void>;
   setCurrentWeek: (week: number) => void;
   setWeekType: (type: "all" | "single" | "double") => void;
   getCoursesForWeek: (week: number) => Course[];
@@ -173,7 +173,23 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "SET_LOADING", payload: false });
       }
     },
-    fetchScheduleBySemester: async (year: string, term: string) => {
+    fetchScheduleBySemester: async (year: string, term: string, useCache = true) => {
+      const cacheKey = `schedule_${year}_${term}`;
+      
+      // 尝试从缓存获取
+      if (useCache) {
+        try {
+          const cachedData = await AsyncStorage.getItem(cacheKey);
+          if (cachedData) {
+            const courses = JSON.parse(cachedData);
+            dispatch({ type: "SET_COURSES", payload: courses });
+            return;
+          }
+        } catch (e) {
+          console.warn("读取课表缓存失败", e);
+        }
+      }
+
       dispatch({ type: "SET_LOADING", payload: true });
       try {
         const apiBaseUrl = getApiBaseUrl();
@@ -199,6 +215,9 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
           convertBackendCourse(course, index)
         );
 
+        // 写入缓存
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(convertedCourses));
+        
         dispatch({ type: "SET_COURSES", payload: convertedCourses });
         dispatch({ type: "SET_ERROR", payload: null });
       } catch (error) {

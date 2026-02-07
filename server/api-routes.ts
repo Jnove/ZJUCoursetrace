@@ -113,6 +113,28 @@ router.get("/schedule/semester-options", async (req: Request, res: Response) => 
 });
 
 /**
+ * 获取所有有课的学期
+ * GET /api/schedule/active-semesters
+ */
+router.get("/schedule/active-semesters", async (req: Request, res: Response) => {
+  try {
+    const service = getZJUService();
+    const semesters = await service.getAllActiveSemesters();
+
+    res.json({
+      success: true,
+      semesters,
+    });
+  } catch (error) {
+    console.error("获取有课学期错误:", error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "获取有课学期失败",
+    });
+  }
+});
+
+/**
  * 获取指定学年学期的课表
  * GET /api/schedule/timetable-by-semester?year=2025-2026&term=1
  */

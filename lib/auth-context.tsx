@@ -143,17 +143,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     signOut: async () => {
       try {
-        // 调用后端退出登录 API
+        // 1. 调用后端退出登录 API，销毁浏览器实例
         const apiBaseUrl = getApiBaseUrl();
         await fetch(`${apiBaseUrl}/api/auth/logout`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-        });
+        }).catch(err => console.error("后端登出请求失败", err));
 
+        // 2. 清理所有本地存储的课表缓存
+        const keys = await AsyncStorage.getAllKeys();
+        const scheduleKeys = keys.filter(key => key.startsWith("schedule_") || key === "courses");
+        if (scheduleKeys.length > 0) {
+          await AsyncStorage.multiRemove(scheduleKeys);
+        }
+
+        // 3. 清理用户凭证
         await AsyncStorage.removeItem("userToken");
         await AsyncStorage.removeItem("username");
+        
         dispatch({ type: "SIGN_OUT" });
       } catch (error) {
         console.error("Sign out error:", error);

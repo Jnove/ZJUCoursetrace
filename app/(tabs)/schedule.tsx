@@ -31,44 +31,46 @@ export default function ScheduleScreen() {
     try {
       setLoadingSemesters(true);
       const apiBaseUrl = getApiBaseUrl();
+      
+      // 1. 先获取基础学期选项，用于默认选择当前学期
       const response = await fetch(`${apiBaseUrl}/api/schedule/semester-options`);
       const data = await response.json();
 
       if (data.success) {
-        // 将后端返回的 year_options 和 term_options 组合成前端需要的格式
-        // 注意：ZJU 的学期通常是 1, 2, 3, 4 (春夏秋冬) 或者 1, 2 (秋冬, 春夏)
-        // 这里我们简单地取当前的学年，并展示所有学期选项，或者根据需要生成组合
-        const options: SemesterOption[] = [];
+        const currentYear = data.current_year;
+        const currentTerm = data.current_term;
         
-        // 通常用户最关心的是当前学年及前后的学期
-        // 为了简化，我们将所有学年和学期的组合展示出来，或者只展示当前学年的学期
-        // 这里我们按照常见的逻辑：展示当前学年和上一学年的所有学期组合
-        const years = data.year_options.slice(0, 2); // 取最近两个学年
-        const terms = data.term_options;
-
-        years.forEach((y: any) => {
-          terms.forEach((t: any) => {
-            options.push({
-              year: y.text,
-              term: t.text,
-              label: `${y.text} 第${t.text}学期`
-            });
-          });
-        });
-
-        setSemesters(options);
-        
-        // 默认选择当前学期
-        if (data.current_year && data.current_term) {
-          setSelectedSemester(`${data.current_year}-${data.current_term}`);
-        } else if (options.length > 0) {
-          setSelectedSemester(`${options[0].year}-${options[0].term}`);
+        if (currentYear && currentTerm) {
+          setSelectedSemester(`${currentYear}-${currentTerm}`);
+          // 初始显示当前学期
+          setSemesters([{
+            year: currentYear,
+            term: currentTerm,
+            label: `${currentYear} 第${currentTerm}学期`
+          }]);
         }
+
+        // 2. 后台异步获取所有“有课”的学期
+        fetchActiveSemesters();
       }
     } catch (err) {
       console.error("获取学期列表失败:", err);
     } finally {
       setLoadingSemesters(false);
+    }
+  };
+
+  const fetchActiveSemesters = async () => {
+    try {
+      const apiBaseUrl = getApiBaseUrl();
+      const response = await fetch(`${apiBaseUrl}/api/schedule/active-semesters`);
+      const data = await response.json();
+
+      if (data.success && data.semesters) {
+        setSemesters(data.semesters);
+      }
+    } catch (err) {
+      console.error("后台获取活跃学期失败:", err);
     }
   };
 

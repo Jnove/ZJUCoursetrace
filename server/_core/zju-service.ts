@@ -520,7 +520,7 @@ export class ZJUService {
    */
   private _extractCourseFromLink(
     $: cheerio.CheerioAPI,
-    linkElement: cheerio.Element
+    linkElement: any
   ): Record<string, any> | null {
     try {
       const $link = $(linkElement);
@@ -759,22 +759,17 @@ export class ZJUService {
    * 获取学年学期选项
    */
   async getSemesterOptions(): Promise<any> {
-    if (!this.currentUser) {
+    if (!this.currentUser || !this.page) {
       console.log("❌ 请先登录");
       return null;
     }
 
     try {
-      // const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
-      // console.log(`访问课表页面获取学年学期选项: ${timetableUrl}`);
-
-      // await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
-
-      // 等待页面加载
-      try {
-        await this.page.waitForSelector("#kbgrid_table", { timeout: 10000 });
-      } catch {
-        console.log("⚠️ 课表页面加载较慢...");
+      // 确保在课表页
+      const currentUrl = this.page.url();
+      if (!currentUrl.includes("xskbcx_cxXskbcxIndex.html")) {
+        const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
+        await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
       }
 
       const html = await this.page.content();
@@ -785,7 +780,7 @@ export class ZJUService {
       $("select#xnm option").each((_, el) => {
         const value = $(el).attr("value");
         const text = $(el).text().trim();
-        const selected = $(el).attr("selected") !== undefined;
+        const selected = $(el).attr("selected") !== undefined || $(el).prop("selected");
         if (value) {
           yearOptions.push({ value, text, selected });
         }
@@ -796,14 +791,22 @@ export class ZJUService {
       $("select#xqm option").each((_, el) => {
         const value = $(el).attr("value");
         const text = $(el).text().trim();
-        const selected = $(el).attr("selected") !== undefined;
+        const selected = $(el).attr("selected") !== undefined || $(el).prop("selected");
         if (value) {
           termOptions.push({ value, text, selected });
         }
       });
 
-      const currentYear = yearOptions.find((opt) => opt.selected)?.text;
-      const currentTerm = termOptions.find((opt) => opt.selected)?.text;
+      // 修正 selected 逻辑：如果没有任何 option 被标记为 selected，尝试从页面元素获取当前值
+      let currentYear = yearOptions.find((opt) => opt.selected)?.text;
+      let currentTerm = termOptions.find((opt) => opt.selected)?.text;
+
+      if (!currentYear) {
+        currentYear = await this.page.$eval("select#xnm", (el) => (el as HTMLSelectElement).options[(el as HTMLSelectElement).selectedIndex]?.text);
+      }
+      if (!currentTerm) {
+        currentTerm = await this.page.$eval("select#xqm", (el) => (el as HTMLSelectElement).options[(el as HTMLSelectElement).selectedIndex]?.text);
+      }
 
       console.log(`✅ 获取到学年选项: ${yearOptions.length} 个，学期选项: ${termOptions.length} 个`);
 
@@ -817,6 +820,59 @@ export class ZJUService {
       console.error("❌ 获取学年学期选项时出错:", error);
       return null;
     }
+  }
+
+  /**
+   * 遍历所有学期，筛选有课的学期
+   */
+  async getAllActiveSemesters(): Promise<any[]> {
+    const options = await this.getSemesterOptions();
+    if (!options) return [];
+
+    const activeSemesters: any[] = [];
+    const { year_options, term_options, current_year, current_term } = options;
+
+    // 先把当前学期加入（假设当前学期是有课的，或者作为默认项）
+    activeSemesters.push({
+      year: current_year,
+      term: current_term,
+      label: `${current_year} 第${current_term}学期`,
+      is_current: true
+    });
+
+    // 为了效率，我们只检查最近的几个学年
+    const yearsToCheck = year_options.slice(0, 3); 
+    
+    for (const year of yearsToCheck) {
+      for (const term of term_options) {
+        // 跳过当前学期，已经加过了
+        if (year.text === current_year && term.text === current_term) continue;
+
+        console.log(`正在检查学期是否有课: ${year.text} ${term.text}`);
+        const success = await this.selectSemester(year.text, term.text);
+        if (!success) continue;
+
+        const noTimetable = await this.page!.evaluate(() => {
+          const spans = Array.from(document.querySelectorAll("span"));
+          return spans.some((span) => span.textContent?.includes("尚无您的课表"));
+        });
+
+        if (!noTimetable) {
+          console.log(`✅ 发现有课学期: ${year.text} ${term.text}`);
+          activeSemesters.push({
+            year: year.text,
+            term: term.text,
+            label: `${year.text} 第${term.text}学期`,
+            is_current: false
+          });
+        }
+      }
+    }
+
+    // 恢复到当前学期
+    await this.selectSemester(current_year, current_term);
+
+    return activeSemesters;
   }
 
   /**
@@ -839,13 +895,15 @@ export class ZJUService {
       }
 
       // 等待课表刷新
-      try {
-        await this.page.waitForFunction(
-          () => document.getElementById("kbgrid_table") !== null,
-          { timeout: 5000 }
-        );
-      } catch {
-        console.log("⚠️ 课表刷新较慢...");
+      if (this.page) {
+        try {
+          await this.page.waitForFunction(
+            () => document.getElementById("kbgrid_table") !== null,
+            { timeout: 5000 }
+          );
+        } catch {
+          console.log("⚠️ 课表刷新较慢...");
+        }
       }
 
       console.log(`✅ 已选择学年: ${yearText}, 学期: ${termText}`);
@@ -860,6 +918,7 @@ export class ZJUService {
    * 点击 chosen 下拉框并选择选项
    */
   private async clickChosenDropdownAndSelect(chosenId: string, optionText: string): Promise<void> {
+    if (!this.page) return;
     try {
       console.log(`正在选择 ${optionText}...`);
 
@@ -879,7 +938,7 @@ export class ZJUService {
         const dropdown = document.querySelector(".chosen-drop");
         if (!dropdown) return;
 
-        const options = dropdown.querySelectorAll(".chosen-results li");
+        const options = Array.from(dropdown.querySelectorAll(".chosen-results li"));
         for (const option of options) {
           if (option.textContent?.trim() === text) {
             (option as HTMLElement).click();
@@ -902,25 +961,21 @@ export class ZJUService {
     yearText?: string,
     termText?: string
   ): Promise<{ courses: Course[]; semester_info: any } | null> {
-    if (!this.currentUser) {
+    if (!this.currentUser || !this.page) {
       console.log("❌ 请先登录");
       return null;
     }
 
     try {
-      // const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
-      // console.log(`访问课表页面: ${timetableUrl}`);
+      // 检查当前是否在课表页面，如果不在则跳转
+      const currentUrl = this.page.url();
+      if (!currentUrl.includes("xskbcx_cxXskbcxIndex.html")) {
+        const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
+        console.log(`跳转到课表页面: ${timetableUrl}`);
+        await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
+      }
 
-      // await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
-
-      // // 等待课表表格加载
-      // try {
-      //   await this.page.waitForSelector("#kbgrid_table", { timeout: 10000 });
-      // } catch {
-      //   console.log("⚠️ 课表页面加载较慢...");
-      // }
-
-      // 如果指定了学年学期，则选择
+      // 如果指定了学年学期，则直接在当前页面通过下拉框选择
       if (yearText || termText) {
         const success = await this.selectSemester(yearText || "", termText || "");
         if (!success) {
@@ -929,17 +984,33 @@ export class ZJUService {
       }
 
       // 检查是否显示“尚无您的课表”
-      const noTimetable = await this.page!.evaluate(() => {
+      const noTimetable = await this.page.evaluate(() => {
         const spans = Array.from(document.querySelectorAll("span"));
         return spans.some((span) => span.textContent?.includes("尚无您的课表"));
       });
 
       if (noTimetable) {
-        console.log("ℹ️ 该学期尚无您的课表");
-        return { courses: [], semester_info: { year_text: yearText, term_text: termText, no_data: true } };
+        console.log(`ℹ️ 学期 ${yearText} ${termText} 尚无您的课表`);
+        return { 
+          courses: [], 
+          semester_info: { 
+            year_text: yearText, 
+            term_text: termText, 
+            no_data: true,
+            school_year: yearText,
+            semester: termText
+          } 
+        };
       }
 
-      const html = await this.page!.content();
+      // 等待表格出现（如果是切换学期，可能需要一点时间刷新）
+      try {
+        await this.page.waitForSelector("#kbgrid_table", { timeout: 5000 });
+      } catch (e) {
+        console.log("等待表格超时，尝试直接解析内容");
+      }
+
+      const html = await this.page.content();
       return this.parseTimetable(html);
     } catch (error) {
       console.error("❌ 获取课表时出错:", error);
