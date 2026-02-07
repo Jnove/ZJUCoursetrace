@@ -928,7 +928,18 @@ export class ZJUService {
         }
       }
 
-      const html = await this.page.content();
+      // 检查是否显示“尚无您的课表”
+      const noTimetable = await this.page!.evaluate(() => {
+        const spans = Array.from(document.querySelectorAll("span"));
+        return spans.some((span) => span.textContent?.includes("尚无您的课表"));
+      });
+
+      if (noTimetable) {
+        console.log("ℹ️ 该学期尚无您的课表");
+        return { courses: [], semester_info: { year_text: yearText, term_text: termText, no_data: true } };
+      }
+
+      const html = await this.page!.content();
       return this.parseTimetable(html);
     } catch (error) {
       console.error("❌ 获取课表时出错:", error);

@@ -68,6 +68,7 @@ function scheduleReducer(state: ScheduleState, action: ScheduleAction): Schedule
 interface ScheduleContextType {
   state: ScheduleState;
   fetchSchedule: () => Promise<void>;
+  fetchScheduleBySemester: (year: string, term: string) => Promise<void>;
   setCurrentWeek: (week: number) => void;
   setWeekType: (type: "all" | "single" | "double") => void;
   getCoursesForWeek: (week: number) => Course[];
@@ -167,6 +168,42 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "获取课表失败";
         console.error("Fetch schedule error:", error);
+        dispatch({ type: "SET_ERROR", payload: errorMessage });
+      } finally {
+        dispatch({ type: "SET_LOADING", payload: false });
+      }
+    },
+    fetchScheduleBySemester: async (year: string, term: string) => {
+      dispatch({ type: "SET_LOADING", payload: true });
+      try {
+        const apiBaseUrl = getApiBaseUrl();
+        const response = await fetch(
+          `${apiBaseUrl}/api/schedule/timetable-by-semester?year=${encodeURIComponent(
+            year
+          )}&term=${encodeURIComponent(term)}`,
+          {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        const result = await response.json();
+
+        if (!result.success) {
+          throw new Error(result.error || "获取学期课表失败");
+        }
+
+        const convertedCourses = (result.courses || []).map((course: any, index: number) =>
+          convertBackendCourse(course, index)
+        );
+
+        dispatch({ type: "SET_COURSES", payload: convertedCourses });
+        dispatch({ type: "SET_ERROR", payload: null });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "获取学期课表失败";
+        console.error("Fetch semester schedule error:", error);
         dispatch({ type: "SET_ERROR", payload: errorMessage });
       } finally {
         dispatch({ type: "SET_LOADING", payload: false });

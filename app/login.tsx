@@ -26,7 +26,7 @@ export default function LoginScreen() {
     try {
       await signIn(username, password);
       // 登录成功后获取课表
-      await fetchSchedule(username);
+      await fetchSchedule();
       router.replace("/(tabs)");
     } catch (error) {
       // 错误已在context中处理

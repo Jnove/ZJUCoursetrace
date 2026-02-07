@@ -14,7 +14,7 @@ interface SemesterOption {
 }
 
 export default function ScheduleScreen() {
-  const { state, setCurrentWeek, setWeekType, getCoursesForWeek } = useSchedule();
+  const { state, setCurrentWeek, setWeekType, getCoursesForWeek, fetchScheduleBySemester } = useSchedule();
   const router = useRouter();
   const [selectedWeekType, setSelectedWeekType] = useState<"all" | "single" | "double">("all");
   const [semesters, setSemesters] = useState<SemesterOption[]>([]);
@@ -34,11 +34,35 @@ export default function ScheduleScreen() {
       const response = await fetch(`${apiBaseUrl}/api/schedule/semester-options`);
       const data = await response.json();
 
-      if (data.success && data.semesters) {
-        setSemesters(data.semesters);
-        // 默认选择第一个学期
-        if (data.semesters.length > 0) {
-          setSelectedSemester(`${data.semesters[0].year}-${data.semesters[0].term}`);
+      if (data.success) {
+        // 将后端返回的 year_options 和 term_options 组合成前端需要的格式
+        // 注意：ZJU 的学期通常是 1, 2, 3, 4 (春夏秋冬) 或者 1, 2 (秋冬, 春夏)
+        // 这里我们简单地取当前的学年，并展示所有学期选项，或者根据需要生成组合
+        const options: SemesterOption[] = [];
+        
+        // 通常用户最关心的是当前学年及前后的学期
+        // 为了简化，我们将所有学年和学期的组合展示出来，或者只展示当前学年的学期
+        // 这里我们按照常见的逻辑：展示当前学年和上一学年的所有学期组合
+        const years = data.year_options.slice(0, 2); // 取最近两个学年
+        const terms = data.term_options;
+
+        years.forEach((y: any) => {
+          terms.forEach((t: any) => {
+            options.push({
+              year: y.text,
+              term: t.text,
+              label: `${y.text} 第${t.text}学期`
+            });
+          });
+        });
+
+        setSemesters(options);
+        
+        // 默认选择当前学期
+        if (data.current_year && data.current_term) {
+          setSelectedSemester(`${data.current_year}-${data.current_term}`);
+        } else if (options.length > 0) {
+          setSelectedSemester(`${options[0].year}-${options[0].term}`);
         }
       }
     } catch (err) {
@@ -49,6 +73,14 @@ export default function ScheduleScreen() {
   };
 
   const coursesForWeek = getCoursesForWeek(state.currentWeek);
+
+  const handleSemesterChange = async (year: string, term: string) => {
+    setSelectedSemester(`${year}-${term}`);
+    setShowSemesterPicker(false);
+    
+    // 调用 context 中的方法来获取新学期的课表
+    await fetchScheduleBySemester(year, term);
+  };
 
   const handlePrevWeek = () => {
     if (state.currentWeek > 1) {
@@ -108,10 +140,7 @@ export default function ScheduleScreen() {
                 {semesters.map((semester, index) => (
                   <TouchableOpacity
                     key={index}
-                    onPress={() => {
-                      setSelectedSemester(`${semester.year}-${semester.term}`);
-                      setShowSemesterPicker(false);
-                    }}
+                    onPress={() => handleSemesterChange(semester.year, semester.term)}
                     className={cn(
                       "px-4 py-3 border-b border-border",
                       selectedSemester === `${semester.year}-${semester.term}` ? "bg-primary/10" : ""
