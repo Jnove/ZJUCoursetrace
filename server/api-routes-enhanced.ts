@@ -72,6 +72,70 @@ function getSemesterKey(year: string, term: string): string {
 }
 
 /**
+ * CAS 登录
+ * POST /api/auth/login
+ * Body: { username: string, password: string }
+ */
+router.post("/auth/login", async (req: Request, res: Response) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        error: "学号和密码不能为空",
+      });
+    }
+
+    const service = getZJUService();
+    const success = await service.login(username, password);
+
+    if (!success) {
+      return res.status(401).json({
+        success: false,
+        error: "登录失败，请检查学号和密码",
+      });
+    }
+
+    // 登录成功后，立即获取当前学期课表
+    console.log("登录成功，正在获取当前学期课表...");
+    const currentSchedule = await service.getTimetableDataForSemester();
+    
+    if (currentSchedule && currentSchedule.semester_info) {
+      const { school_year, semester } = currentSchedule.semester_info;
+      if (school_year && semester) {
+        const semesterKey = getSemesterKey(school_year, semester);
+        cacheScheduleData(username, semesterKey, currentSchedule);
+        console.log(`✅ 已缓存当前学期课表: ${semesterKey}`);
+      }
+    }
+
+    // 在后台异步获取所有学期的课表
+    setImmediate(async () => {
+      try {
+        console.log("开始后台获取所有学期课表...");
+        await fetchAllSemestersInBackground(username, service);
+      } catch (error) {
+        console.error("后台获取学期课表失败:", error);
+      }
+    });
+
+    res.json({
+      success: true,
+      message: "登录成功",
+      username,
+      current_schedule: currentSchedule
+    });
+  } catch (error) {
+    console.error("登录错误:", error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "登录失败",
+    });
+  }
+});
+
+/**
  * 后台获取所有学期课表
  */
 async function fetchAllSemestersInBackground(username: string, service: ZJUService) {
@@ -149,162 +213,8 @@ async function fetchAllSemestersInBackground(username: string, service: ZJUServi
 }
 
 /**
- * CAS 登录
- * POST /api/auth/login
- * Body: { username: string, password: string }
- */
-router.post("/auth/login", async (req: Request, res: Response) => {
-  try {
-    const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res.status(400).json({
-        success: false,
-        error: "学号和密码不能为空",
-      });
-    }
-
-    const service = getZJUService();
-    const success = await service.login(username, password);
-
-    if (!success) {
-      return res.status(401).json({
-        success: false,
-        error: "登录失败，请检查学号和密码",
-      });
-    }
-
-    // 登录成功后，立即获取当前学期课表
-    console.log("登录成功，正在获取当前学期课表...");
-    const currentSchedule = await service.getTimetableDataForSemester();
-    
-    if (currentSchedule && currentSchedule.semester_info) {
-      const { school_year, semester } = currentSchedule.semester_info;
-      if (school_year && semester) {
-        const semesterKey = getSemesterKey(school_year, semester);
-        cacheScheduleData(username, semesterKey, currentSchedule);
-        console.log(`✅ 已缓存当前学期课表: ${semesterKey}`);
-      }
-    }
-
-    // 在后台异步获取所有学期的课表
-    setImmediate(async () => {
-      try {
-        console.log("开始后台获取所有学期课表...");
-        await fetchAllSemestersInBackground(username, service);
-      } catch (error) {
-        console.error("后台获取学期课表失败:", error);
-      }
-    });
-
-    res.json({
-      success: true,
-      message: "登录成功",
-      username,
-      current_schedule: currentSchedule
-    });
-  } catch (error) {
-    console.error("登录错误:", error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : "登录失败",
-    });
-  }
-});
-
-/**
- * 获取课表数据（优先从缓存读取）
- * GET /api/schedule/timetable?username=xxx
- */
-router.get("/schedule/timetable", async (req: Request, res: Response) => {
-  try {
-    const { username } = req.query;
-    
-    if (!username) {
-      return res.status(400).json({
-        success: false,
-        error: "缺少用户名参数",
-      });
-    }
-
-    // 尝试从缓存获取当前学期课表
-    const userCache = getUserScheduleCache(username as string);
-    for (const [key, data] of userCache.entries()) {
-      if (Date.now() - data.timestamp < CACHE_DURATION) {
-        console.log(`从缓存返回课表: ${key}`);
-        return res.json({
-          success: true,
-          courses: data.courses,
-          semester_info: data.semester_info,
-          from_cache: true
-        });
-      }
-    }
-
-    // 缓存未命中，从服务获取
-    const service = getZJUService();
-    const result = await service.getTimetableData();
-
-    if (!result) {
-      return res.status(400).json({
-        success: false,
-        error: "获取课表失败",
-      });
-    }
-
-    // 缓存结果
-    if (result.semester_info?.school_year && result.semester_info?.semester) {
-      const semesterKey = getSemesterKey(result.semester_info.school_year, result.semester_info.semester);
-      cacheScheduleData(username as string, semesterKey, result);
-    }
-
-    res.json({
-      success: true,
-      courses: result.courses,
-      semester_info: result.semester_info,
-      from_cache: false
-    });
-  } catch (error) {
-    console.error("获取课表错误:", error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : "获取课表失败",
-    });
-  }
-});
-
-/**
- * 获取学年学期选项
- * GET /api/schedule/semester-options
- */
-router.get("/schedule/semester-options", async (req: Request, res: Response) => {
-  try {
-    const service = getZJUService();
-    const options = await service.getSemesterOptions();
-
-    if (!options) {
-      return res.status(400).json({
-        success: false,
-        error: "获取学年学期选项失败",
-      });
-    }
-
-    res.json({
-      success: true,
-      ...options,
-    });
-  } catch (error) {
-    console.error("获取学年学期选项错误:", error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : "获取学年学期选项失败",
-    });
-  }
-});
-
-/**
- * 获取所有有课的学期（优先从缓存读取）
- * GET /api/schedule/active-semesters?username=xxx
+ * 获取有课表的学期列表
+ * GET /api/schedule/active-semesters
  */
 router.get("/schedule/active-semesters", async (req: Request, res: Response) => {
   try {
@@ -441,7 +351,7 @@ router.get("/schedule/todays-courses", async (req: Request, res: Response) => {
       // 没有指定学期，从所有缓存的学期中查找当前学期
       const userCache = getUserScheduleCache(username as string);
       for (const [key, data] of userCache.entries()) {
-        if (Date.now() - data.timestamp < CACHE_DURATION) {
+        if (data.semester_info?.is_current || Date.now() - data.timestamp < CACHE_DURATION) {
           courses = data.courses;
           semesterKey = key;
           break;
@@ -484,9 +394,98 @@ router.get("/schedule/todays-courses", async (req: Request, res: Response) => {
 });
 
 /**
+ * 获取课表数据（保留原有接口，优先从缓存读取）
+ * GET /api/schedule/timetable?username=xxx
+ */
+router.get("/schedule/timetable", async (req: Request, res: Response) => {
+  try {
+    const { username } = req.query;
+    
+    if (!username) {
+      return res.status(400).json({
+        success: false,
+        error: "缺少用户名参数",
+      });
+    }
+
+    // 尝试从缓存获取当前学期课表
+    const userCache = getUserScheduleCache(username as string);
+    for (const [key, data] of userCache.entries()) {
+      if (Date.now() - data.timestamp < CACHE_DURATION) {
+        console.log(`从缓存返回课表: ${key}`);
+        return res.json({
+          success: true,
+          courses: data.courses,
+          semester_info: data.semester_info,
+          from_cache: true
+        });
+      }
+    }
+
+    // 缓存未命中，从服务获取
+    const service = getZJUService();
+    const result = await service.getTimetableData();
+
+    if (!result) {
+      return res.status(400).json({
+        success: false,
+        error: "获取课表失败",
+      });
+    }
+
+    // 缓存结果
+    if (result.semester_info?.school_year && result.semester_info?.semester) {
+      const semesterKey = getSemesterKey(result.semester_info.school_year, result.semester_info.semester);
+      cacheScheduleData(username as string, semesterKey, result);
+    }
+
+    res.json({
+      success: true,
+      courses: result.courses,
+      semester_info: result.semester_info,
+      from_cache: false
+    });
+  } catch (error) {
+    console.error("获取课表错误:", error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "获取课表失败",
+    });
+  }
+});
+
+/**
+ * 获取学年学期选项
+ * GET /api/schedule/semester-options
+ */
+router.get("/schedule/semester-options", async (req: Request, res: Response) => {
+  try {
+    const service = getZJUService();
+    const options = await service.getSemesterOptions();
+
+    if (!options) {
+      return res.status(400).json({
+        success: false,
+        error: "获取学年学期选项失败",
+      });
+    }
+
+    res.json({
+      success: true,
+      ...options,
+    });
+  } catch (error) {
+    console.error("获取学年学期选项错误:", error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "获取学年学期选项失败",
+    });
+  }
+});
+
+/**
  * 清除缓存
  * POST /api/schedule/clear-cache
- * Body: { username?: string }
  */
 router.post("/schedule/clear-cache", async (req: Request, res: Response) => {
   try {
