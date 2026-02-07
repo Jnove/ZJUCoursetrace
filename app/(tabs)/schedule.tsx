@@ -1,15 +1,52 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScheduleTable } from "@/components/schedule-table";
 import { useSchedule } from "@/lib/schedule-context";
 import { useRouter } from "expo-router";
 import { cn } from "@/lib/utils";
+import { getApiBaseUrl } from "@/constants/oauth";
+
+interface SemesterOption {
+  year: string;
+  term: string;
+  label: string;
+}
 
 export default function ScheduleScreen() {
   const { state, setCurrentWeek, setWeekType, getCoursesForWeek } = useSchedule();
   const router = useRouter();
   const [selectedWeekType, setSelectedWeekType] = useState<"all" | "single" | "double">("all");
+  const [semesters, setSemesters] = useState<SemesterOption[]>([]);
+  const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
+  const [showSemesterPicker, setShowSemesterPicker] = useState(false);
+  const [loadingSemesters, setLoadingSemesters] = useState(false);
+
+  // 加载学期列表
+  useEffect(() => {
+    fetchSemesters();
+  }, []);
+
+  const fetchSemesters = async () => {
+    try {
+      setLoadingSemesters(true);
+      const apiBaseUrl = getApiBaseUrl();
+      const response = await fetch(`${apiBaseUrl}/api/schedule/semester-options`);
+      const data = await response.json();
+
+      if (data.success && data.semesters) {
+        setSemesters(data.semesters);
+        // 默认选择第一个学期
+        if (data.semesters.length > 0) {
+          setSelectedSemester(`${data.semesters[0].year}-${data.semesters[0].term}`);
+        }
+      }
+    } catch (err) {
+      console.error("获取学期列表失败:", err);
+    } finally {
+      setLoadingSemesters(false);
+    }
+  };
 
   const coursesForWeek = getCoursesForWeek(state.currentWeek);
 
@@ -52,6 +89,50 @@ export default function ScheduleScreen() {
         </View>
       ) : (
         <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+          {/* 学期选择器 */}
+          <View className="px-4 pt-4 pb-2">
+            <TouchableOpacity
+              onPress={() => setShowSemesterPicker(!showSemesterPicker)}
+              className="bg-surface border border-border rounded-lg px-4 py-3 flex-row justify-between items-center"
+            >
+              <Text className="text-foreground font-semibold">
+                {selectedSemester
+                  ? semesters.find((s) => `${s.year}-${s.term}` === selectedSemester)?.label || "选择学期"
+                  : "选择学期"}
+              </Text>
+              <Text className="text-muted">▼</Text>
+            </TouchableOpacity>
+
+            {showSemesterPicker && (
+              <View className="bg-surface border border-border rounded-lg mt-2 overflow-hidden">
+                {semesters.map((semester, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    onPress={() => {
+                      setSelectedSemester(`${semester.year}-${semester.term}`);
+                      setShowSemesterPicker(false);
+                    }}
+                    className={cn(
+                      "px-4 py-3 border-b border-border",
+                      selectedSemester === `${semester.year}-${semester.term}` ? "bg-primary/10" : ""
+                    )}
+                  >
+                    <Text
+                      className={cn(
+                        "font-semibold",
+                        selectedSemester === `${semester.year}-${semester.term}`
+                          ? "text-primary"
+                          : "text-foreground"
+                      )}
+                    >
+                      {semester.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
           {/* 周次选择器 */}
           <View className="px-4 py-4 gap-4">
             {/* 周次显示和导航 */}

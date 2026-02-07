@@ -135,6 +135,11 @@ export function ScheduleTable({ courses, onCoursePress }: ScheduleTableProps) {
                           <Text className="text-xs text-muted mt-1 text-center" numberOfLines={1}>
                             {course.classroom}
                           </Text>
+                          {course.semester && (
+                            <Text className="text-xs text-primary mt-1 font-semibold">
+                              {course.semester}
+                            </Text>
+                          )}
                         </View>
                       )}
                     </Pressable>

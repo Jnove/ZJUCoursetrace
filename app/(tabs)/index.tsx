@@ -127,6 +127,43 @@ export default function HomeScreen() {
               )}
             </View>
 
+            {/* 当日课表预览 */}
+            {todaysCourses.length > 0 && (
+              <View className="gap-3 mt-2">
+                <Text className="text-lg font-semibold text-foreground">当日课表</Text>
+                <View className="bg-surface border border-border rounded-lg overflow-hidden">
+                  <View className="flex-row bg-primary/10 border-b border-border">
+                    <View className="flex-1 p-3 items-center">
+                      <Text className="text-xs font-semibold text-muted">时间</Text>
+                    </View>
+                    <View className="flex-1 p-3 items-center border-l border-border">
+                      <Text className="text-xs font-semibold text-muted">课程</Text>
+                    </View>
+                    <View className="flex-1 p-3 items-center border-l border-border">
+                      <Text className="text-xs font-semibold text-muted">地点</Text>
+                    </View>
+                  </View>
+                  {todaysCourses.map((course, index) => (
+                    <View key={index} className="flex-row border-b border-border last:border-b-0">
+                      <View className="flex-1 p-3 items-center justify-center">
+                        <Text className="text-xs text-foreground font-semibold">{course.period_time}</Text>
+                      </View>
+                      <View className="flex-1 p-3 items-center justify-center border-l border-border">
+                        <Text className="text-xs text-foreground text-center" numberOfLines={2}>
+                          {course.course_name}
+                        </Text>
+                      </View>
+                      <View className="flex-1 p-3 items-center justify-center border-l border-border">
+                        <Text className="text-xs text-muted text-center" numberOfLines={2}>
+                          {course.location}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
             {/* 课程统计卡片 */}
             <View className="bg-primary/10 rounded-2xl p-6 border border-primary/20">
               <Text className="text-sm text-muted font-semibold mb-2">已加载课程</Text>
