@@ -961,37 +961,67 @@ export class ZJUService {
 
       // 点击打开下拉框
       await this.page.click(`#${chosenId}`);
+      await this.sleep(500);  // 增加等待时间
+
+      // 等待下拉框展开（等待 chosen-with-drop 类出现）
+      try {
+        await this.page.waitForSelector(`#${chosenId}.chosen-with-drop`, { timeout: 3000 });
+        console.log("✅ 下拉框已展开");
+      } catch {
+        console.log("⚠️ 下拉框展开较慢...");
+      }
+
+      // 等待选项列表加载完成
       await this.sleep(300);
 
-      // 等待下拉框展开
-      try {
-        await this.page.waitForSelector(".chosen-drop", { timeout: 2000 });
-      } catch {
-        console.log("下拉框展开较慢...");
-      }
-
       // 在下拉框列表中查找并点击选项
-      const found = await this.page.evaluate((text) => {
-        const dropdown = document.querySelector(".chosen-drop");
-        if (!dropdown) return false;
+      const result = await this.page.evaluate((chosenContainerId, text) => {
+        // 查找当前 chosen 容器下的下拉框
+        const chosenContainer = document.getElementById(chosenContainerId);
+        if (!chosenContainer) {
+          return { found: false, error: "chosen容器未找到" };
+        }
 
-        const options = Array.from(dropdown.querySelectorAll(".chosen-results li"));
+        const dropdown = chosenContainer.querySelector(".chosen-drop");
+        if (!dropdown) {
+          return { found: false, error: "下拉框未找到" };
+        }
+
+        const resultsList = dropdown.querySelector(".chosen-results");
+        if (!resultsList) {
+          return { found: false, error: "选项列表未找到" };
+        }
+
+        const options = Array.from(resultsList.querySelectorAll("li"));
+        const optionTexts = options.map(opt => opt.textContent?.trim() || "");
+        
+        // 查找匹配的选项
         for (const option of options) {
-          if (option.textContent?.trim() === text) {
+          const optText = option.textContent?.trim();
+          if (optText === text) {
             (option as HTMLElement).click();
-            return true;
+            return { found: true, optionTexts };
           }
         }
-        return false;
-      }, optionText);
+        
+        return { found: false, error: `未找到匹配的选项`, optionTexts };
+      }, chosenId, optionText);
 
-      if (!found) {
+      if (!result.found) {
         console.log(`❌ 未找到选项: ${optionText}`);
+        console.log(`错误: ${result.error}`);
+        if (result.optionTexts) {
+          console.log(`可用选项: ${result.optionTexts.join(", ")}`);
+        }
         return false;
       }
 
-      await this.sleep(500);
       console.log(`✅ 已选择选项: ${optionText}`);
+      if (result.optionTexts) {
+        console.log(`可用选项: ${result.optionTexts.join(", ")}`);
+      }
+      
+      await this.sleep(500);
       
       // 更新当前选中的学年学期
       if (chosenId === "xnm_chosen") {
