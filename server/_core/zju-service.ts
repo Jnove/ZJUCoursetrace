@@ -40,6 +40,13 @@ export class ZJUService {
   private readonly CAS_URL = "https://zjuam.zju.edu.cn/cas/login";
 
   /**
+   * 检查浏览器是否运行
+   */
+  isBrowserRunning(): boolean {
+    return this.browser !== null && this.page !== null;
+  }
+
+  /**
    * 初始化浏览器
    */
   async initBrowser(): Promise<void> {
@@ -72,6 +79,18 @@ export class ZJUService {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     );
 
+    // 禁用图片、CSS、字体加载以加速页面加载
+    await this.page.setRequestInterception(true);
+    this.page.on('request', (request) => {
+      const resourceType = request.resourceType();
+      // 禁用图片、字体、样式表、媒体文件
+      if (['image', 'font', 'stylesheet', 'media'].includes(resourceType)) {
+        request.abort();
+      } else {
+        request.continue();
+      }
+    });
+
     // 禁用自动化检测
     await this.page.evaluateOnNewDocument(() => {
       Object.defineProperty(navigator, "webdriver", {
@@ -87,6 +106,49 @@ export class ZJUService {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * 等待元素文本变为指定值
+   */
+  private async waitForTextChange(selector: string, expectedText: string, timeout: number = 3000): Promise<boolean> {
+    if (!this.page) return false;
+    try {
+      await this.page.waitForFunction(
+        (sel, text) => {
+          const element = document.querySelector(sel);
+          return element && element.textContent?.trim() === text;
+        },
+        { timeout },
+        selector,
+        expectedText
+      );
+      return true;
+    } catch (error) {
+      console.log(`⚠️ 等待文本变化超时: ${selector} -> ${expectedText}`);
+      return false;
+    }
+  }
+
+  /**
+   * 等待课表刷新完成（检查 kbgrid_table 或 "尚无您的课表"）
+   */
+  private async waitForScheduleRefresh(timeout: number = 3000): Promise<boolean> {
+    if (!this.page) return false;
+    try {
+      await this.page.waitForFunction(
+        () => {
+          const table = document.getElementById('kbgrid_table');
+          const noDataElement = document.querySelector('.nodata');
+          return table !== null || noDataElement !== null;
+        },
+        { timeout }
+      );
+      return true;
+    } catch (error) {
+      console.log(`⚠️ 等待课表刷新超时`);
+      return false;
+    }
   }
 
   /**
@@ -915,9 +977,9 @@ export class ZJUService {
           console.log(`❌ 选择学年失败: ${yearText}`);
           return false;
         }
-        // 等待学期选项刷新（切换学年后学期选项会变化）
-        console.log("等待学期选项刷新...");
-        await this.sleep(1000);
+        // 等待学年切换完成（等待 span 文本变为目标学年）
+        await this.waitForTextChange("#xnm_chosen .chosen-single span", yearText, 3000);
+        console.log("✅ 学年切换完成");
       } else if (yearText) {
         console.log(`学年已选中: ${yearText}`);
       }
@@ -930,10 +992,12 @@ export class ZJUService {
           console.log(`❌ 选择学期失败: ${termText}`);
           return false;
         }
-        // 等待课表数据刷新（因为 #kbgrid_table 元素一直存在，所以等待固定时间）
-        console.log("等待课表数据刷新...");
-        await this.sleep(2000);  // 等待2秒让课表数据刷新
-        console.log("✅ 课表已刷新");
+        // 等待学期切换完成（等待 span 文本变为目标学期）
+        await this.waitForTextChange("#xqm_chosen .chosen-single span", termText, 3000);
+        console.log("✅ 学期切换完成");
+        // 等待课表数据刷新（检查 kbgrid_table 或 "尚无您的课表"）
+        await this.waitForScheduleRefresh(3000);
+        console.log("✅ 课表刷新完成");
       } else if (termText) {
         console.log(`学期已选中: ${termText}`);
       }

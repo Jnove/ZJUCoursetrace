@@ -12,8 +12,52 @@ const scheduleCache: Map<string, Map<string, { courses: Course[]; semester_info:
 // 有课表的学期列表缓存
 const activeSemestersCache: Map<string, { semesters: any[]; timestamp: number }> = new Map();
 
-// 缓存有效期：30分钟
-const CACHE_DURATION = 30 * 60 * 1000;
+// 用户凭证缓存（加密存储）
+const userCredentialsCache: Map<string, { username: string; password: string }> = new Map();
+
+// 缓存策略：永久缓存，直至退出登录或刷新
+
+/**
+ * 简单的加密函数（使用 Base64 + XOR）
+ */
+function simpleEncrypt(text: string, key: string = 'zju-schedule-key'): string {
+  const encrypted = text.split('').map((char, i) => {
+    return String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length));
+  }).join('');
+  return Buffer.from(encrypted).toString('base64');
+}
+
+/**
+ * 简单的解密函数
+ */
+function simpleDecrypt(encrypted: string, key: string = 'zju-schedule-key'): string {
+  const decrypted = Buffer.from(encrypted, 'base64').toString();
+  return decrypted.split('').map((char, i) => {
+    return String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length));
+  }).join('');
+}
+
+/**
+ * 保存用户凭证
+ */
+function saveUserCredentials(username: string, password: string) {
+  userCredentialsCache.set(username, {
+    username,
+    password: simpleEncrypt(password)
+  });
+}
+
+/**
+ * 获取用户凭证
+ */
+function getUserCredentials(username: string): { username: string; password: string } | null {
+  const cached = userCredentialsCache.get(username);
+  if (!cached) return null;
+  return {
+    username: cached.username,
+    password: simpleDecrypt(cached.password)
+  };
+}
 
 function getZJUService(): ZJUService {
   if (!zjuService) {
@@ -44,19 +88,13 @@ function cacheScheduleData(username: string, semesterKey: string, data: { course
 }
 
 /**
- * 从缓存获取课表数据
+ * 从缓存获取课表数据（永久缓存）
  */
 function getScheduleFromCache(username: string, semesterKey: string): { courses: Course[]; semester_info: any } | null {
   const userCache = getUserScheduleCache(username);
   const cached = userCache.get(semesterKey);
   
   if (!cached) return null;
-  
-  // 检查缓存是否过期
-  if (Date.now() - cached.timestamp > CACHE_DURATION) {
-    userCache.delete(semesterKey);
-    return null;
-  }
   
   return {
     courses: cached.courses,
@@ -174,6 +212,9 @@ router.post("/auth/login", async (req: Request, res: Response) => {
       });
     }
 
+    // 保存用户凭证（用于刷新功能）
+    saveUserCredentials(username, password);
+    
     // 登录成功后，立即获取当前学期课表
     console.log("登录成功，正在获取当前学期课表...");
     const currentSchedule = await service.getTimetableDataForSemester();
@@ -230,13 +271,12 @@ router.get("/schedule/timetable", async (req: Request, res: Response) => {
     // 尝试从缓存获取当前学期课表
     const userCache = getUserScheduleCache(username as string);
     for (const [key, data] of userCache.entries()) {
-      if (Date.now() - data.timestamp < CACHE_DURATION) {
-        console.log(`从缓存返回课表: ${key}`);
-        return res.json({
-          success: true,
-          courses: data.courses,
-          semester_info: data.semester_info,
-          from_cache: true
+      console.log(`从缓存返回课表: ${key}`);
+      return res.json({
+        success: true,
+        courses: data.courses,
+        semester_info: data.semester_info,
+        from_cache: true
         });
       }
     }
@@ -319,7 +359,7 @@ router.get("/schedule/active-semesters", async (req: Request, res: Response) => 
 
     // 检查缓存
     const cached = activeSemestersCache.get(username as string);
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    if (cached) {
       return res.json({
         success: true,
         semesters: cached.semesters,
@@ -327,7 +367,7 @@ router.get("/schedule/active-semesters", async (req: Request, res: Response) => 
       });
     }
 
-    // 如果缓存不存在或已过期，返回空列表
+    // 如果缓存不存在，返回空列表
     // 登录时已经触发了后台获取，这里不再重复触发
     res.json({
       success: true,
@@ -408,11 +448,11 @@ router.get("/schedule/timetable-by-semester", async (req: Request, res: Response
 
 /**
  * 获取当天课程（从缓存中推算）
- * GET /api/schedule/todays-courses?username=xxx&semester=2025-2026_1
+ * GET /api/schedule/todays-courses?username=xxx
  */
 router.get("/schedule/todays-courses", async (req: Request, res: Response) => {
   try {
-    const { username, semester } = req.query;
+    const { username } = req.query;
     
     if (!username) {
       return res.status(400).json({
@@ -421,27 +461,31 @@ router.get("/schedule/todays-courses", async (req: Request, res: Response) => {
       });
     }
 
-    // 如果没有指定学期，尝试获取当前学期
-    let semesterKey = semester as string;
-    let courses: Course[] = [];
-
-    if (semesterKey) {
-      // 从指定学期的缓存获取
-      const cached = getScheduleFromCache(username as string, semesterKey);
-      if (cached) {
-        courses = cached.courses;
-      }
-    } else {
-      // 没有指定学期，从所有缓存的学期中查找当前学期
-      const userCache = getUserScheduleCache(username as string);
-      for (const [key, data] of userCache.entries()) {
-        if (Date.now() - data.timestamp < CACHE_DURATION) {
-          courses = data.courses;
-          semesterKey = key;
-          break;
-        }
-      }
+    // 根据今天的日期判定当前学期
+    const { getCurrentSemester } = await import('./semester-utils');
+    const semesterInfo = getCurrentSemester();
+    
+    if (!semesterInfo) {
+      return res.status(400).json({
+        success: false,
+        error: "当前日期不在任何学期内（可能是假期）",
+      });
     }
+
+    // 构造学期 key
+    const semesterKey = `${semesterInfo.schoolYear}_${semesterInfo.semester}`;
+    console.log(`📅 今天是 ${semesterInfo.schoolYear} 学年 ${semesterInfo.semester} 学期第${semesterInfo.week}周`);
+    
+    // 从缓存获取课表
+    const cached = getScheduleFromCache(username as string, semesterKey);
+    if (!cached) {
+      return res.status(404).json({
+        success: false,
+        error: `未找到 ${semesterKey} 的课表缓存，请先登录或刷新课表`,
+      });
+    }
+    
+    const courses = cached.courses;
 
     if (courses.length === 0) {
       return res.status(404).json({
@@ -466,6 +510,7 @@ router.get("/schedule/todays-courses", async (req: Request, res: Response) => {
       total: todaysCourses.length,
       day_of_week: todayDayOfWeek,
       semester: semesterKey,
+      semester_info: semesterInfo,
       from_cache: true
     });
   } catch (error) {
@@ -510,18 +555,122 @@ router.post("/schedule/clear-cache", async (req: Request, res: Response) => {
 });
 
 /**
- * 关闭浏览器
- * POST /api/auth/logout
+ * 刷新课表（智能判断浏览器状态）
+ * POST /api/schedule/refresh
+ * Body: { username: string, semester?: string }
  */
-router.post("/auth/logout", async (req: Request, res: Response) => {
+router.post("/schedule/refresh", async (req: Request, res: Response) => {
   try {
+    const { username, semester } = req.body;
+    
+    if (!username) {
+      return res.status(400).json({
+        success: false,
+        error: "缺少用户名参数",
+      });
+    }
+
     const service = getZJUService();
-    await service.closeBrowser();
-    zjuService = null;
+    
+    // 检查浏览器是否运行
+    if (!service.isBrowserRunning()) {
+      console.log("浏览器已退出，需要重新登录...");
+      
+      // 获取保存的凭证
+      const credentials = getUserCredentials(username);
+      if (!credentials) {
+        return res.status(401).json({
+          success: false,
+          error: "未找到保存的登录信息，请重新登录",
+        });
+      }
+      
+      // 重新登录
+      const loginSuccess = await service.login(credentials.username, credentials.password);
+      if (!loginSuccess) {
+        return res.status(401).json({
+          success: false,
+          error: "重新登录失败，请手动登录",
+        });
+      }
+      console.log("✅ 重新登录成功");
+    } else {
+      console.log("浏览器运行中，直接获取课表...");
+    }
+
+    // 获取课表数据
+    let scheduleData;
+    if (semester) {
+      // 获取指定学期的课表
+      const [year, term] = semester.split('_');
+      scheduleData = await service.getTimetableDataForSemester(year, term);
+    } else {
+      // 获取当前学期的课表
+      scheduleData = await service.getTimetableDataForSemester();
+    }
+
+    if (!scheduleData) {
+      return res.status(400).json({
+        success: false,
+        error: "获取课表失败",
+      });
+    }
+
+    // 更新缓存
+    if (scheduleData.semester_info) {
+      const { school_year, semester: sem } = scheduleData.semester_info;
+      if (school_year && sem) {
+        const semesterKey = getSemesterKey(school_year, sem);
+        cacheScheduleData(username, semesterKey, scheduleData);
+        console.log(`✅ 已更新缓存: ${semesterKey}`);
+      }
+    }
 
     res.json({
       success: true,
-      message: "已退出登录",
+      message: "课表刷新成功",
+      courses: scheduleData.courses,
+      semester_info: scheduleData.semester_info,
+    });
+  } catch (error) {
+    console.error("刷新课表错误:", error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "刷新课表失败",
+    });
+  }
+});
+
+/**
+ * 退出登录（关闭浏览器并清除缓存）
+ * POST /api/auth/logout
+ * Body: { username?: string }
+ */
+router.post("/auth/logout", async (req: Request, res: Response) => {
+  try {
+    const { username } = req.body;
+    
+    // 关闭浏览器
+    const service = getZJUService();
+    await service.closeBrowser();
+    zjuService = null;
+    
+    // 清除缓存和凭证
+    if (username) {
+      scheduleCache.delete(username);
+      activeSemestersCache.delete(username);
+      userCredentialsCache.delete(username);
+      console.log(`已清除用户 ${username} 的缓存和凭证`);
+    } else {
+      scheduleCache.clear();
+      activeSemestersCache.clear();
+      userCredentialsCache.clear();
+      console.log("已清除所有缓存和凭证");
+    }
+
+    res.json({
+      success: true,
+      message: "已退出登录，浏览器已关闭，缓存已清除",
     });
   } catch (error) {
     console.error("退出登录错误:", error);
