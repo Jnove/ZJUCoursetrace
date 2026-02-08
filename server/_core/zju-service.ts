@@ -188,9 +188,21 @@ export class ZJUService {
    */
   async closeBrowser(): Promise<void> {
     if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
-      this.page = null;
+      try {
+        console.log("🚪 正在关闭浏览器...");
+        await this.browser.close();
+        console.log("✅ 浏览器已关闭");
+      } catch (error) {
+        console.error("⚠️ 关闭浏览器失败:", error);
+      } finally {
+        this.browser = null;
+        this.page = null;
+        this.currentUser = null;
+        this.currentYear = null;
+        this.currentTerm = null;
+      }
+    } else {
+      console.log("⚠️ 浏览器未初始化，无需关闭");
     }
   }
 
