@@ -54,7 +54,7 @@ export class ZJUService {
     const executablePath = this.getChromePath();
     
     this.browser = await puppeteer.launch({
-      headless: true,
+      headless: false,  // 开启可见模式方便调试
       executablePath: executablePath || undefined, // 如果找到系统 Chrome，使用它；否则使用 Puppeteer 管理的版本
       args: [
         "--no-sandbox",
@@ -915,7 +915,9 @@ export class ZJUService {
           console.log(`❌ 选择学年失败: ${yearText}`);
           return false;
         }
-        await this.sleep(1500);  // 等待学年切换后页面响应
+        // 等待学期选项刷新（切换学年后学期选项会变化）
+        console.log("等待学期选项刷新...");
+        await this.sleep(1000);
       } else if (yearText) {
         console.log(`学年已选中: ${yearText}`);
       }
@@ -928,19 +930,12 @@ export class ZJUService {
           console.log(`❌ 选择学期失败: ${termText}`);
           return false;
         }
-        await this.sleep(1500);  // 等待学期切换后页面响应
+        // 等待课表数据刷新（因为 #kbgrid_table 元素一直存在，所以等待固定时间）
+        console.log("等待课表数据刷新...");
+        await this.sleep(2000);  // 等待2秒让课表数据刷新
+        console.log("✅ 课表已刷新");
       } else if (termText) {
         console.log(`学期已选中: ${termText}`);
-      }
-
-      // 等待课表刷新
-      if (this.page) {
-        try {
-          await this.page.waitForSelector("#kbgrid_table", { timeout: 3000 });
-          console.log("✅ 课表已刷新");
-        } catch {
-          console.log("⚠️ 课表刷新较慢，继续执行...");
-        }
       }
 
       console.log(`✅ 已选择学年: ${yearText}, 学期: ${termText}`);

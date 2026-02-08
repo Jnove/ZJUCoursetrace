@@ -327,20 +327,8 @@ router.get("/schedule/active-semesters", async (req: Request, res: Response) => 
       });
     }
 
-    // 如果缓存不存在或已过期，触发后台获取
-    const service = getZJUService();
-    
-    // 在后台异步获取
-    setImmediate(async () => {
-      try {
-        console.log("缓存过期，重新后台获取所有学期课表...");
-        await fetchAllSemestersInBackground(username as string, service);
-      } catch (error) {
-        console.error("后台重新获取学期课表失败:", error);
-      }
-    });
-
-    // 返回空列表，提示前端稍后重试
+    // 如果缓存不存在或已过期，返回空列表
+    // 登录时已经触发了后台获取，这里不再重复触发
     res.json({
       success: true,
       semesters: [],
