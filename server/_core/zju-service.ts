@@ -969,51 +969,37 @@ export class ZJUService {
       // 等待选项列表加载完成
       await this.sleep(300);
 
-      // 在下拉框列表中查找并点击选项
-      const result = await this.page.evaluate((chosenContainerId, text) => {
-        // 查找当前 chosen 容器下的下拉框
-        const chosenContainer = document.getElementById(chosenContainerId);
-        if (!chosenContainer) {
-          return { found: false, error: "chosen容器未找到" };
-        }
-
-        const dropdown = chosenContainer.querySelector(".chosen-drop");
-        if (!dropdown) {
-          return { found: false, error: "下拉框未找到" };
-        }
-
-        const resultsList = dropdown.querySelector(".chosen-results");
-        if (!resultsList) {
-          return { found: false, error: "选项列表未找到" };
-        }
-
-        const options = Array.from(resultsList.querySelectorAll("li"));
-        const optionTexts = options.map(opt => opt.textContent?.trim() || "");
-        
-        // 查找匹配的选项
-        for (const option of options) {
-          const optText = option.textContent?.trim();
-          if (optText === text) {
-            (option as HTMLElement).click();
-            return { found: true, optionTexts };
-          }
-        }
-        
-        return { found: false, error: `未找到匹配的选项`, optionTexts };
-      }, chosenId, optionText);
-
-      if (!result.found) {
-        console.log(`❌ 未找到选项: ${optionText}`);
-        console.log(`错误: ${result.error}`);
-        if (result.optionTexts) {
-          console.log(`可用选项: ${result.optionTexts.join(", ")}`);
-        }
+      // 在下拉框列表中查找匹配的 li 元素
+      const optionSelector = `#${chosenId} .chosen-results li.active-result`;
+      const options = await this.page.$$(optionSelector);
+      
+      if (options.length === 0) {
+        console.log(`❌ 未找到任何选项`);
         return false;
       }
 
-      console.log(`✅ 已选择选项: ${optionText}`);
-      if (result.optionTexts) {
-        console.log(`可用选项: ${result.optionTexts.join(", ")}`);
+      // 遍历所有选项，查找匹配的文本
+      let found = false;
+      const optionTexts: string[] = [];
+      
+      for (const option of options) {
+        const text = await option.evaluate(el => el.textContent?.trim() || "");
+        optionTexts.push(text);
+        
+        if (text === optionText) {
+          // 使用 Puppeteer 的 click() 方法点击 li 元素
+          await option.click();
+          found = true;
+          console.log(`✅ 已点击选项: ${optionText}`);
+          break;
+        }
+      }
+
+      console.log(`可用选项: ${optionTexts.join(", ")}`);
+      
+      if (!found) {
+        console.log(`❌ 未找到匹配的选项: ${optionText}`);
+        return false;
       }
       
       await this.sleep(500);
