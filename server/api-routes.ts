@@ -466,9 +466,12 @@ router.get("/schedule/todays-courses", async (req: Request, res: Response) => {
     const semesterInfo = getCurrentSemester();
     
     if (!semesterInfo) {
-      return res.status(400).json({
-        success: false,
-        error: "当前日期不在任何学期内（可能是假期）",
+      console.log("⚠️ 当前日期不在任何学期内（可能是假期）");
+      return res.json({
+        success: true,
+        courses: [],
+        total: 0,
+        message: "当前日期不在任何学期内（可能是假期）",
       });
     }
 
@@ -479,18 +482,26 @@ router.get("/schedule/todays-courses", async (req: Request, res: Response) => {
     // 从缓存获取课表
     const cached = getScheduleFromCache(username as string, semesterKey);
     if (!cached) {
-      return res.status(404).json({
-        success: false,
-        error: `未找到 ${semesterKey} 的课表缓存，请先登录或刷新课表`,
+      console.log(`⚠️ 未找到 ${semesterKey} 的课表缓存`);
+      return res.json({
+        success: true,
+        courses: [],
+        total: 0,
+        message: `未找到 ${semesterKey} 的课表缓存，请先登录或刷新课表`,
+        semester_info: semesterInfo,
       });
     }
     
     const courses = cached.courses;
 
     if (courses.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "未找到缓存的课表数据，请先登录或刷新课表",
+      console.log("⚠️ 课表缓存为空");
+      return res.json({
+        success: true,
+        courses: [],
+        total: 0,
+        message: "课表缓存为空",
+        semester_info: semesterInfo,
       });
     }
 

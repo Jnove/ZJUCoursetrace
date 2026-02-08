@@ -79,12 +79,12 @@ export class ZJUService {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     );
 
-    // 禁用图片、CSS、字体加载以加速页面加载
+    // 禁用图片和媒体加载以加速页面加载（保留CSS和字体以确保下拉框正常显示）
     await this.page.setRequestInterception(true);
     this.page.on('request', (request) => {
       const resourceType = request.resourceType();
-      // 禁用图片、字体、样式表、媒体文件
-      if (['image', 'font', 'stylesheet', 'media'].includes(resourceType)) {
+      // 只禁用图片和媒体文件
+      if (['image', 'media'].includes(resourceType)) {
         request.abort();
       } else {
         request.continue();

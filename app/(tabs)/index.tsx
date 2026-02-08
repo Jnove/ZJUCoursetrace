@@ -36,11 +36,21 @@ export default function HomeScreen() {
   const fetchTodaysCourses = async () => {
     try {
       const apiBaseUrl = getApiBaseUrl();
-      const response = await fetch(`${apiBaseUrl}/api/schedule/todays-courses`);
+      const username = authState.username;
+      if (!username) {
+        console.error("未找到用户名，无法获取今日课程");
+        return;
+      }
+      
+      const response = await fetch(`${apiBaseUrl}/api/schedule/todays-courses?username=${encodeURIComponent(username)}`);
       const data = await response.json();
 
       if (data.success && data.courses) {
         setTodaysCourses(data.courses);
+        console.log(`✅ 获取到 ${data.courses.length} 门今日课程`);
+        if (data.semester_info) {
+          console.log(`当前学期: ${data.semester_info.school_year} ${data.semester_info.semester}，第${data.semester_info.week}周`);
+        }
       }
     } catch (err) {
       console.error("获取当天课程失败:", err);
