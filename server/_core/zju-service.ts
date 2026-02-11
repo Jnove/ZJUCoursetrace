@@ -289,7 +289,7 @@ export class ZJUService {
       try {
         await this.page!.waitForFunction(
           () => !window.location.href.includes('cas/login'),
-          { timeout: 15000 }
+          { timeout: 4000 }
         );
         console.log("✅ 已离开 CAS 登录页面");
       } catch {
@@ -301,7 +301,6 @@ export class ZJUService {
         console.log("⚠️ 导航超时，继续...");
       }
 
-      await this.sleep(1000);
       const ssoExists = await this._checkSSO();
       if (ssoExists) {
         console.log("检测到 SSO 登录图片，尝试点击...");
@@ -346,6 +345,7 @@ export class ZJUService {
    */
   private async _checkSSO(): Promise<boolean> {
     try {
+      await this.page?.waitForSelector("#ssodl", { timeout: 2000 });
       const ssoElement = await this.page!.$("#ssodl");
       return ssoElement !== null;
     } catch {
@@ -920,7 +920,7 @@ export class ZJUService {
     activeSemesters.push({
       year: current_year,
       term: current_term,
-      label: `${current_year} 第${current_term}学期`,
+      label: `${current_year} ${current_term}学期`,
       is_current: true
     });
 
@@ -963,7 +963,7 @@ export class ZJUService {
           activeSemesters.push({
             year: year.text,
             term: term.text,
-            label: `${year.text} 第${term.text}学期`,
+            label: `${year.text} ${term.text}学期`,
             is_current: false
           });
         }
