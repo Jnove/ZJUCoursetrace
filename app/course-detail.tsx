@@ -12,6 +12,7 @@ export default function CourseDetailScreen() {
   const teacher = params.teacher as string;
   const classroom = params.classroom as string;
   const weekType = params.weekType as string;
+  const examInfo = params.examInfo as string | undefined;
 
   return (
     <ScreenContainer className="flex-1 bg-background">
@@ -45,49 +46,16 @@ export default function CourseDetailScreen() {
               <Text className="text-base text-foreground">{classroom}</Text>
             </View>
 
-            {/* 周次类型 */}
-            <View className="gap-2 border-t border-border pt-4">
-              <Text className="text-xs text-muted font-semibold">周次类型</Text>
-              <View className="flex-row items-center gap-2">
-                <View
-                  className={cn(
-                    "px-3 py-1 rounded-full",
-                    weekType === "single"
-                      ? "bg-primary/20"
-                      : weekType === "double"
-                        ? "bg-warning/20"
-                        : "bg-success/20"
-                  )}
-                >
-                  <Text
-                    className={cn(
-                      "text-sm font-semibold",
-                      weekType === "single"
-                        ? "text-primary"
-                        : weekType === "double"
-                          ? "text-warning"
-                          : "text-success"
-                    )}
-                  >
-                    {weekType === "single" ? "单周" : weekType === "double" ? "双周" : "单双周"}
-                  </Text>
-                </View>
-              </View>
-            </View>
+
           </View>
 
-          {/* 说明 */}
-          <View className="bg-surface rounded-lg p-4 gap-2">
-            <Text className="text-xs text-muted">
-              💡 <Text className="font-semibold">单周</Text> 表示仅在单数周次（1、3、5、7...）上课
-            </Text>
-            <Text className="text-xs text-muted mt-2">
-              💡 <Text className="font-semibold">双周</Text> 表示仅在双数周次（2、4、6、8...）上课
-            </Text>
-            <Text className="text-xs text-muted mt-2">
-              💡 <Text className="font-semibold">单双周</Text> 表示每周都上课
-            </Text>
-          </View>
+          {/* 考试信息 */}
+          {examInfo && (
+            <View className="bg-surface rounded-lg p-6 gap-2">
+              <Text className="text-xs text-muted font-semibold">📝 考试信息</Text>
+              <Text className="text-base text-foreground">{examInfo}</Text>
+            </View>
+          )}
         </View>
       </ScrollView>
     </ScreenContainer>

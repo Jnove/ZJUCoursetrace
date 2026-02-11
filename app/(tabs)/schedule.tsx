@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScheduleTable } from "@/components/schedule-table";
@@ -15,13 +15,13 @@ interface SemesterOption {
 }
 
 export default function ScheduleScreen() {
-  const { state, setCurrentWeek, setWeekType, getCoursesForWeek, fetchScheduleBySemester } = useSchedule();
+  const { state, setCurrentWeek, getCoursesForWeek, fetchScheduleBySemester } = useSchedule();
   const router = useRouter();
-  const [selectedWeekType, setSelectedWeekType] = useState<"all" | "single" | "double">("all");
   const [semesters, setSemesters] = useState<SemesterOption[]>([]);
   const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
   const [showSemesterPicker, setShowSemesterPicker] = useState(false);
   const [loadingSemesters, setLoadingSemesters] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // 加载学期列表
   useEffect(() => {
@@ -105,9 +105,46 @@ export default function ScheduleScreen() {
     }
   };
 
-  const handleWeekTypeChange = (type: "all" | "single" | "double") => {
-    setSelectedWeekType(type);
-    setWeekType(type);
+
+
+  const handleRefresh = async () => {
+    try {
+      setIsRefreshing(true);
+      const apiBaseUrl = getApiBaseUrl();
+      const username = await AsyncStorage.getItem("username");
+      
+      if (!username) {
+        Alert.alert("错误", "未找到用户信息，请重新登录");
+        return;
+      }
+
+      // 调用刷新 API
+      const response = await fetch(`${apiBaseUrl}/api/schedule/refresh`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // 重新获取当前学期的课表
+        if (selectedSemester) {
+          const [year, term] = selectedSemester.split("-");
+          await fetchScheduleBySemester(year, term);
+        }
+        Alert.alert("成功", "课表已刷新");
+      } else {
+        Alert.alert("错误", result.error || "刷新失败");
+      }
+    } catch (error) {
+      console.error("刷新课表失败:", error);
+      Alert.alert("错误", "刷新课表失败，请稍后重试");
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const handleCoursePress = (course: any) => {
@@ -119,6 +156,7 @@ export default function ScheduleScreen() {
         teacher: course.teacher,
         classroom: course.classroom,
         weekType: course.isSingleWeek,
+        examInfo: course.examInfo || "",
       },
     });
   };
@@ -132,19 +170,36 @@ export default function ScheduleScreen() {
         </View>
       ) : (
         <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-          {/* 学期选择器 */}
+          {/* 学期选择器和刷新按钮 */}
           <View className="px-4 pt-4 pb-2">
-            <TouchableOpacity
-              onPress={() => setShowSemesterPicker(!showSemesterPicker)}
-              className="bg-surface border border-border rounded-lg px-4 py-3 flex-row justify-between items-center"
-            >
-              <Text className="text-foreground font-semibold">
-                {selectedSemester
-                  ? semesters.find((s) => `${s.year}-${s.term}` === selectedSemester)?.label || "选择学期"
-                  : "选择学期"}
-              </Text>
-              <Text className="text-muted">▼</Text>
-            </TouchableOpacity>
+            <View className="flex-row gap-2">
+              <TouchableOpacity
+                onPress={() => setShowSemesterPicker(!showSemesterPicker)}
+                className="flex-1 bg-surface border border-border rounded-lg px-4 py-3 flex-row justify-between items-center"
+              >
+                <Text className="text-foreground font-semibold">
+                  {selectedSemester
+                    ? semesters.find((s) => `${s.year}-${s.term}` === selectedSemester)?.label || "选择学期"
+                    : "选择学期"}
+                </Text>
+                <Text className="text-muted">▼</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleRefresh}
+                disabled={isRefreshing}
+                className={cn(
+                  "bg-primary rounded-lg px-4 py-3 justify-center items-center",
+                  isRefreshing && "opacity-50"
+                )}
+              >
+                {isRefreshing ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text className="text-white font-semibold">🔄</Text>
+                )}
+              </TouchableOpacity>
+            </View>
 
             {showSemesterPicker && (
               <View className="bg-surface border border-border rounded-lg mt-2 overflow-hidden">
@@ -211,59 +266,7 @@ export default function ScheduleScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* 课程类型过滤 */}
-            <View className="flex-row gap-2">
-              <TouchableOpacity
-                onPress={() => handleWeekTypeChange("all")}
-                className={cn(
-                  "flex-1 py-2 rounded-lg items-center justify-center",
-                  selectedWeekType === "all" ? "bg-primary" : "bg-surface border border-border"
-                )}
-              >
-                <Text
-                  className={cn(
-                    "font-semibold text-sm",
-                    selectedWeekType === "all" ? "text-white" : "text-foreground"
-                  )}
-                >
-                  全部课程
-                </Text>
-              </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={() => handleWeekTypeChange("single")}
-                className={cn(
-                  "flex-1 py-2 rounded-lg items-center justify-center",
-                  selectedWeekType === "single" ? "bg-primary" : "bg-surface border border-border"
-                )}
-              >
-                <Text
-                  className={cn(
-                    "font-semibold text-sm",
-                    selectedWeekType === "single" ? "text-white" : "text-foreground"
-                  )}
-                >
-                  单周
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => handleWeekTypeChange("double")}
-                className={cn(
-                  "flex-1 py-2 rounded-lg items-center justify-center",
-                  selectedWeekType === "double" ? "bg-primary" : "bg-surface border border-border"
-                )}
-              >
-                <Text
-                  className={cn(
-                    "font-semibold text-sm",
-                    selectedWeekType === "double" ? "text-white" : "text-foreground"
-                  )}
-                >
-                  双周
-                </Text>
-              </TouchableOpacity>
-            </View>
           </View>
 
           {/* 课表 */}
@@ -271,11 +274,7 @@ export default function ScheduleScreen() {
             {coursesForWeek.length === 0 ? (
               <View className="h-96 justify-center items-center">
                 <Text className="text-muted text-center">
-                  {selectedWeekType === "single"
-                    ? "本周是双周，没有单周课程"
-                    : selectedWeekType === "double"
-                      ? "本周是单周，没有双周课程"
-                      : "本周没有课程"}
+                  本周没有课程
                 </Text>
               </View>
             ) : (

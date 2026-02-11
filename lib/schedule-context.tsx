@@ -20,6 +20,7 @@ export interface Course {
   periodTime?: string; // 具体时间，如"08:00—09:35"
   courseCode?: string;
   semester?: string;
+  examInfo?: string; // 考试信息
 }
 
 export interface ScheduleState {

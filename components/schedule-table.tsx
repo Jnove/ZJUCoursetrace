@@ -127,19 +127,14 @@ export function ScheduleTable({ courses, onCoursePress }: ScheduleTableProps) {
                           }}
                         >
                           <Text
-                            className="text-sm font-bold text-foreground text-center"
-                            numberOfLines={2}
+                            className="text-base font-bold text-foreground text-center leading-tight"
+                            style={{ flexShrink: 1 }}
                           >
                             {course.name}
                           </Text>
                           <Text className="text-xs text-muted mt-1 text-center" numberOfLines={1}>
                             {course.classroom}
                           </Text>
-                          {course.semester && (
-                            <Text className="text-xs text-primary mt-1 font-semibold">
-                              {course.semester}
-                            </Text>
-                          )}
                         </View>
                       )}
                     </Pressable>
