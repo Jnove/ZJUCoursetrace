@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Image } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScheduleTable } from "@/components/schedule-table";
@@ -196,7 +196,10 @@ export default function ScheduleScreen() {
                 {isRefreshing ? (
                   <ActivityIndicator size="small" color="white" />
                 ) : (
-                  <Text className="text-white font-semibold">🔄</Text>
+                  <Image
+                    source={require("@/assets/images/refresh-icon.png")}
+                    style={{ width: 20, height: 20, tintColor: "white" }}
+                  />
                 )}
               </TouchableOpacity>
             </View>

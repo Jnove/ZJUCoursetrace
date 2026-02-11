@@ -79,11 +79,26 @@ interface ScheduleContextType {
 const ScheduleContext = createContext<ScheduleContextType | undefined>(undefined);
 
 /**
+ * 简单的字符串哈希函数
+ */
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
+}
+
+/**
  * 将后端课程数据转换为前端格式
  */
 function convertBackendCourse(backendCourse: any, index: number): Course {
-  const colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#FFA07A", "#98D8C8", "#F7DC6F"];
-  const color = colors[index % colors.length];
+  const colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#FFA07A", "#98D8C8", "#F7DC6F", "#A29BFE", "#FD79A8", "#FDCB6E", "#6C5CE7"];
+  // 使用课程名称的哈希值来选择颜色，相同名称的课程使用相同颜色
+  const colorIndex = hashString(backendCourse.course_name) % colors.length;
+  const color = colors[colorIndex];
 
   // 解析周次范围
   let weekStart = 1;
@@ -132,6 +147,7 @@ function convertBackendCourse(backendCourse: any, index: number): Course {
     periodTime: backendCourse.period_time,
     courseCode: backendCourse.course_code,
     semester: backendCourse.semester,
+    examInfo: backendCourse.exam_info,
   };
 }
 
@@ -242,30 +258,27 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_WEEK_TYPE", payload: type });
     },
     getCoursesForWeek: (week: number) => {
+      // 筛选在当前周次范围内的课程
       let filtered = state.courses.filter(
         (course) => course.weekStart <= week && week <= course.weekEnd
       );
 
-      // 应用周类型过滤
-      if (state.weekType === "single") {
-        // 单周过滤
-        if (week % 2 === 0) {
-          // 偶数周，不显示单周课程
-          filtered = filtered.filter((course) => course.isSingleWeek !== "single");
-        } else {
-          // 奇数周，不显示双周课程
-          filtered = filtered.filter((course) => course.isSingleWeek !== "double");
+      // 根据单双周过滤课程
+      const isOddWeek = week % 2 === 1; // 奇数周 = 单周
+      
+      filtered = filtered.filter((course) => {
+        if (course.isSingleWeek === "both") {
+          // 单双周都上，总是显示
+          return true;
+        } else if (course.isSingleWeek === "single") {
+          // 单周课，只在奇数周显示
+          return isOddWeek;
+        } else if (course.isSingleWeek === "double") {
+          // 双周课，只在偶数周显示
+          return !isOddWeek;
         }
-      } else if (state.weekType === "double") {
-        // 双周过滤
-        if (week % 2 === 1) {
-          // 奇数周，不显示双周课程
-          filtered = filtered.filter((course) => course.isSingleWeek !== "double");
-        } else {
-          // 偶数周，不显示单周课程
-          filtered = filtered.filter((course) => course.isSingleWeek !== "single");
-        }
-      }
+        return true;
+      });
 
       return filtered;
     },

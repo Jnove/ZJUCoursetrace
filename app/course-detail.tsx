@@ -46,7 +46,35 @@ export default function CourseDetailScreen() {
               <Text className="text-base text-foreground">{classroom}</Text>
             </View>
 
-
+            {/* 周次类型 */}
+            <View className="gap-2 border-t border-border pt-4">
+              <Text className="text-xs text-muted font-semibold">周次类型</Text>
+              <View className="flex-row items-center gap-2">
+                <View
+                  className={cn(
+                    "px-3 py-1 rounded-full",
+                    weekType === "single"
+                      ? "bg-primary/20"
+                      : weekType === "double"
+                        ? "bg-warning/20"
+                        : "bg-success/20"
+                  )}
+                >
+                  <Text
+                    className={cn(
+                      "text-sm font-semibold",
+                      weekType === "single"
+                        ? "text-primary"
+                        : weekType === "double"
+                          ? "text-warning"
+                          : "text-success"
+                    )}
+                  >
+                    {weekType === "single" ? "单周" : weekType === "double" ? "双周" : "单双周"}
+                  </Text>
+                </View>
+              </View>
+            </View>
           </View>
 
           {/* 考试信息 */}
