@@ -59,7 +59,7 @@ function getUserCredentials(username: string): { username: string; password: str
   };
 }
 
-function getZJUService(): ZJUService {
+export function getZJUService(): ZJUService {
   if (!zjuService) {
     zjuService = new ZJUService();
   }
@@ -653,10 +653,10 @@ router.post("/schedule/refresh", async (req: Request, res: Response) => {
 
 /**
  * 退出登录（关闭浏览器并清除缓存）
- * POST /api/auth/logout
+ * POST /api/schedule/logout
  * Body: { username?: string }
  */
-router.post("/auth/logout", async (req: Request, res: Response) => {
+router.post("/schedule/logout", async (req: Request, res: Response) => {
   try {
     const { username } = req.body;
     
