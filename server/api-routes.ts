@@ -279,7 +279,6 @@ router.get("/schedule/timetable", async (req: Request, res: Response) => {
         from_cache: true
         });
       }
-    }
 
     // 缓存未命中，从服务获取
     const service = getZJUService();

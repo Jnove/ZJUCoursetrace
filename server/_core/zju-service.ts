@@ -306,7 +306,9 @@ export class ZJUService {
       if (ssoExists) {
         console.log("检测到 SSO 登录图片，尝试点击...");
         await this._clickSSO();
-        await this.sleep(1000);
+        await this.page?.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {
+          console.log("⚠️ 导航超时，继续...");
+        });
       }
 
       this.sessionCookies = await this.page!.cookies();
@@ -355,19 +357,20 @@ export class ZJUService {
    * 点击 SSO 图片
    */
   private async _clickSSO(): Promise<boolean> {
-    try {
-      const ssoElement = await this.page!.$("#ssodl");
-      if (!ssoElement) {
-        return false;
+  try {
+    const clicked = await this.page!.evaluate(() => {
+      const btn = document.querySelector("#ssodl");
+      if (btn) {
+        (btn as HTMLElement).click();
+        return true;
       }
-
-      await ssoElement.click();
-      return true;
-    } catch (error) {
-      console.error("❌ 点击 SSO 图片时出错:", error);
       return false;
-    }
+    });
+    return clicked;
+  } catch {
+    return false;
   }
+}
 
   /**
    * 获取课表 HTML
