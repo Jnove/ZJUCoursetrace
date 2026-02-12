@@ -95,29 +95,9 @@ function hashString(str: string): number {
  * 将后端课程数据转换为前端格式
  */
 function convertBackendCourse(backendCourse: any, index: number): Course {
-  // 优化后的颜色库，具有更高的对比度和区分度
-  const colors = [
-    "#ef746bff", // 珊瑚红
-    "#4eef71ff", // 草绿
-    "#3cc0ddff", // 天蓝
-    "#f79872ff", // 浅橙
-    "#98D8C8", // 薄荷绿
-    "#e6e595ff", // 浅黄
-    "#bc9bfeff", // 浅紫
-    "#f67be1ff", // 亮粉
-    "#f5bc54ff", // 橙黄
-    "#432ee7ff", // 深紫
-    "#74B9FF", // 亮蓝
-    "#057c21ff", // 深绿
-    "#f68317ff", // 橙色
-    "#f91d1dff", // 红色
-    "#0de2e2ff", // 青色
-  ];
-  
-  // 使用课程名称的哈希值来选择颜色
-  // 为了增加相邻课程的差异，我们可以对哈希值进行一些扰动
-  const hash = hashString(backendCourse.course_name);
-  const colorIndex = (hash + (backendCourse.day_of_week || 0) * 3) % colors.length;
+  const colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#FFA07A", "#98D8C8", "#F7DC6F", "#A29BFE", "#FD79A8", "#FDCB6E", "#6C5CE7"];
+  // 使用课程名称的哈希值来选择颜色，相同名称的课程使用相同颜色
+  const colorIndex = hashString(backendCourse.course_name) % colors.length;
   const color = colors[colorIndex];
 
   // 解析周次范围

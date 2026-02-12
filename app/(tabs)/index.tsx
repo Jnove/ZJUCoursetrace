@@ -174,6 +174,12 @@ export default function HomeScreen() {
               </View>
             )}
 
+            {/* 课程统计卡片 */}
+            <View className="bg-primary/10 rounded-2xl p-6 border border-primary/20">
+              <Text className="text-sm text-muted font-semibold mb-2">已加载课程</Text>
+              <Text className="text-4xl font-bold text-primary">{scheduleState.courses.length}</Text>
+              <Text className="text-xs text-muted mt-2">门课程</Text>
+            </View>
 
             {/* 快速操作 */}
             <View className="gap-3">
@@ -261,7 +267,7 @@ export default function HomeScreen() {
           {/* 提示文字 */}
           <View className="items-center gap-2 mt-4">
             <Text className="text-xs text-muted text-center">
-              使用浙江大学统一身份认证登录
+              使用您的浙江大学账号登录
             </Text>
             <Text className="text-xs text-muted text-center">
               登录后可查看您的课程安排
