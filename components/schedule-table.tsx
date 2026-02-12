@@ -120,11 +120,11 @@ export function ScheduleTable({ courses, onCoursePress }: ScheduleTableProps) {
                             "flex-1 w-full rounded-lg p-2 justify-center items-center",
                             pressed ? "opacity-80" : "opacity-100"
                           )}
-                          style={{
-                            backgroundColor: course.color + "20", // 20% opacity
-                            borderLeftWidth: 3,
-                            borderLeftColor: course.color,
-                          }}
+	                          style={{
+	                            backgroundColor: course.color + "59", // 35% opacity (59 in hex)
+	                            borderLeftWidth: 4,
+	                            borderLeftColor: course.color,
+	                          }}
                         >
                           <Text
                             className="text-base font-bold text-foreground text-center leading-tight"

@@ -6,14 +6,9 @@ import { useRouter } from "expo-router";
 import { useState, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import { getApiBaseUrl } from "@/constants/oauth";
-
-interface TodaysCourse {
-  course_name: string;
-  location: string;
-  period_time: string;
-  teacher: string;
-  day_of_week: number;
-}
+import { getCurrentSemester, SemesterInfo } from "@/lib/semester-utils";
+import { Course } from "@/lib/schedule-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function HomeScreen() {
   const { state: authState, signIn, signOut } = useAuth();
@@ -24,38 +19,77 @@ export default function HomeScreen() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [todaysCourses, setTodaysCourses] = useState<TodaysCourse[]>([]);
+  const [todaysCourses, setTodaysCourses] = useState<Course[]>([]);
+  const [semesterInfo, setSemesterInfo] = useState<SemesterInfo | null>(null);
 
   // 获取当天课程
   useEffect(() => {
-    if (authState.userToken && scheduleState.courses.length > 0) {
+    if (authState.userToken) {
       fetchTodaysCourses();
     }
   }, [authState.userToken, scheduleState.courses]);
 
   const fetchTodaysCourses = async () => {
     try {
-      const apiBaseUrl = getApiBaseUrl();
-      const username = authState.username;
-      if (!username) {
-        console.error("未找到用户名，无法获取今日课程");
+      // 1. 获取当前学期信息
+      const now = new Date();
+      const info = getCurrentSemester(now);
+      setSemesterInfo(info);
+
+      if (!info) {
+        setTodaysCourses([]);
         return;
       }
-      
-      const response = await fetch(`${apiBaseUrl}/api/schedule/todays-courses?username=${encodeURIComponent(username)}`);
-      const data = await response.json();
 
-      if (data.success && data.courses) {
-        setTodaysCourses(data.courses);
-        console.log(`✅ 获取到 ${data.courses.length} 门今日课程`);
-        if (data.semester_info) {
-          console.log(`当前学期: ${data.semester_info.school_year} ${data.semester_info.semester}，第${data.semester_info.week}周`);
-        }
+      // 2. 从本地缓存获取课表数据
+      const cacheKey = `schedule_${info.schoolYear}_${info.semester}`;
+      const cachedData = await AsyncStorage.getItem(cacheKey);
+      
+      if (cachedData) {
+        const allCourses: Course[] = JSON.parse(cachedData);
+        
+        // 3. 筛选今日课程
+        const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay(); // 1-7
+        const isOddWeek = info.week % 2 === 1;
+
+        const todays = allCourses.filter(course => {
+          // 检查星期
+          if (course.dayOfWeek !== dayOfWeek) return false;
+          
+          // 检查周次范围
+          if (info.week < course.weekStart || info.week > course.weekEnd) return false;
+          
+          // 检查单双周
+          if (course.isSingleWeek === "single") return isOddWeek;
+          if (course.isSingleWeek === "double") return !isOddWeek;
+          
+          return true;
+        });
+
+        // 按节次排序
+        todays.sort((a, b) => a.startPeriod - b.startPeriod);
+        setTodaysCourses(todays);
+        console.log(`✅ 前端筛选到 ${todays.length} 门今日课程`);
+      } else {
+        setTodaysCourses([]);
       }
     } catch (err) {
       console.error("获取当天课程失败:", err);
     }
   };
+
+  useEffect(() => {
+    // 监听日期变化，每天凌晨刷新一次
+    const now = new Date();
+    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const delay = tomorrow.getTime() - now.getTime();
+    
+    const timer = setTimeout(() => {
+      fetchTodaysCourses();
+    }, delay);
+    
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) {
@@ -103,6 +137,11 @@ export default function HomeScreen() {
             <View className="items-center gap-2">
               <Text className="text-3xl font-bold text-foreground">欢迎回来</Text>
               <Text className="text-base text-muted">{authState.username}</Text>
+              {semesterInfo && (
+                <Text className="text-xs text-primary font-semibold">
+                  {semesterInfo.schoolYear} {semesterInfo.semester}学期 第{semesterInfo.week}周
+                </Text>
+              )}
             </View>
 
             {/* 当天课程 */}
@@ -116,13 +155,13 @@ export default function HomeScreen() {
                       className="bg-surface border border-border rounded-lg p-4"
                     >
                       <Text className="text-base font-semibold text-foreground mb-1">
-                        {course.course_name}
+                        {course.name}
                       </Text>
                       <Text className="text-sm text-muted mb-1">
-                        ⏰ {course.period_time}
+                        ⏰ {course.periodTime}
                       </Text>
                       <Text className="text-sm text-muted mb-1">
-                        📍 {course.location}
+                        📍 {course.classroom}
                       </Text>
                       <Text className="text-xs text-muted">
                         👨‍🏫 {course.teacher}
@@ -156,16 +195,16 @@ export default function HomeScreen() {
                   {todaysCourses.map((course, index) => (
                     <View key={index} className="flex-row border-b border-border last:border-b-0">
                       <View className="flex-1 p-3 items-center justify-center">
-                        <Text className="text-xs text-foreground font-semibold">{course.period_time}</Text>
+                        <Text className="text-xs text-foreground font-semibold">{course.periodTime}</Text>
                       </View>
                       <View className="flex-1 p-3 items-center justify-center border-l border-border">
                         <Text className="text-xs text-foreground text-center" numberOfLines={2}>
-                          {course.course_name}
+                          {course.name}
                         </Text>
                       </View>
                       <View className="flex-1 p-3 items-center justify-center border-l border-border">
                         <Text className="text-xs text-muted text-center" numberOfLines={2}>
-                          {course.location}
+                          {course.classroom}
                         </Text>
                       </View>
                     </View>

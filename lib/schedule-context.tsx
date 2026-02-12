@@ -115,9 +115,20 @@ function convertBackendCourse(backendCourse: any, index: number): Course {
   ];
   
   // 使用课程名称的哈希值来选择颜色
-  // 为了增加相邻课程的差异，我们可以对哈希值进行一些扰动
+  // 为了增加相邻课程的差异，我们引入星期和节次的扰动
+  // 但为了保持同名课程颜色一致，我们主要依赖名称哈希，扰动仅作为微调
   const hash = hashString(backendCourse.course_name);
-  const colorIndex = (hash + (backendCourse.day_of_week || 0) * 3) % colors.length;
+  
+  // 解析节次用于扰动
+  let startPeriod = 1;
+  if (backendCourse.period) {
+    const match = backendCourse.period.match(/(\d+)/);
+    if (match) startPeriod = parseInt(match[1]);
+  }
+
+  // 扰动算法：(哈希 + 星期*3 + 节次) % 颜色总数
+  // 这样即使名称相同，在不同位置也可能有细微颜色差异，但同一位置的同名课程颜色绝对一致
+  const colorIndex = (hash + (backendCourse.day_of_week || 0) * 3 + startPeriod) % colors.length;
   const color = colors[colorIndex];
 
   // 解析周次范围
