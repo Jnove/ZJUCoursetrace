@@ -91,6 +91,22 @@ function hashString(str: string): number {
   return Math.abs(hash);
 }
 
+// 极简扰动：RGB 整体偏移 ±delta，保留原透明度
+function perturbHex8(hex: string, seed: number, delta = 10): string {
+  // 提取 RRGGBB 和 AA（兼容 #RRGGBB 和 #RRGGBBAA）
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const a = hex.length >= 9 ? hex.slice(7, 9) : 'ff'; // 默认不透明
+
+  // 根据 seed 生成 [-delta, delta] 内的偏移
+  const off = (seed % (delta * 2 + 1)) - delta;
+  const clamp = (n: number) => Math.max(0, Math.min(255, n + off));
+  const toHex = (n: number) => n.toString(16).padStart(2, '0');
+
+  return `#${toHex(clamp(r))}${toHex(clamp(g))}${toHex(clamp(b))}${a}`;
+}
+
 /**
  * 将后端课程数据转换为前端格式
  */
@@ -101,13 +117,13 @@ function convertBackendCourse(backendCourse: any, index: number): Course {
     "#4eef71ff", // 草绿
     "#3cc0ddff", // 天蓝
     "#f79872ff", // 浅橙
-    "#98D8C8", // 薄荷绿
+    "#a0e3d2ff", // 薄荷绿
     "#e6e595ff", // 浅黄
     "#bc9bfeff", // 浅紫
     "#f67be1ff", // 亮粉
     "#f5bc54ff", // 橙黄
     "#432ee7ff", // 深紫
-    "#74B9FF", // 亮蓝
+    "#6dc2f3ff", // 亮蓝
     "#057c21ff", // 深绿
     "#f68317ff", // 橙色
     "#f91d1dff", // 红色
@@ -115,21 +131,9 @@ function convertBackendCourse(backendCourse: any, index: number): Course {
   ];
   
   // 使用课程名称的哈希值来选择颜色
-  // 为了增加相邻课程的差异，我们引入星期和节次的扰动
-  // 但为了保持同名课程颜色一致，我们主要依赖名称哈希，扰动仅作为微调
+  // 为了增加相邻课程的差异，我们可以对哈希值进行一些扰动
   const hash = hashString(backendCourse.course_name);
-  
-  // 解析节次用于扰动
-  let startPeriod = 1;
-  if (backendCourse.period) {
-    const match = backendCourse.period.match(/(\d+)/);
-    if (match) startPeriod = parseInt(match[1]);
-  }
-
-  // 扰动算法：(哈希 + 星期*3 + 节次) % 颜色总数
-  // 这样即使名称相同，在不同位置也可能有细微颜色差异，但同一位置的同名课程颜色绝对一致
-  const colorIndex = (hash + (backendCourse.day_of_week || 0) * 3 + startPeriod) % colors.length;
-  const color = colors[colorIndex];
+  const colorIndex = (hash ) % colors.length;
 
   // 解析周次范围
   let weekStart = 1;
@@ -154,7 +158,7 @@ function convertBackendCourse(backendCourse: any, index: number): Course {
       endPeriod = match[2] ? parseInt(match[2]) : startPeriod;
     }
   }
-
+  const color = perturbHex8(colors[colorIndex],(backendCourse.day_of_week || 0) * 3 + startPeriod, 15);
   // 判断单双周
   let isSingleWeek: "single" | "double" | "both" = "both";
   if (backendCourse.is_single_week === true) {

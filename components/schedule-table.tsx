@@ -26,6 +26,32 @@ interface ScheduleTableProps {
   onCoursePress?: (course: Course) => void;
 }
 
+function addAlpha(hex: string | number, alpha = 0.2): string {
+  // 如果不是字符串，转成字符串
+  if (typeof hex !== 'string') hex = String(hex);
+
+  // 提取纯十六进制部分（去掉 #，去掉空格）
+  let clean: string = hex.replace('#', '').trim();
+
+  // 处理 3 位简写：f0f → ff00ff
+  if (clean.length === 3) {
+    clean = clean.split('').map(c => c + c).join('');
+  }
+
+  // 如果已经是 8 位，只取前 6 位（去掉原有透明度）
+  if (clean.length === 8) {
+    clean = clean.slice(0, 6);
+  }
+
+  // 确保是 6 位，不足补 0
+  while (clean.length < 6) clean += '0';
+
+  // 计算透明度两位十六进制
+  const alphaHex = Math.round(alpha * 255).toString(16).padStart(2, '0');
+
+  return `#${clean}${alphaHex}`;
+}
+
 export function ScheduleTable({ courses, onCoursePress }: ScheduleTableProps) {
   const screenWidth = Dimensions.get("window").width;
   const cellWidth = (screenWidth - 80) / 7; // 7 days, minus padding and time column
@@ -120,19 +146,20 @@ export function ScheduleTable({ courses, onCoursePress }: ScheduleTableProps) {
                             "flex-1 w-full rounded-lg p-2 justify-center items-center",
                             pressed ? "opacity-80" : "opacity-100"
                           )}
-	                          style={{
-	                            backgroundColor: course.color + "59", // 35% opacity (59 in hex)
-	                            borderLeftWidth: 4,
-	                            borderLeftColor: course.color,
-	                          }}
+                          style={{
+                            backgroundColor: addAlpha(course.color, 0.2), // 20% opacity
+                            //opacity: 0.2,
+                            borderLeftWidth: 4,
+                            borderLeftColor: course.color,
+                          }}
                         >
                           <Text
-                            className="text-base font-bold text-foreground text-center leading-tight"
+                            className="text-base font-bold text-foreground text-center leading-tight" numberOfLines={2}
                             style={{ flexShrink: 1 }}
                           >
                             {course.name}
                           </Text>
-                          <Text className="text-xs text-muted mt-1 text-center" numberOfLines={1}>
+                          <Text className="text-xs text-muted mt-1 text-center" numberOfLines={2} style={{ flexShrink: 1 }}>
                             {course.classroom}
                           </Text>
                         </View>
