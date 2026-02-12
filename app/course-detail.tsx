@@ -79,8 +79,8 @@ export default function CourseDetailScreen() {
 
           {/* 考试信息 */}
           {examInfo && (
-            <View className="bg-surface rounded-lg p-6 gap-2">
-              <Text className="text-xs text-muted font-semibold">📝 考试信息</Text>
+            <View className="bg-neutral-100 border border-orange-400 rounded-lg p-6 gap-2">
+              <Text className="text-sm text-muted font-semibold">📝考试信息</Text>
               <Text className="text-base text-foreground">{examInfo}</Text>
             </View>
           )}
