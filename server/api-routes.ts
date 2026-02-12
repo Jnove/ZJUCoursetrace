@@ -607,7 +607,7 @@ router.post("/schedule/refresh", async (req: Request, res: Response) => {
     } else {
       console.log("浏览器运行中，直接获取课表...");
     }
-
+    console.log(semester);
     // 获取课表数据
     let scheduleData;
     if (semester) {

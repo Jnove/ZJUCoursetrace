@@ -13,8 +13,7 @@ export const CourseSchema = z.object({
   teacher: z.string(),
   location: z.string(),
   time_slot: z.string(),
-  exam_time: z.string().optional(),
-  exam_location: z.string().optional(),
+  exam_info: z.string().optional(),
   day_of_week: z.number().optional(),
   is_single_week: z.boolean().nullable().optional(), // true=单周，false=双周，null=单双周
   period: z.string().optional(),
@@ -59,7 +58,7 @@ export class ZJUService {
 
     // 尝试使用系统已安装的 Chrome/Chromium
     const executablePath = this.getChromePath();
-    
+
     this.browser = await puppeteer.launch({
       headless: false,  // 开启可见模式方便调试
       executablePath: executablePath || undefined, // 如果找到系统 Chrome，使用它；否则使用 Puppeteer 管理的版本
@@ -304,8 +303,9 @@ export class ZJUService {
       const ssoExists = await this._checkSSO();
       if (ssoExists) {
         console.log("检测到 SSO 登录图片，尝试点击...");
+        await this.sleep(300); // 等待图片加载
         await this._clickSSO();
-        await this.page?.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {
+        await this.page?.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 5000 }).catch(() => {
           console.log("⚠️ 导航超时，继续...");
         });
       }
@@ -357,20 +357,22 @@ export class ZJUService {
    * 点击 SSO 图片
    */
   private async _clickSSO(): Promise<boolean> {
-  try {
-    const clicked = await this.page!.evaluate(() => {
-      const btn = document.querySelector("#ssodl");
-      if (btn) {
-        (btn as HTMLElement).click();
-        return true;
-      }
+    try {
+      // 直接在该页面上下文中查找元素并调用其 click 方法
+      const clicked = await this.page!.evaluate(() => {
+        const ssoImg = document.querySelector("#ssodl");
+        if (ssoImg) {
+          (ssoImg as HTMLElement).click();  // 强制触发 DOM 点击事件
+          return true;
+        }
+        return false;
+      });
+      return clicked;
+    } catch (error) {
+      console.error("❌ 强制点击 SSO 图片失败:", error);
       return false;
-    });
-    return clicked;
-  } catch {
-    return false;
+    }
   }
-}
 
   /**
    * 获取课表 HTML
@@ -411,12 +413,12 @@ export class ZJUService {
    */
   private _parseCoursDetails(fontElement: cheerio.Cheerio<any>): Record<string, string> {
     const result: Record<string, string> = {};
-    
+
     try {
       // 使用 cheerio 的 contents() 获取所有子节点，然后提取文本
       // 这模拟了 Python BeautifulSoup 的 stripped_strings 行为
       const textLines: string[] = [];
-      
+
       fontElement.contents().each((_, node) => {
         if (node.type === 'text') {
           const text = (node as any).data?.trim();
@@ -633,7 +635,7 @@ export class ZJUService {
       if (fontElement.length === 0) {
         return null;
       }
-      
+
       const courseDetails = this._parseCoursDetails(fontElement);
 
       return {
@@ -798,6 +800,15 @@ export class ZJUService {
                 weekType = null;
               }
 
+              // 合并考试信息
+              let examInfo = "";
+              if (courseInfo.exam_time) {
+                examInfo = `时间: ${courseInfo.exam_time}`;
+                if (courseInfo.exam_location) {
+                  examInfo += `\n地点: ${courseInfo.exam_location}`;
+                }
+              }
+
               const course: Course = {
                 course_id: courseInfo.course_id || "",
                 course_code: courseInfo.course_code || "",
@@ -806,8 +817,7 @@ export class ZJUService {
                 teacher: courseInfo.teacher || "",
                 location: courseInfo.location || "",
                 time_slot: courseInfo.time_slot || "",
-                exam_time: courseInfo.exam_time,
-                exam_location: courseInfo.exam_location,
+                exam_info: examInfo, // 统一使用 exam_info 字段
                 day_of_week: cellInfo.day_of_week,
                 is_single_week: weekType,
                 period: periodRange,
@@ -890,7 +900,7 @@ export class ZJUService {
       // 更新当前选中的学年学期
       this.currentYear = currentYear;
       this.currentTerm = currentTerm;
-      
+
       console.log(`✅ 获取到学年选项: ${yearOptions.length} 个，学期选项: ${termOptions.length} 个`);
       console.log(`当前选中: 学年=${this.currentYear}, 学期=${this.currentTerm}`);
 
@@ -925,8 +935,8 @@ export class ZJUService {
     });
 
     // 为了效率，我们只检查最近的几个学年
-    const yearsToCheck = year_options.slice(0, 3); 
-    
+    const yearsToCheck = year_options.slice(0, 3);
+
     for (const year of yearsToCheck) {
       for (const term of term_options) {
         // 跳过当前学期，已经加过了
@@ -943,7 +953,7 @@ export class ZJUService {
           if (nodataDiv) {
             return true;
           }
-          
+
           // 方法2：检查 h3.align-center 下的 span 文本
           const h3Elements = Array.from(document.querySelectorAll("h3.align-center"));
           for (const h3 of h3Elements) {
@@ -952,7 +962,7 @@ export class ZJUService {
               return true;
             }
           }
-          
+
           // 方法3：全局检查 span 文本（兜底）
           const spans = Array.from(document.querySelectorAll("span"));
           return spans.some((span) => span.textContent?.includes("尚无您的课表"));
@@ -1046,12 +1056,12 @@ export class ZJUService {
       }
 
       // 等待选项列表加载完成
-      await this.sleep(300);
+      await this.sleep(10);
 
       // 在下拉框列表中查找匹配的 li 元素
       const optionSelector = `#${chosenId} .chosen-results li.active-result`;
       const options = await this.page.$$(optionSelector);
-      
+
       if (options.length === 0) {
         console.log(`❌ 未找到任何选项`);
         return false;
@@ -1060,11 +1070,11 @@ export class ZJUService {
       // 遍历所有选项，查找匹配的文本
       let found = false;
       const optionTexts: string[] = [];
-      
+
       for (const option of options) {
         const text = await option.evaluate(el => el.textContent?.trim() || "");
         optionTexts.push(text);
-        
+
         if (text === optionText) {
           // 使用 Puppeteer 的 click() 方法点击 li 元素
           await option.click();
@@ -1075,21 +1085,21 @@ export class ZJUService {
       }
 
       console.log(`可用选项: ${optionTexts.join(", ")}`);
-      
+
       if (!found) {
         console.log(`❌ 未找到匹配的选项: ${optionText}`);
         return false;
       }
-      
-      await this.sleep(500);
-      
+
+      await this.sleep(10);
+
       // 更新当前选中的学年学期
       if (chosenId === "xnm_chosen") {
         this.currentYear = optionText;
       } else if (chosenId === "xqm_chosen") {
         this.currentTerm = optionText;
       }
-      
+
       return true;
     } catch (error) {
       console.error(`❌ 选择选项时出错: ${error}`);
@@ -1115,7 +1125,7 @@ export class ZJUService {
       if (!currentUrl.includes("xskbcx_cxXskbcxIndex.html")) {
         const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
         console.log(`跳转到课表页面: ${timetableUrl}`);
-        await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
+        await this.page.goto(timetableUrl, { waitUntil: "domcontentloaded" });
       }
 
       // 如果指定了学年学期，则直接在当前页面通过下拉框选择
@@ -1134,7 +1144,7 @@ export class ZJUService {
         if (nodataDiv) {
           return true;
         }
-        
+
         // 方法2：检查 h3.align-center 下的 span 文本
         const h3Elements = Array.from(document.querySelectorAll("h3.align-center"));
         for (const h3 of h3Elements) {
@@ -1143,7 +1153,7 @@ export class ZJUService {
             return true;
           }
         }
-        
+
         // 方法3：全局检查 span 文本（兜底）
         const spans = Array.from(document.querySelectorAll("span"));
         return spans.some((span) => span.textContent?.includes("尚无您的课表"));
@@ -1151,15 +1161,15 @@ export class ZJUService {
 
       if (noTimetable) {
         console.log(`ℹ️ 学期 ${yearText} ${termText} 尚无您的课表`);
-        return { 
-          courses: [], 
-          semester_info: { 
-            year_text: yearText, 
-            term_text: termText, 
+        return {
+          courses: [],
+          semester_info: {
+            year_text: yearText,
+            term_text: termText,
             no_data: true,
             school_year: yearText,
             semester: termText
-          } 
+          }
         };
       }
 
