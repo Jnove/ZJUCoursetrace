@@ -119,12 +119,18 @@ export default function ScheduleScreen() {
       }
 
       // 调用刷新 API
+      // 传递当前选中的学期，确保后端刷新正确的学期
+      const semesterParam = selectedSemester ? selectedSemester.replace("-", "_") : undefined;
+      console.log(`[Frontend] handleRefresh: Sending refresh request for semester: ${semesterParam}`);
       const response = await fetch(`${apiBaseUrl}/api/schedule/refresh`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ 
+          username,
+          semester: semesterParam
+        }),
       });
 
       const result = await response.json();
