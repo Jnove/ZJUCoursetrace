@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Image } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Image, Modal} from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScheduleTable } from "@/components/schedule-table";
@@ -7,6 +7,10 @@ import { useSchedule } from "@/lib/schedule-context";
 import { useRouter } from "expo-router";
 import { cn } from "@/lib/utils";
 import { getApiBaseUrl } from "@/constants/oauth";
+import CourseDetailContent from "@/app/courseDetailContent";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { SFSymbol } from "expo-symbols";
+import { SFSymbols7_0 } from "sf-symbols-typescript";
 
 interface SemesterOption {
   year: string;
@@ -16,12 +20,14 @@ interface SemesterOption {
 
 export default function ScheduleScreen() {
   const { state, setCurrentWeek, getCoursesForWeek, fetchScheduleBySemester } = useSchedule();
-  const router = useRouter();
+  //const router = useRouter();
   const [semesters, setSemesters] = useState<SemesterOption[]>([]);
   const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
   const [showSemesterPicker, setShowSemesterPicker] = useState(false);
   const [loadingSemesters, setLoadingSemesters] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [selectedCourse, setSelectedCourse] = useState<any>(null);
+  const [modalVisible, setModalVisible] = useState(false);
 
   // 加载学期列表
   useEffect(() => {
@@ -204,17 +210,14 @@ export default function ScheduleScreen() {
   };
 
   const handleCoursePress = (course: any) => {
-    router.push({
-      pathname: "/course-detail",
-      params: {
-        courseId: course.id,
-        courseName: course.name,
-        teacher: course.teacher,
-        classroom: course.classroom,
-        weekType: course.isSingleWeek,
-        examInfo: course.examInfo || "",
-      },
-    });
+    setSelectedCourse(course);
+    setModalVisible(true);
+  };
+
+  // 关闭弹窗
+  const closeModal = () => {
+    setModalVisible(false);
+    setSelectedCourse(null);
   };
 
   return (
@@ -226,7 +229,7 @@ export default function ScheduleScreen() {
         </View>
       ) : (
         <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-          {/* 学期选择器和刷新按钮 */}
+           {/* 学期选择器和刷新按钮 */}
           <View className="px-4 pt-4 pb-2">
             <View className="flex-row gap-2">
               <TouchableOpacity
@@ -313,13 +316,13 @@ export default function ScheduleScreen() {
 
               <TouchableOpacity
                 onPress={handleNextWeek}
-                disabled={state.currentWeek === 20}
+                disabled={state.currentWeek === 8}
                 className={cn(
                   "px-4 py-2 rounded-lg",
-                  state.currentWeek === 20 ? "bg-surface opacity-50" : "bg-primary"
+                  state.currentWeek === 8 ? "bg-surface opacity-50" : "bg-primary"
                 )}
               >
-                <Text className={cn("font-semibold", state.currentWeek === 20 ? "text-muted" : "text-white")}>
+                <Text className={cn("font-semibold", state.currentWeek === 8 ? "text-muted" : "text-white")}>
                   下一周
                 </Text>
               </TouchableOpacity>
@@ -327,7 +330,11 @@ export default function ScheduleScreen() {
 
 
           </View>
-
+            <View className="items-center gap-2 mt-4">
+            <Text className="text-sm text-muted text-center">
+              点击课程块可查看详细信息
+            </Text>
+          </View>
           {/* 课表 */}
           <View className="flex-1 px-4 pb-4">
             {coursesForWeek.length === 0 ? (
@@ -339,9 +346,72 @@ export default function ScheduleScreen() {
             ) : (
               <ScheduleTable courses={coursesForWeek} onCoursePress={handleCoursePress} />
             )}
+            </View>
+            
+          <View className="items-center gap-2 mt-4">
+            <Text className="text-xs text-muted text-center">
+              本课表调休和节假日信息仅供参考，具体以学校通知为准。部分单、双周课程具体情况请依据教学班通知。
+            </Text>
           </View>
         </ScrollView>
       )}
+
+      {/* 课程详情弹窗 */}
+      <Modal
+        visible={modalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={closeModal}
+      >
+        {/* 半透明背景遮罩，点击关闭 */}
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: 'rgba(255, 255, 255, 0.5)', justifyContent: 'center', alignItems: 'center' }}
+          activeOpacity={1}
+          onPress={closeModal}
+        >
+          {/* 弹窗内容容器，阻止点击事件冒泡到遮罩 */}
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
+            className="w-[90%] max-w-md bg-surface rounded-xl p-5"
+          >
+            {/* 关闭按钮 */}
+            <View className="flex-row justify-end mb-2">
+              <TouchableOpacity onPress={closeModal} className="p-2">
+                <Text className="text-muted text-lg">✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {selectedCourse && (
+              <CourseDetailContent
+                courseName={selectedCourse.name}
+                teacher={selectedCourse.teacher}
+                classroom={selectedCourse.classroom}
+                weekType={
+                  selectedCourse.isSingleWeek === 1
+                    ? "single"
+                    : selectedCourse.isSingleWeek === 2
+                    ? "double"
+                    : "" // 单双周
+                }
+                examInfo={selectedCourse.examInfo}
+              />
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </ScreenContainer>
+  );
+}
+
+// 辅助组件：信息行（可根据需要提取到单独文件）
+function InfoRow({ icon, label, value }: { icon: SFSymbols7_0; label: string; value: string }) {
+  return (
+    <View className="flex-row items-center gap-3">
+      {/* 这里需要根据你的 IconSymbol 组件调整 */}
+      <IconSymbol name={icon} size={20} color="#888" />
+      <Text className="text-foreground font-medium">{label}:</Text>
+      <Text className="text-foreground flex-1">{value}</Text>
+    </View>
   );
 }

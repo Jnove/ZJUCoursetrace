@@ -36,9 +36,10 @@ export default function SettingsScreen() {
 
   // 主题选项列表
   const themeOptions: { label: string; value: 'light' | 'dark' | 'system'; icon: SFSymbols7_0 }[] = [
+    { label: '跟随系统', value: 'system', icon: 'circle.righthalf.fill' },
     { label: '浅色', value: 'light', icon: 'sun.max.fill' },
     { label: '深色', value: 'dark', icon: 'moon.fill' },
-    { label: '跟随系统', value: 'system', icon: 'circle.righthalf.fill' },
+    
   ];
 
   return (
@@ -51,7 +52,7 @@ export default function SettingsScreen() {
           <Text className="text-2xl font-bold text-foreground items-center self-center justify-center p-2 mx-auto">设置</Text>
 
         {/* 主题区域 - 圆角背景容器包含标题和按钮 */}
-        <View className="bg-surface rounded-xl gap-3 p-3 mt-4 self-start">
+        <View className="bg-surface rounded-xl gap-3 p-3 mt-4 m-1/2">
         {/* 主题标题 */}
         <Text className="text-base text-foreground font-medium">主题</Text>
         

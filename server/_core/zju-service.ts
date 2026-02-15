@@ -60,7 +60,7 @@ export class ZJUService {
     const executablePath = this.getChromePath();
 
     this.browser = await puppeteer.launch({
-      headless: false,  // 开启可见模式方便调试
+      headless: true,  // false开启可见模式方便调试
       executablePath: executablePath || undefined, // 如果找到系统 Chrome，使用它；否则使用 Puppeteer 管理的版本
       args: [
         "--no-sandbox",
@@ -303,7 +303,7 @@ export class ZJUService {
       const ssoExists = await this._checkSSO();
       if (ssoExists) {
         console.log("检测到 SSO 登录图片，尝试点击...");
-        await this.sleep(100); // 等待图片加载
+        await this.sleep(300); // 等待图片加载
         await this._clickSSO();
         await this.page?.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 5000 }).catch(() => {
           console.log("⚠️ 导航超时，继续...");
