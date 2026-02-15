@@ -47,7 +47,7 @@ export default function ScheduleScreen() {
           setSemesters([{
             year: currentYear,
             term: currentTerm,
-            label: `${currentYear} 第${currentTerm}学期`
+            label: `${currentYear} ${currentTerm}学期`
           }]);
         }
 
@@ -112,42 +112,51 @@ export default function ScheduleScreen() {
       setIsRefreshing(true);
       const apiBaseUrl = getApiBaseUrl();
       const username = await AsyncStorage.getItem("username");
-      
+
       if (!username) {
         Alert.alert("错误", "未找到用户信息，请重新登录");
         return;
       }
 
-      // 调用刷新 API
-      // 传递当前选中的学期，确保后端刷新正确的学期
-      const semesterParam = selectedSemester ? selectedSemester.replace("-", "_") : undefined;
-      console.log(`[Frontend] handleRefresh: Sending refresh request for semester: ${semesterParam}`);
-      const response = await fetch(`${apiBaseUrl}/api/schedule/refresh`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ 
-          username,
-          semester: semesterParam
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        // 重新获取当前学期的课表
-        if (selectedSemester) {
-          const [year, term] = selectedSemester.split("-");
-          await fetchScheduleBySemester(year, term);
-        }
-        Alert.alert("成功", "课表已刷新");
-      } else {
-        Alert.alert("错误", result.error || "刷新失败");
+      if (semesters.length === 0) {
+        Alert.alert("提示", "没有可刷新的学期");
+        return;
       }
-    } catch (error) {
+
+      // 逐个刷新每个学期（串行执行）
+      for (const semester of semesters) {
+        const semesterParam = `${semester.year}_${semester.term}`; // 转换为 year_term 格式
+        console.log(`[Frontend] Refreshing semester: ${semesterParam}`);
+
+        try {
+          const response = await fetch(`${apiBaseUrl}/api/schedule/refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, semester: semesterParam }),
+          });
+
+          const result = await response.json();
+          if (!result.success) {
+            // 单个学期刷新失败，给出警告并继续下一个学期（可根据需求改为中断）
+            Alert.alert("警告", `${semester.label} 刷新失败: ${result.error || "未知错误"}，继续刷新其他学期`);
+          }
+        } catch (err) {
+          console.error(`刷新学期 ${semester.label} 失败:`, err);
+          Alert.alert("警告", `${semester.label} 刷新失败，请稍后重试`);
+          // 继续处理下一个学期，不中断
+        }
+      }
+
+      // 所有学期刷新尝试结束后，重新获取当前选中学期的课表以更新界面
+      if (selectedSemester) {
+        const [year, term] = selectedSemester.split("-");
+        await fetchScheduleBySemester(year, term);
+      }
+
+      Alert.alert("完成", "所有学期刷新处理完成");
+    } catch (error: any) {
       console.error("刷新课表失败:", error);
-      Alert.alert("错误", "刷新课表失败，请稍后重试");
+      Alert.alert("错误", error.message || "刷新课表失败，请稍后重试");
     } finally {
       setIsRefreshing(false);
     }

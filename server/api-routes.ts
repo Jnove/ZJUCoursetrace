@@ -129,7 +129,7 @@ async function fetchAllSemestersInBackground(username: string, service: ZJUServi
       activeSemesters.push({
         year: current_year,
         term: current_term,
-        label: `${current_year} 第${current_term}学期`,
+        label: `${current_year} ${current_term}学期`,
         is_current: true
       });
     }
@@ -157,7 +157,7 @@ async function fetchAllSemestersInBackground(username: string, service: ZJUServi
             activeSemesters.push({
               year: year.text,
               term: term.text,
-              label: `${year.text} 第${term.text}学期`,
+              label: `${year.text} ${term.text}学期`,
               is_current: false
             });
           } else {
@@ -612,8 +612,8 @@ router.post("/schedule/refresh", async (req: Request, res: Response) => {
     let scheduleData;
     if (semester) {
       // 获取指定学期的课表
-      const parts = semester.split('-');
-      const year = parts[0].replace('_', '-');
+      const parts = semester.split('_');
+      const year = parts[0];//replace('_', '-');
       const term = parts[1];
       scheduleData = await service.getTimetableDataForSemester(year, term);
     } else {

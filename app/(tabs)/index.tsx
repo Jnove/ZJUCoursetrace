@@ -138,7 +138,7 @@ export default function HomeScreen() {
               <Text className="text-3xl font-bold text-foreground">欢迎回来</Text>
               <Text className="text-base text-muted">{authState.username}</Text>
               {semesterInfo && (
-                <Text className="text-xs text-primary font-semibold">
+                <Text className="text-sm text-primary font-semibold">
                   {semesterInfo.schoolYear} {semesterInfo.semester}学期 第{semesterInfo.week}周
                 </Text>
               )}
@@ -158,13 +158,13 @@ export default function HomeScreen() {
                         {course.name}
                       </Text>
                       <Text className="text-sm text-muted mb-1">
-                        ⏰ {course.periodTime}
+                        ⏰时间: {course.periodTime}
                       </Text>
                       <Text className="text-sm text-muted mb-1">
-                        📍 {course.classroom}
+                        📍地点: {course.classroom}
                       </Text>
                       <Text className="text-xs text-muted">
-                        👨‍🏫 {course.teacher}
+                        👨‍🏫教师: {course.teacher}
                       </Text>
                     </View>
                   ))}
@@ -223,12 +223,12 @@ export default function HomeScreen() {
                 <Text className="text-white font-semibold text-base">查看课表</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
+              {/* <TouchableOpacity
                 onPress={handleLogout}
                 className="bg-error/10 border border-error rounded-lg py-4 items-center justify-center active:opacity-80"
               >
                 <Text className="text-error font-semibold text-base">退出登录</Text>
-              </TouchableOpacity>
+              </TouchableOpacity> */}
             </View>
           </View>
         </ScrollView>

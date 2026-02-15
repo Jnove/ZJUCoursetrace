@@ -225,10 +225,10 @@ export class ZJUService {
       const fullUrl = `${this.CAS_URL}?service=${encodeURIComponent(serviceUrl)}`;
 
       console.log("访问 CAS 登录页面...");
-      await this.page!.goto(fullUrl, { waitUntil: "networkidle2" });
+      await this.page!.goto(fullUrl, { waitUntil: "domcontentloaded" });
 
       // 等待页面加载
-      await this.sleep(1000);
+      await this.page!.waitForSelector("input[name='username']", { timeout: 3000 });
 
       // 查找并填充用户名
       console.log("查找登录表单元素...");
@@ -258,10 +258,10 @@ export class ZJUService {
       let loginButton = null;
 
       const selectors = [
+        "#dl",
         "button:has-text('登录')",
         "button.btn-login",
         "button[type='submit']",
-        "#dl",
         "input[type='submit']",
       ];
 
@@ -303,7 +303,7 @@ export class ZJUService {
       const ssoExists = await this._checkSSO();
       if (ssoExists) {
         console.log("检测到 SSO 登录图片，尝试点击...");
-        await this.sleep(300); // 等待图片加载
+        await this.sleep(100); // 等待图片加载
         await this._clickSSO();
         await this.page?.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 5000 }).catch(() => {
           console.log("⚠️ 导航超时，继续...");
@@ -387,7 +387,7 @@ export class ZJUService {
       const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
       console.log(`访问课表页面: ${timetableUrl}`);
 
-      await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
+      await this.page.goto(timetableUrl, { waitUntil: "domcontentloaded" });
 
       // 等待课表表格加载
       try {
@@ -399,7 +399,7 @@ export class ZJUService {
       }
 
       const html = await this.page.content();
-      console.log(`✅ 获取到课表 HTML，长度: ${html.length} 字节`);
+      console.log(`✅ 获取到课表 HTML,长度: ${html.length} 字节`);
 
       return html;
     } catch (error) {
@@ -886,7 +886,7 @@ export class ZJUService {
         }
       });
 
-      // 修正 selected 逻辑：如果没有任何 option 被标记为 selected，尝试从页面元素获取当前值
+      // selected 逻辑：如果没有任何 option 被标记为 selected，尝试从页面元素获取当前值
       let currentYear = yearOptions.find((opt) => opt.selected)?.text;
       let currentTerm = termOptions.find((opt) => opt.selected)?.text;
 
@@ -981,7 +981,7 @@ export class ZJUService {
     }
 
     // 恢复到当前学期
-    await this.selectSemester(current_year, current_term);
+    //await this.selectSemester(current_year, current_term);
 
     return activeSemesters;
   }
@@ -1045,7 +1045,7 @@ export class ZJUService {
 
       // 点击打开下拉框
       await this.page.click(`#${chosenId}`);
-      await this.sleep(500);  // 增加等待时间
+      await this.sleep(10);  // 增加等待时间
 
       // 等待下拉框展开（等待 chosen-with-drop 类出现）
       try {
