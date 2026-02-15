@@ -193,8 +193,46 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     state,
     fetchSchedule: async () => {
       dispatch({ type: "SET_LOADING", payload: true });
+      let loadedFromCache = false;
+
+      // 尝试从 AsyncStorage 加载当前学期课表
       try {
-        // 调用后端 API 获取课表数据
+        const username = await AsyncStorage.getItem("username");
+        if (username) {
+          // 尝试获取上次选择的学期，或者默认当前学期
+          const lastSelectedSemester = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
+          let year, term;
+          if (lastSelectedSemester) {
+            [year, term] = lastSelectedSemester.split("-");
+          } else {
+            // 如果没有上次选择的学期，尝试从后端获取当前学期信息
+            const apiBaseUrl = getApiBaseUrl();
+            const optionsResponse = await fetch(`${apiBaseUrl}/api/schedule/semester-options`);
+            const optionsData = await optionsResponse.json();
+            if (optionsData.success && optionsData.current_year && optionsData.current_term) {
+              year = optionsData.current_year;
+              term = optionsData.current_term;
+            }
+          }
+
+          if (year && term) {
+            const cacheKey = `schedule_${year}_${term}`;
+            const cachedData = await AsyncStorage.getItem(cacheKey);
+            if (cachedData) {
+              const courses = JSON.parse(cachedData);
+              dispatch({ type: "SET_COURSES", payload: courses });
+              dispatch({ type: "SET_ERROR", payload: null });
+              loadedFromCache = true;
+              console.log(`[ScheduleContext] 从缓存加载课表: ${cacheKey}`);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[ScheduleContext] 尝试从缓存加载课表失败", e);
+      }
+
+      // 无论是否从缓存加载成功，都尝试从后端 API 获取最新数据
+      try {
         const apiBaseUrl = getApiBaseUrl();
         const response = await fetch(`${apiBaseUrl}/api/schedule/timetable`, {
           method: "GET",
@@ -209,18 +247,25 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
           throw new Error(result.error || "获取课表失败");
         }
 
-        // 转换后端数据格式
         const convertedCourses = (result.courses || []).map((course: any, index: number) =>
           convertBackendCourse(course, index)
         );
 
-        await AsyncStorage.setItem("courses", JSON.stringify(convertedCourses));
+        if (result.semester_info?.school_year && result.semester_info?.semester) {
+          const semesterKey = `schedule_${result.semester_info.school_year}_${result.semester_info.semester}`;
+          await AsyncStorage.setItem(semesterKey, JSON.stringify(convertedCourses));
+          console.log(`[ScheduleContext] 从API获取并缓存当前学期课表: ${semesterKey}`);
+        } else {
+          console.warn("[ScheduleContext] 无法获取当前学期信息，未缓存课表。");
+        }
         dispatch({ type: "SET_COURSES", payload: convertedCourses });
         dispatch({ type: "SET_ERROR", payload: null });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "获取课表失败";
         console.error("Fetch schedule error:", error);
-        dispatch({ type: "SET_ERROR", payload: errorMessage });
+        if (!loadedFromCache) { // 如果没有从缓存加载成功，才设置错误
+          dispatch({ type: "SET_ERROR", payload: errorMessage });
+        }
       } finally {
         dispatch({ type: "SET_LOADING", payload: false });
       }

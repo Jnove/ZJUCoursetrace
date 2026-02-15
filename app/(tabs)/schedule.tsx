@@ -25,7 +25,34 @@ export default function ScheduleScreen() {
 
   // 加载学期列表
   useEffect(() => {
-    fetchSemesters();
+    const loadInitialData = async () => {
+      const username = await AsyncStorage.getItem("username");
+      if (username) {
+        // 尝试从缓存加载活跃学期列表
+        try {
+          const cachedActiveSemesters = await AsyncStorage.getItem(`activeSemesters_${username}`);
+          if (cachedActiveSemesters) {
+            setSemesters(JSON.parse(cachedActiveSemesters));
+            console.log("[ScheduleScreen] 从缓存加载活跃学期列表");
+          }
+        } catch (e) {
+          console.warn("[ScheduleScreen] 从缓存加载活跃学期列表失败", e);
+        }
+
+        // 尝试从缓存加载上次选择的学期
+        try {
+          const cachedSelectedSemester = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
+          if (cachedSelectedSemester) {
+            setSelectedSemester(cachedSelectedSemester);
+            console.log(`[ScheduleScreen] 从缓存加载上次选择的学期: ${cachedSelectedSemester}`);
+          }
+        } catch (e) {
+          console.warn("[ScheduleScreen] 从缓存加载上次选择的学期失败", e);
+        }
+      }
+      fetchSemesters(); // 无论是否从缓存加载，都尝试从 API 获取最新数据
+    };
+    loadInitialData();
   }, []);
 
   const fetchSemesters = async () => {
@@ -42,16 +69,22 @@ export default function ScheduleScreen() {
         const currentTerm = data.current_term;
         
         if (currentYear && currentTerm) {
-          setSelectedSemester(`${currentYear}-${currentTerm}`);
-          // 初始显示当前学期
-          setSemesters([{
-            year: currentYear,
-            term: currentTerm,
-            label: `${currentYear} ${currentTerm}学期`
-          }]);
+          // 如果没有从缓存加载 selectedSemester，则设置为当前学期
+          if (!selectedSemester) {
+            setSelectedSemester(`${currentYear}-${currentTerm}`);
+            console.log(`[ScheduleScreen] 设置默认当前学期: ${currentYear}-${currentTerm}`);
+          }
+          // 如果 semesters 为空，则初始显示当前学期
+          if (semesters.length === 0) {
+            setSemesters([{
+              year: currentYear,
+              term: currentTerm,
+              label: `${currentYear} 第${currentTerm}学期`
+            }]);
+          }
         }
 
-        // 2. 后台异步获取所有“有课”的学期
+        // 2. 后台异步获取所有“有课”的学期，并更新缓存
         fetchActiveSemesters();
       }
     } catch (err) {
@@ -76,7 +109,8 @@ export default function ScheduleScreen() {
 
       if (data.success && data.semesters) {
         setSemesters(data.semesters);
-        console.log(`✅ 获取到 ${data.semesters.length} 个有课学期`);
+        await AsyncStorage.setItem(`activeSemesters_${username}`, JSON.stringify(data.semesters));
+        console.log(`✅ 获取到 ${data.semesters.length} 个有课学期并已缓存`);
       }
     } catch (err) {
       console.error("后台获取活跃学期失败:", err);
@@ -89,6 +123,13 @@ export default function ScheduleScreen() {
     setSelectedSemester(`${year}-${term}`);
     setShowSemesterPicker(false);
     
+    // 保存当前选中的学期到 AsyncStorage
+    const username = await AsyncStorage.getItem("username");
+    if (username) {
+      await AsyncStorage.setItem(`lastSelectedSemester_${username}`, `${year}-${term}`);
+      console.log(`[ScheduleScreen] 保存 lastSelectedSemester: ${year}-${term}`);
+    }
+
     // 调用 context 中的方法来获取新学期的课表
     await fetchScheduleBySemester(year, term);
   };
