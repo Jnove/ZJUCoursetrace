@@ -5,7 +5,7 @@ import { SymbolWeight, SymbolViewProps } from "expo-symbols";
 import { ComponentProps } from "react";
 import { OpaqueColorValue, type StyleProp, type TextStyle } from "react-native";
 
-type IconMapping = Record<SymbolViewProps["name"], ComponentProps<typeof MaterialIcons>["name"]>;
+type IconMapping = Partial<Record<SymbolViewProps["name"], ComponentProps<typeof MaterialIcons>["name"] | string>>;
 type IconSymbolName = keyof typeof MAPPING;
 
 /**
@@ -18,6 +18,19 @@ const MAPPING = {
   "paperplane.fill": "send",
   "chevron.left.forwardslash.chevron.right": "code",
   "chevron.right": "chevron-right",
+  "gearshape.2.fill": "settings",
+  "circle.righthalf.fill": "contrast",
+  "sun.max.fill": "light-mode",
+  "moon.fill": "dark-mode",
+  "rectangle.portrait.and.arrow.right": "logout",
+  "person.fill": "person",
+  "location.fill": "location-on",
+  "clock.fill": "access-time-filled",
+  "pencil": "edit",
+  "list.bullet": "format-list-bulleted",
+  "square.grid.2x2": "grid-view",
+  "eye": "visibility",
+  "eye.slash": "visibility-off",
 } as IconMapping;
 
 /**
@@ -37,5 +50,6 @@ export function IconSymbol({
   style?: StyleProp<TextStyle>;
   weight?: SymbolWeight;
 }) {
-  return <MaterialIcons color={color} size={size} name={MAPPING[name]} style={style} />;
+  const iconName = (MAPPING[name] ?? "help-outline") as ComponentProps<typeof MaterialIcons>["name"];
+  return <MaterialIcons color={color} size={size} name={iconName} style={style} />;
 }

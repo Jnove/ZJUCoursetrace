@@ -54,6 +54,7 @@
     "expo-web-browser": "~15.0.10",
     "express": "^4.22.1",
     "jose": "6.1.0",
+    "lunar-javascript": "^1.7.7",
     "mysql2": "^3.16.0",
     "nativewind": "^4.2.1",
     "puppeteer": "^24.36.1",

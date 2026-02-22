@@ -130,7 +130,7 @@ export function registerOAuthRoutes(app: Express) {
 
   app.post("/api/auth/logout", (req: Request, res: Response) => {
     const cookieOptions = getSessionCookieOptions(req);
-    res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+    res.clearCookie(COOKIE_NAME, { ...cookieOptions });
     res.json({ success: true });
   });
 

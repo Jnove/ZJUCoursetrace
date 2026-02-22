@@ -143,14 +143,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     signOut: async () => {
       try {
-        // 1. 调用后端退出登录 API，销毁浏览器实例
         const apiBaseUrl = getApiBaseUrl();
+        const username = state.username;
+
+        // 1. 调用课表服务的退出登录 API，销毁浏览器实例并清除课表缓存
+        await fetch(`${apiBaseUrl}/api/schedule/logout`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ username }),
+        }).catch(err => console.error("课表服务登出请求失败", err));
+
+        // 2. 调用系统认证的退出登录 API，清除会话 Cookie
         await fetch(`${apiBaseUrl}/api/auth/logout`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-        }).catch(err => console.error("后端登出请求失败", err));
+          body: JSON.stringify({ username }),
+        }).catch(err => console.error("系统认证登出请求失败", err));
 
         // 2. 清理所有本地存储的课表缓存
         const keys = await AsyncStorage.getAllKeys();

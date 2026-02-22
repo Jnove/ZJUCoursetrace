@@ -13,8 +13,7 @@ export const CourseSchema = z.object({
   teacher: z.string(),
   location: z.string(),
   time_slot: z.string(),
-  exam_time: z.string().optional(),
-  exam_location: z.string().optional(),
+  exam_info: z.string().optional(),
   day_of_week: z.number().optional(),
   is_single_week: z.boolean().nullable().optional(), // true=单周，false=双周，null=单双周
   period: z.string().optional(),
@@ -40,6 +39,13 @@ export class ZJUService {
   private readonly CAS_URL = "https://zjuam.zju.edu.cn/cas/login";
 
   /**
+   * 检查浏览器是否运行
+   */
+  isBrowserRunning(): boolean {
+    return this.browser !== null && this.page !== null;
+  }
+
+  /**
    * 初始化浏览器
    */
   async initBrowser(): Promise<void> {
@@ -52,9 +58,9 @@ export class ZJUService {
 
     // 尝试使用系统已安装的 Chrome/Chromium
     const executablePath = this.getChromePath();
-    
+
     this.browser = await puppeteer.launch({
-      headless: false,  // 开启可见模式方便调试
+      headless: false,  // false开启可见模式方便调试
       executablePath: executablePath || undefined, // 如果找到系统 Chrome，使用它；否则使用 Puppeteer 管理的版本
       args: [
         "--no-sandbox",
@@ -72,6 +78,18 @@ export class ZJUService {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     );
 
+    // 禁用图片和媒体加载以加速页面加载（保留CSS和字体以确保下拉框正常显示）
+    await this.page.setRequestInterception(true);
+    this.page.on('request', (request) => {
+      const resourceType = request.resourceType();
+      // 只禁用图片和媒体文件
+      if (['image', 'media'].includes(resourceType)) {
+        request.abort();
+      } else {
+        request.continue();
+      }
+    });
+
     // 禁用自动化检测
     await this.page.evaluateOnNewDocument(() => {
       Object.defineProperty(navigator, "webdriver", {
@@ -87,6 +105,49 @@ export class ZJUService {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * 等待元素文本变为指定值
+   */
+  private async waitForTextChange(selector: string, expectedText: string, timeout: number = 3000): Promise<boolean> {
+    if (!this.page) return false;
+    try {
+      await this.page.waitForFunction(
+        (sel, text) => {
+          const element = document.querySelector(sel);
+          return element && element.textContent?.trim() === text;
+        },
+        { timeout },
+        selector,
+        expectedText
+      );
+      return true;
+    } catch (error) {
+      console.log(`⚠️ 等待文本变化超时: ${selector} -> ${expectedText}`);
+      return false;
+    }
+  }
+
+  /**
+   * 等待课表刷新完成（检查 kbgrid_table 或 "尚无您的课表"）
+   */
+  private async waitForScheduleRefresh(timeout: number = 3000): Promise<boolean> {
+    if (!this.page) return false;
+    try {
+      await this.page.waitForFunction(
+        () => {
+          const table = document.getElementById('kbgrid_table');
+          const noDataElement = document.querySelector('.nodata');
+          return table !== null || noDataElement !== null;
+        },
+        { timeout }
+      );
+      return true;
+    } catch (error) {
+      console.log(`⚠️ 等待课表刷新超时`);
+      return false;
+    }
   }
 
   /**
@@ -126,9 +187,21 @@ export class ZJUService {
    */
   async closeBrowser(): Promise<void> {
     if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
-      this.page = null;
+      try {
+        console.log("🚪 正在关闭浏览器...");
+        await this.browser.close();
+        console.log("✅ 浏览器已关闭");
+      } catch (error) {
+        console.error("⚠️ 关闭浏览器失败:", error);
+      } finally {
+        this.browser = null;
+        this.page = null;
+        this.currentUser = null;
+        this.currentYear = null;
+        this.currentTerm = null;
+      }
+    } else {
+      console.log("⚠️ 浏览器未初始化，无需关闭");
     }
   }
 
@@ -152,10 +225,10 @@ export class ZJUService {
       const fullUrl = `${this.CAS_URL}?service=${encodeURIComponent(serviceUrl)}`;
 
       console.log("访问 CAS 登录页面...");
-      await this.page!.goto(fullUrl, { waitUntil: "networkidle2" });
+      await this.page!.goto(fullUrl, { waitUntil: "domcontentloaded" });
 
       // 等待页面加载
-      await this.sleep(1000);
+      await this.page!.waitForSelector("input[name='username']", { timeout: 3000 });
 
       // 查找并填充用户名
       console.log("查找登录表单元素...");
@@ -185,10 +258,10 @@ export class ZJUService {
       let loginButton = null;
 
       const selectors = [
-        "button:has-text('登录')",
+        "#dl",
+        "button:has-text('登 录')",
         "button.btn-login",
         "button[type='submit']",
-        "#dl",
         "input[type='submit']",
       ];
 
@@ -215,7 +288,7 @@ export class ZJUService {
       try {
         await this.page!.waitForFunction(
           () => !window.location.href.includes('cas/login'),
-          { timeout: 15000 }
+          { timeout: 4000 }
         );
         console.log("✅ 已离开 CAS 登录页面");
       } catch {
@@ -227,12 +300,14 @@ export class ZJUService {
         console.log("⚠️ 导航超时，继续...");
       }
 
-      await this.sleep(1000);
       const ssoExists = await this._checkSSO();
       if (ssoExists) {
         console.log("检测到 SSO 登录图片，尝试点击...");
+        await this.sleep(300); // 等待图片加载
         await this._clickSSO();
-        await this.sleep(1000);
+        await this.page?.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 5000 }).catch(() => {
+          console.log("⚠️ 导航超时，继续...");
+        });
       }
 
       this.sessionCookies = await this.page!.cookies();
@@ -270,6 +345,7 @@ export class ZJUService {
    */
   private async _checkSSO(): Promise<boolean> {
     try {
+      await this.page?.waitForSelector("#ssodl", { timeout: 2000 });
       const ssoElement = await this.page!.$("#ssodl");
       return ssoElement !== null;
     } catch {
@@ -282,15 +358,18 @@ export class ZJUService {
    */
   private async _clickSSO(): Promise<boolean> {
     try {
-      const ssoElement = await this.page!.$("#ssodl");
-      if (!ssoElement) {
+      // 直接在该页面上下文中查找元素并调用其 click 方法
+      const clicked = await this.page!.evaluate(() => {
+        const ssoImg = document.querySelector("#ssodl");
+        if (ssoImg) {
+          (ssoImg as HTMLElement).click();  // 强制触发 DOM 点击事件
+          return true;
+        }
         return false;
-      }
-
-      await ssoElement.click();
-      return true;
+      });
+      return clicked;
     } catch (error) {
-      console.error("❌ 点击 SSO 图片时出错:", error);
+      console.error("❌ 强制点击 SSO 图片失败:", error);
       return false;
     }
   }
@@ -308,7 +387,7 @@ export class ZJUService {
       const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
       console.log(`访问课表页面: ${timetableUrl}`);
 
-      await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
+      await this.page.goto(timetableUrl, { waitUntil: "domcontentloaded" });
 
       // 等待课表表格加载
       try {
@@ -320,7 +399,7 @@ export class ZJUService {
       }
 
       const html = await this.page.content();
-      console.log(`✅ 获取到课表 HTML，长度: ${html.length} 字节`);
+      console.log(`✅ 获取到课表 HTML,长度: ${html.length} 字节`);
 
       return html;
     } catch (error) {
@@ -334,12 +413,12 @@ export class ZJUService {
    */
   private _parseCoursDetails(fontElement: cheerio.Cheerio<any>): Record<string, string> {
     const result: Record<string, string> = {};
-    
+
     try {
       // 使用 cheerio 的 contents() 获取所有子节点，然后提取文本
       // 这模拟了 Python BeautifulSoup 的 stripped_strings 行为
       const textLines: string[] = [];
-      
+
       fontElement.contents().each((_, node) => {
         if (node.type === 'text') {
           const text = (node as any).data?.trim();
@@ -556,7 +635,7 @@ export class ZJUService {
       if (fontElement.length === 0) {
         return null;
       }
-      
+
       const courseDetails = this._parseCoursDetails(fontElement);
 
       return {
@@ -721,6 +800,15 @@ export class ZJUService {
                 weekType = null;
               }
 
+              // 合并考试信息
+              let examInfo = "";
+              if (courseInfo.exam_time) {
+                examInfo = `时间: ${courseInfo.exam_time}`;
+                if (courseInfo.exam_location) {
+                  examInfo += `\n地点: ${courseInfo.exam_location}`;
+                }
+              }
+
               const course: Course = {
                 course_id: courseInfo.course_id || "",
                 course_code: courseInfo.course_code || "",
@@ -729,8 +817,7 @@ export class ZJUService {
                 teacher: courseInfo.teacher || "",
                 location: courseInfo.location || "",
                 time_slot: courseInfo.time_slot || "",
-                exam_time: courseInfo.exam_time,
-                exam_location: courseInfo.exam_location,
+                exam_info: examInfo, // 统一使用 exam_info 字段
                 day_of_week: cellInfo.day_of_week,
                 is_single_week: weekType,
                 period: periodRange,
@@ -799,7 +886,7 @@ export class ZJUService {
         }
       });
 
-      // 修正 selected 逻辑：如果没有任何 option 被标记为 selected，尝试从页面元素获取当前值
+      // selected 逻辑：如果没有任何 option 被标记为 selected，尝试从页面元素获取当前值
       let currentYear = yearOptions.find((opt) => opt.selected)?.text;
       let currentTerm = termOptions.find((opt) => opt.selected)?.text;
 
@@ -813,7 +900,7 @@ export class ZJUService {
       // 更新当前选中的学年学期
       this.currentYear = currentYear;
       this.currentTerm = currentTerm;
-      
+
       console.log(`✅ 获取到学年选项: ${yearOptions.length} 个，学期选项: ${termOptions.length} 个`);
       console.log(`当前选中: 学年=${this.currentYear}, 学期=${this.currentTerm}`);
 
@@ -843,13 +930,13 @@ export class ZJUService {
     activeSemesters.push({
       year: current_year,
       term: current_term,
-      label: `${current_year} 第${current_term}学期`,
+      label: `${current_year} ${current_term}学期`,
       is_current: true
     });
 
     // 为了效率，我们只检查最近的几个学年
-    const yearsToCheck = year_options.slice(0, 3); 
-    
+    const yearsToCheck = year_options.slice(0, 3);
+
     for (const year of yearsToCheck) {
       for (const term of term_options) {
         // 跳过当前学期，已经加过了
@@ -866,7 +953,7 @@ export class ZJUService {
           if (nodataDiv) {
             return true;
           }
-          
+
           // 方法2：检查 h3.align-center 下的 span 文本
           const h3Elements = Array.from(document.querySelectorAll("h3.align-center"));
           for (const h3 of h3Elements) {
@@ -875,7 +962,7 @@ export class ZJUService {
               return true;
             }
           }
-          
+
           // 方法3：全局检查 span 文本（兜底）
           const spans = Array.from(document.querySelectorAll("span"));
           return spans.some((span) => span.textContent?.includes("尚无您的课表"));
@@ -886,7 +973,7 @@ export class ZJUService {
           activeSemesters.push({
             year: year.text,
             term: term.text,
-            label: `${year.text} 第${term.text}学期`,
+            label: `${year.text} ${term.text}学期`,
             is_current: false
           });
         }
@@ -894,7 +981,7 @@ export class ZJUService {
     }
 
     // 恢复到当前学期
-    await this.selectSemester(current_year, current_term);
+    //await this.selectSemester(current_year, current_term);
 
     return activeSemesters;
   }
@@ -915,9 +1002,9 @@ export class ZJUService {
           console.log(`❌ 选择学年失败: ${yearText}`);
           return false;
         }
-        // 等待学期选项刷新（切换学年后学期选项会变化）
-        console.log("等待学期选项刷新...");
-        await this.sleep(1000);
+        // 等待学年切换完成（等待 span 文本变为目标学年）
+        await this.waitForTextChange("#xnm_chosen .chosen-single span", yearText, 3000);
+        console.log("✅ 学年切换完成");
       } else if (yearText) {
         console.log(`学年已选中: ${yearText}`);
       }
@@ -930,10 +1017,12 @@ export class ZJUService {
           console.log(`❌ 选择学期失败: ${termText}`);
           return false;
         }
-        // 等待课表数据刷新（因为 #kbgrid_table 元素一直存在，所以等待固定时间）
-        console.log("等待课表数据刷新...");
-        await this.sleep(2000);  // 等待2秒让课表数据刷新
-        console.log("✅ 课表已刷新");
+        // 等待学期切换完成（等待 span 文本变为目标学期）
+        await this.waitForTextChange("#xqm_chosen .chosen-single span", termText, 3000);
+        console.log("✅ 学期切换完成");
+        // 等待课表数据刷新（检查 kbgrid_table 或 "尚无您的课表"）
+        await this.waitForScheduleRefresh(3000);
+        console.log("✅ 课表刷新完成");
       } else if (termText) {
         console.log(`学期已选中: ${termText}`);
       }
@@ -956,7 +1045,7 @@ export class ZJUService {
 
       // 点击打开下拉框
       await this.page.click(`#${chosenId}`);
-      await this.sleep(500);  // 增加等待时间
+      await this.sleep(10);  // 增加等待时间
 
       // 等待下拉框展开（等待 chosen-with-drop 类出现）
       try {
@@ -967,12 +1056,12 @@ export class ZJUService {
       }
 
       // 等待选项列表加载完成
-      await this.sleep(300);
+      await this.sleep(10);
 
       // 在下拉框列表中查找匹配的 li 元素
       const optionSelector = `#${chosenId} .chosen-results li.active-result`;
       const options = await this.page.$$(optionSelector);
-      
+
       if (options.length === 0) {
         console.log(`❌ 未找到任何选项`);
         return false;
@@ -981,11 +1070,11 @@ export class ZJUService {
       // 遍历所有选项，查找匹配的文本
       let found = false;
       const optionTexts: string[] = [];
-      
+
       for (const option of options) {
         const text = await option.evaluate(el => el.textContent?.trim() || "");
         optionTexts.push(text);
-        
+
         if (text === optionText) {
           // 使用 Puppeteer 的 click() 方法点击 li 元素
           await option.click();
@@ -996,21 +1085,21 @@ export class ZJUService {
       }
 
       console.log(`可用选项: ${optionTexts.join(", ")}`);
-      
+
       if (!found) {
         console.log(`❌ 未找到匹配的选项: ${optionText}`);
         return false;
       }
-      
-      await this.sleep(500);
-      
+
+      await this.sleep(10);
+
       // 更新当前选中的学年学期
       if (chosenId === "xnm_chosen") {
         this.currentYear = optionText;
       } else if (chosenId === "xqm_chosen") {
         this.currentTerm = optionText;
       }
-      
+
       return true;
     } catch (error) {
       console.error(`❌ 选择选项时出错: ${error}`);
@@ -1036,7 +1125,7 @@ export class ZJUService {
       if (!currentUrl.includes("xskbcx_cxXskbcxIndex.html")) {
         const timetableUrl = `${this.BASE_URL}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${this.currentUser}`;
         console.log(`跳转到课表页面: ${timetableUrl}`);
-        await this.page.goto(timetableUrl, { waitUntil: "networkidle2" });
+        await this.page.goto(timetableUrl, { waitUntil: "domcontentloaded" });
       }
 
       // 如果指定了学年学期，则直接在当前页面通过下拉框选择
@@ -1055,7 +1144,7 @@ export class ZJUService {
         if (nodataDiv) {
           return true;
         }
-        
+
         // 方法2：检查 h3.align-center 下的 span 文本
         const h3Elements = Array.from(document.querySelectorAll("h3.align-center"));
         for (const h3 of h3Elements) {
@@ -1064,7 +1153,7 @@ export class ZJUService {
             return true;
           }
         }
-        
+
         // 方法3：全局检查 span 文本（兜底）
         const spans = Array.from(document.querySelectorAll("span"));
         return spans.some((span) => span.textContent?.includes("尚无您的课表"));
@@ -1072,15 +1161,15 @@ export class ZJUService {
 
       if (noTimetable) {
         console.log(`ℹ️ 学期 ${yearText} ${termText} 尚无您的课表`);
-        return { 
-          courses: [], 
-          semester_info: { 
-            year_text: yearText, 
-            term_text: termText, 
+        return {
+          courses: [],
+          semester_info: {
+            year_text: yearText,
+            term_text: termText,
             no_data: true,
             school_year: yearText,
             semester: termText
-          } 
+          }
         };
       }
 
