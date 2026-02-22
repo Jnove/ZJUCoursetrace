@@ -28,6 +28,7 @@ export default function ScheduleScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   // 加载学期列表
   useEffect(() => {
@@ -262,7 +263,19 @@ export default function ScheduleScreen() {
                 )}
               </TouchableOpacity>
             </View>
-
+            <View className="flex-row gap-2 items-center justify-center mt-2">
+              <TouchableOpacity
+                onPress={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+                className="bg-surface border border-border rounded-lg px-4 py-3 flex-row items-center gap-2 justify-center"
+              >
+                <IconSymbol
+                name={viewMode === 'grid' ? 'list.bullet' : 'square.grid.2x2'}
+                size={20}
+                color="#888"
+                />
+                <Text className="text-foreground">{viewMode === 'grid' ? '点击切换列表模式' : '点击切换网格模式'}</Text>
+              </TouchableOpacity>
+            </View>
             {showSemesterPicker && (
               <View className="bg-surface border border-border rounded-lg mt-2 overflow-hidden">
                 {semesters.map((semester, index) => (
@@ -288,6 +301,7 @@ export default function ScheduleScreen() {
                 ))}
               </View>
             )}
+            
           </View>
 
           {/* 周次选择器 */}
@@ -327,30 +341,38 @@ export default function ScheduleScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
-
-
           </View>
+            
+          {coursesForWeek.length > 0 && (
             <View className="items-center gap-2 mt-4">
-            <Text className="text-sm text-muted text-center">
-              点击课程块可查看详细信息
-            </Text>
-          </View>
+              <Text className="text-sm text-muted text-center">
+                点击课程块可查看详细信息
+              </Text>
+            </View>
+          )}
           {/* 课表 */}
           <View className="flex-1 px-4 pb-4">
             {coursesForWeek.length === 0 ? (
               <View className="h-96 justify-center items-center">
                 <Text className="text-muted text-center">
-                  本周没有课程
+                  本周没有课程安排
                 </Text>
               </View>
             ) : (
-              <ScheduleTable courses={coursesForWeek} onCoursePress={handleCoursePress} />
+              <ScheduleTable
+                courses={coursesForWeek}
+                onCoursePress={handleCoursePress}
+                mode={viewMode}
+              />
             )}
             </View>
-            
-          <View className="items-center gap-2 mt-4">
+
+          <View className="items-center mt-4">
             <Text className="text-xs text-muted text-center">
-              本课表调休和节假日信息仅供参考，具体以学校通知为准。部分单、双周课程具体情况请依据教学班通知。
+              本课表调休和节假日信息仅供参考，具体以学校通知为准。
+              </Text>
+              <Text className="text-xs text-muted text-center">
+              部分单、双周课程具体情况请依据教学班通知。
             </Text>
           </View>
         </ScrollView>
@@ -373,7 +395,7 @@ export default function ScheduleScreen() {
           <TouchableOpacity
             activeOpacity={1}
             onPress={(e) => e.stopPropagation()}
-            className="w-[90%] max-w-md bg-surface rounded-xl p-5"
+            className="w-[60%] max-w-md bg-surface rounded-xl p-5"
           >
             {/* 关闭按钮 */}
             <View className="flex-row justify-end mb-2">

@@ -9,6 +9,7 @@ import { getApiBaseUrl } from "@/constants/oauth";
 import { getCurrentSemester, SemesterInfo } from "@/lib/semester-utils";
 import { Course } from "@/lib/schedule-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { PasswordInput } from "@/components/password-input";
 
 export default function HomeScreen() {
   const { state: authState, signIn, signOut } = useAuth();
@@ -264,15 +265,12 @@ export default function HomeScreen() {
 
             {/* 密码输入框 */}
             <View>
-              <Text className="text-sm font-semibold text-foreground mb-2">密码</Text>
-              <TextInput
+              {/* <Text className="text-sm font-semibold text-foreground mb-2">密码</Text> */}
+              <PasswordInput
                 placeholder="请输入您的密码"
-                placeholderTextColor="#999"
                 value={password}
                 onChangeText={setPassword}
-                secureTextEntry
-                editable={!loading}
-                className="bg-surface border border-border rounded-lg px-4 py-3 text-foreground"
+                loading={loading}
               />
             </View>
 

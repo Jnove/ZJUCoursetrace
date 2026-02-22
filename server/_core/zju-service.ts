@@ -60,7 +60,7 @@ export class ZJUService {
     const executablePath = this.getChromePath();
 
     this.browser = await puppeteer.launch({
-      headless: true,  // false开启可见模式方便调试
+      headless: false,  // false开启可见模式方便调试
       executablePath: executablePath || undefined, // 如果找到系统 Chrome，使用它；否则使用 Puppeteer 管理的版本
       args: [
         "--no-sandbox",
@@ -259,7 +259,7 @@ export class ZJUService {
 
       const selectors = [
         "#dl",
-        "button:has-text('登录')",
+        "button:has-text('登 录')",
         "button.btn-login",
         "button[type='submit']",
         "input[type='submit']",

@@ -25,8 +25,12 @@ const MAPPING = {
   "rectangle.portrait.and.arrow.right": "logout",
   "person.fill": "person",
   "location.fill": "location-on",
-  "clock.fill": "access_time_filled",
+  "clock.fill": "access-time-filled",
   "pencil": "edit",
+  "list.bullet": "format-list-bulleted",
+  "square.grid.2x2": "grid-view",
+  "eye": "visibility",
+  "eye.slash": "visibility-off",
 } as IconMapping;
 
 /**

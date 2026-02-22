@@ -131,9 +131,8 @@ function convertBackendCourse(backendCourse: any, index: number): Course {
   ];
   
   // 使用课程名称的哈希值来选择颜色
-  // 为了增加相邻课程的差异，我们可以对哈希值进行一些扰动
   const hash = hashString(backendCourse.course_name);
-  const colorIndex = (hash ) % colors.length;
+  const colorIndex = (hash * 7 + 1) % colors.length;
 
   // 解析周次范围
   let weekStart = 1;
