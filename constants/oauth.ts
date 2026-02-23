@@ -114,7 +114,7 @@ export async function startOAuthLogin(): Promise<string | null> {
 
   if (ReactNative.Platform.OS === "web") {
     // On web, just redirect
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && window.location) {
       window.location.href = loginUrl;
     }
     return null;

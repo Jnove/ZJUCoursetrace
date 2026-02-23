@@ -103,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const apiBaseUrl = getApiBaseUrl();
         console.log("[Auth] API Base URL:", apiBaseUrl);
         console.log("[Auth] Platform:", typeof window !== "undefined" ? "web" : "native");
-        if (typeof window !== "undefined") {
+        if (typeof window !== "undefined" && window.location) {
           console.log("[Auth] Window location:", window.location.href);
         }
         const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
