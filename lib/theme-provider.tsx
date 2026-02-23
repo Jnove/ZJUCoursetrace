@@ -35,8 +35,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // 应用主题到 NativeWind 和 CSS 变量
   useEffect(() => {
-    nativewindColorScheme.set(resolvedTheme);
-    Appearance.setColorScheme?.(resolvedTheme);
+    // NativeWind 3.0+ 使用 setColorScheme
+    if (nativewindColorScheme.setColorScheme) {
+      nativewindColorScheme.setColorScheme(resolvedTheme);
+    } else {
+      nativewindColorScheme.set(resolvedTheme);
+    }
+
+    // 在移动端，Appearance.setColorScheme 也会影响系统 UI
+    if (Platform.OS !== 'web') {
+      Appearance.setColorScheme(resolvedTheme);
+    }
+
     if (typeof document !== "undefined") {
       const root = document.documentElement;
       root.dataset.theme = resolvedTheme;
@@ -47,6 +57,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       });
     }
   }, [resolvedTheme]);
+
+  // 监听系统主题变化
+  useEffect(() => {
+    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
+      if (themePreference === 'system') {
+        // 当偏好为系统时，Appearance 变化会自动触发重新渲染
+        // 因为 systemScheme 是通过 useSystemColorScheme() 获取的
+      }
+    });
+    return () => subscription.remove();
+  }, [themePreference]);
 
   const setThemePreference = async (pref: ThemePreference) => {
     setThemePreferenceState(pref);
