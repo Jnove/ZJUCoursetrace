@@ -2,14 +2,14 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { Appearance, View, useColorScheme as useSystemColorScheme } from "react-native";
 import { colorScheme as nativewindColorScheme, vars } from "nativewind";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
+import { Platform } from "react-native";
 import { SchemeColors, type ColorScheme } from "@/constants/theme";
 
 type ThemePreference = 'light' | 'dark' | 'system';
 type ThemeContextValue = {
-  themePreference: ThemePreference;        // 用户选择的模式
+  themePreference: ThemePreference;
   setThemePreference: (pref: ThemePreference) => void;
-  resolvedTheme: 'light' | 'dark';          // 实际应用的主题（跟随系统时解析后的值）
+  resolvedTheme: 'light' | 'dark';
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -33,21 +33,31 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const resolvedTheme: 'light' | 'dark' =
     themePreference === 'system' ? systemScheme : themePreference;
 
-  // 应用主题到 NativeWind 和 CSS 变量
+  // 应用主题到 NativeWind 和系统 Appearance
   useEffect(() => {
-    // NativeWind 3.0+ 使用 setColorScheme
-    if (nativewindColorScheme.setColorScheme) {
-      nativewindColorScheme.setColorScheme(resolvedTheme);
-    } else {
-      nativewindColorScheme.set(resolvedTheme);
+    // --- 设置 NativeWind 主题 ---
+    // 兼容不同版本：优先使用 .set()，降级使用 .setColorScheme()
+    if (nativewindColorScheme) {
+      if (typeof nativewindColorScheme.set === 'function') {
+        nativewindColorScheme.set(resolvedTheme);
+      } else if (typeof nativewindColorScheme.setColorScheme === 'function') {
+        nativewindColorScheme.setColorScheme(resolvedTheme);
+      }
     }
 
-    // 在移动端，Appearance.setColorScheme 也会影响系统 UI
+    // --- 控制移动端系统 Appearance ---
     if (Platform.OS !== 'web') {
-      Appearance.setColorScheme(resolvedTheme);
+      if (themePreference === 'system') {
+        // 系统模式：清除应用覆盖，让系统自动控制
+        Appearance.setColorScheme(null);
+      } else {
+        // 用户明确选择亮/暗：强制设置应用主题
+        Appearance.setColorScheme(resolvedTheme);
+      }
     }
 
-    if (typeof document !== "undefined") {
+    // --- Web 端 CSS 变量设置 ---
+    if (typeof document !== 'undefined') {
       const root = document.documentElement;
       root.dataset.theme = resolvedTheme;
       root.classList.toggle("dark", resolvedTheme === "dark");
@@ -56,18 +66,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         root.style.setProperty(`--color-${token}`, value);
       });
     }
-  }, [resolvedTheme]);
-
-  // 监听系统主题变化
-  useEffect(() => {
-    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
-      if (themePreference === 'system') {
-        // 当偏好为系统时，Appearance 变化会自动触发重新渲染
-        // 因为 systemScheme 是通过 useSystemColorScheme() 获取的
-      }
-    });
-    return () => subscription.remove();
-  }, [themePreference]);
+  }, [resolvedTheme, themePreference]); // 注意依赖项包含 themePreference
 
   const setThemePreference = async (pref: ThemePreference) => {
     setThemePreferenceState(pref);

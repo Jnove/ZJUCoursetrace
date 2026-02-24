@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Image, Modal} from "react-native";
+import { useState, useEffect, useRef } from "react";
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Image, Modal } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScheduleTable } from "@/components/schedule-table";
@@ -29,6 +29,11 @@ export default function ScheduleScreen() {
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  // 轮询相关
+  const pollingTimerRef = useRef<number | null>(null); 
+  const retryCountRef = useRef(0);
+  const MAX_RETRY = 15; // 最多尝试15次，每次间隔3秒，共45秒
 
   // 加载学期列表
   useEffect(() => {
@@ -62,6 +67,34 @@ export default function ScheduleScreen() {
     loadInitialData();
   }, []);
 
+  // 轮询：当学期列表为空且未加载时，定时拉取活跃学期列表
+  useEffect(() => {
+    // 清理之前的定时器
+    if (pollingTimerRef.current) {
+      clearInterval(pollingTimerRef.current);
+      pollingTimerRef.current = null;
+    }
+
+    // 重置重试计数（当 semesters 有数据或加载状态变化时，重置计数）
+    if (semesters.length > 0 || loadingSemesters) {
+      retryCountRef.current = 0;
+    }
+
+    // 开始轮询的条件：学期列表为空，且没有正在加载，且未超过最大重试次数
+    if (semesters.length === 0 && !loadingSemesters && retryCountRef.current < MAX_RETRY) {
+      pollingTimerRef.current = setInterval(() => {
+        retryCountRef.current += 1;
+        fetchActiveSemesters();
+      }, 3000); // 每3秒请求一次
+    }
+
+    return () => {
+      if (pollingTimerRef.current) {
+        clearInterval(pollingTimerRef.current);
+      }
+    };
+  }, [semesters, loadingSemesters]);
+
   const fetchSemesters = async () => {
     try {
       setLoadingSemesters(true);
@@ -86,7 +119,7 @@ export default function ScheduleScreen() {
             setSemesters([{
               year: currentYear,
               term: currentTerm,
-              label: `${currentYear} 第${currentTerm}学期`
+              label: `${currentYear} ${currentTerm}学期`
             }]);
           }
         }
@@ -152,8 +185,6 @@ export default function ScheduleScreen() {
       setCurrentWeek(state.currentWeek + 1);
     }
   };
-
-
 
   const handleRefresh = async () => {
     try {

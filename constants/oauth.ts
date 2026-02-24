@@ -1,11 +1,10 @@
 import * as Linking from "expo-linking";
 import * as ReactNative from "react-native";
 
-// Extract scheme from bundle ID (last segment timestamp, prefixed with "manus")
-// e.g., "space.manus.my.app.t20240115103045" -> "manus20240115103045"
-const bundleId = "space.manus.zju.schedule.app.t20260201071231";
+// Extract scheme from bundle ID 
+const bundleId = "zju.schedule.app.t20260224143431";
 const timestamp = bundleId.split(".").pop()?.replace(/^t/, "") ?? "";
-const schemeFromBundleId = `manus${timestamp}`;
+const schemeFromBundleId = `zju-schedule-app${timestamp}`;
 
 const env = {
   portal: process.env.EXPO_PUBLIC_OAUTH_PORTAL_URL ?? "",
@@ -43,12 +42,12 @@ export function getApiBaseUrl(): string {
     if (apiHostname !== hostname) {
       return `${protocol}//${apiHostname}`;
     }
-    
+
     // If no port replacement happened, try to use localhost:3000 for development
     if (hostname === "localhost" || hostname === "127.0.0.1") {
       return `${protocol}//localhost:3000`;
     }
-    
+
     // Otherwise use the current hostname with port 3000
     return `${protocol}//${hostname.split(":")[0]}:3000`;
   }

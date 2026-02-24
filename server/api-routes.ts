@@ -134,8 +134,8 @@ async function fetchAllSemestersInBackground(username: string, service: ZJUServi
       });
     }
 
-    // 遍历最近3个学年
-    const yearsToCheck = year_options.slice(0, 3);
+    // 遍历最近5个学年
+    const yearsToCheck = year_options.slice(0, 5);
 
     for (const year of yearsToCheck) {
       for (const term of term_options) {

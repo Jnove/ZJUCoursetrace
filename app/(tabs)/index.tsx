@@ -104,7 +104,6 @@ export default function HomeScreen() {
     try {
       await signIn(username, password);
       // 登录成功后获取课表
-      await fetchSchedule();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setUsername("");
       setPassword("");
