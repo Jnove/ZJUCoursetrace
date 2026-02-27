@@ -1,6 +1,7 @@
 import React, { createContext, useReducer, useCallback, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApiBaseUrl } from "@/constants/oauth";
+import { Platform } from "react-native";
 
 export type AuthState = {
   isLoading: boolean;
@@ -102,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // 调用后端 CAS 登录 API
         const apiBaseUrl = getApiBaseUrl();
         console.log("[Auth] API Base URL:", apiBaseUrl);
-        console.log("[Auth] Platform:", typeof window !== "undefined" ? "web" : "native");
+        console.log("[Auth] Platform:", Platform.OS);
         if (typeof window !== "undefined" && window.location) {
           console.log("[Auth] Window location:", window.location.href);
         }
