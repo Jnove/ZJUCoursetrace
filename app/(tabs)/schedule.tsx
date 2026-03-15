@@ -4,12 +4,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScheduleTable } from "@/components/schedule-table";
 import { useSchedule } from "@/lib/schedule-context";
-import { useRouter } from "expo-router";
 import { cn } from "@/lib/utils";
 import { getApiBaseUrl } from "@/constants/oauth";
 import CourseDetailContent from "@/app/courseDetailContent";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { SFSymbol } from "expo-symbols";
 import { SFSymbols7_0 } from "sf-symbols-typescript";
 
 interface SemesterOption {
@@ -19,8 +17,7 @@ interface SemesterOption {
 }
 
 export default function ScheduleScreen() {
-  const { state, setCurrentWeek, getCoursesForWeek, fetchScheduleBySemester } = useSchedule();
-  //const router = useRouter();
+  const { state, fetchScheduleBySemester } = useSchedule();
   const [semesters, setSemesters] = useState<SemesterOption[]>([]);
   const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
   const [showSemesterPicker, setShowSemesterPicker] = useState(false);
@@ -29,18 +26,18 @@ export default function ScheduleScreen() {
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [filterType, setFilterType] = useState<'all' | 'single' | 'double'>('all'); // 新增筛选状态
 
   // 轮询相关
-  const pollingTimerRef = useRef<number | null>(null); 
+  const pollingTimerRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
-  const MAX_RETRY = 15; // 最多尝试15次，每次间隔3秒，共45秒
+  const MAX_RETRY = 15;
 
   // 加载学期列表
   useEffect(() => {
     const loadInitialData = async () => {
       const username = await AsyncStorage.getItem("username");
       if (username) {
-        // 尝试从缓存加载活跃学期列表
         try {
           const cachedActiveSemesters = await AsyncStorage.getItem(`activeSemesters_${username}`);
           if (cachedActiveSemesters) {
@@ -51,7 +48,6 @@ export default function ScheduleScreen() {
           console.warn("[ScheduleScreen] 从缓存加载活跃学期列表失败", e);
         }
 
-        // 尝试从缓存加载上次选择的学期
         try {
           const cachedSelectedSemester = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
           if (cachedSelectedSemester) {
@@ -62,12 +58,12 @@ export default function ScheduleScreen() {
           console.warn("[ScheduleScreen] 从缓存加载上次选择的学期失败", e);
         }
       }
-      fetchSemesters(); // 无论是否从缓存加载，都尝试从 API 获取最新数据
+      fetchSemesters();
     };
     loadInitialData();
   }, []);
 
-  // 轮询：当学期列表为空且未加载时，定时拉取活跃学期列表
+  // 轮询
   useEffect(() => {
     // 清理之前的定时器
     if (pollingTimerRef.current) {
@@ -79,15 +75,12 @@ export default function ScheduleScreen() {
     if (semesters.length > 0 || loadingSemesters) {
       retryCountRef.current = 0;
     }
-
-    // 开始轮询的条件：学期列表为空，且没有正在加载，且未超过最大重试次数
     if (semesters.length === 0 && !loadingSemesters && retryCountRef.current < MAX_RETRY) {
       pollingTimerRef.current = setInterval(() => {
         retryCountRef.current += 1;
         fetchActiveSemesters();
-      }, 3000); // 每3秒请求一次
+      }, 1000);
     }
-
     return () => {
       if (pollingTimerRef.current) {
         clearInterval(pollingTimerRef.current);
@@ -99,22 +92,19 @@ export default function ScheduleScreen() {
     try {
       setLoadingSemesters(true);
       const apiBaseUrl = getApiBaseUrl();
-      
-      // 1. 先获取基础学期选项，用于默认选择当前学期
+
       const response = await fetch(`${apiBaseUrl}/api/schedule/semester-options`);
       const data = await response.json();
 
       if (data.success) {
         const currentYear = data.current_year;
         const currentTerm = data.current_term;
-        
+
         if (currentYear && currentTerm) {
-          // 如果没有从缓存加载 selectedSemester，则设置为当前学期
           if (!selectedSemester) {
             setSelectedSemester(`${currentYear}-${currentTerm}`);
             console.log(`[ScheduleScreen] 设置默认当前学期: ${currentYear}-${currentTerm}`);
           }
-          // 如果 semesters 为空，则初始显示当前学期
           if (semesters.length === 0) {
             setSemesters([{
               year: currentYear,
@@ -123,8 +113,6 @@ export default function ScheduleScreen() {
             }]);
           }
         }
-
-        // 2. 后台异步获取所有“有课”的学期，并更新缓存
         fetchActiveSemesters();
       }
     } catch (err) {
@@ -137,13 +125,12 @@ export default function ScheduleScreen() {
   const fetchActiveSemesters = async () => {
     try {
       const apiBaseUrl = getApiBaseUrl();
-      // 从 AsyncStorage 获取用户名
       const username = await AsyncStorage.getItem("username");
       if (!username) {
         console.error("未找到用户名，无法获取有课学期列表");
         return;
       }
-      
+
       const response = await fetch(`${apiBaseUrl}/api/schedule/active-semesters?username=${encodeURIComponent(username)}`);
       const data = await response.json();
 
@@ -157,33 +144,25 @@ export default function ScheduleScreen() {
     }
   };
 
-  const coursesForWeek = getCoursesForWeek(state.currentWeek);
+  // 根据筛选类型过滤课程
+  const filteredCourses = (state.courses || []).filter(course => {
+    if (filterType === 'all') return true;
+    if (filterType === 'single') return course.isSingleWeek !== 'double';
+    if (filterType === 'double') return course.isSingleWeek !== 'single';
+    return true;
+  });
 
   const handleSemesterChange = async (year: string, term: string) => {
     setSelectedSemester(`${year}-${term}`);
     setShowSemesterPicker(false);
-    
-    // 保存当前选中的学期到 AsyncStorage
+
     const username = await AsyncStorage.getItem("username");
     if (username) {
       await AsyncStorage.setItem(`lastSelectedSemester_${username}`, `${year}-${term}`);
       console.log(`[ScheduleScreen] 保存 lastSelectedSemester: ${year}-${term}`);
     }
 
-    // 调用 context 中的方法来获取新学期的课表
     await fetchScheduleBySemester(year, term);
-  };
-
-  const handlePrevWeek = () => {
-    if (state.currentWeek > 1) {
-      setCurrentWeek(state.currentWeek - 1);
-    }
-  };
-
-  const handleNextWeek = () => {
-    if (state.currentWeek < 20) {
-      setCurrentWeek(state.currentWeek + 1);
-    }
   };
 
   const handleRefresh = async () => {
@@ -202,9 +181,8 @@ export default function ScheduleScreen() {
         return;
       }
 
-      // 逐个刷新每个学期（串行执行）
       for (const semester of semesters) {
-        const semesterParam = `${semester.year}_${semester.term}`; // 转换为 year_term 格式
+        const semesterParam = `${semester.year}_${semester.term}`;
         console.log(`[Frontend] Refreshing semester: ${semesterParam}`);
 
         try {
@@ -216,17 +194,14 @@ export default function ScheduleScreen() {
 
           const result = await response.json();
           if (!result.success) {
-            // 单个学期刷新失败，给出警告并继续下一个学期（可根据需求改为中断）
             Alert.alert("警告", `${semester.label} 刷新失败: ${result.error || "未知错误"}，继续刷新其他学期`);
           }
         } catch (err) {
           console.error(`刷新学期 ${semester.label} 失败:`, err);
           Alert.alert("警告", `${semester.label} 刷新失败，请稍后重试`);
-          // 继续处理下一个学期，不中断
         }
       }
 
-      // 所有学期刷新尝试结束后，重新获取当前选中学期的课表以更新界面
       if (selectedSemester) {
         const [year, term] = selectedSemester.split("-");
         await fetchScheduleBySemester(year, term);
@@ -246,7 +221,6 @@ export default function ScheduleScreen() {
     setModalVisible(true);
   };
 
-  // 关闭弹窗
   const closeModal = () => {
     setModalVisible(false);
     setSelectedCourse(null);
@@ -261,7 +235,7 @@ export default function ScheduleScreen() {
         </View>
       ) : (
         <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-           {/* 学期选择器和刷新按钮 */}
+          {/* 学期选择器和刷新按钮 */}
           <View className="px-4 pt-4 pb-2">
             <View className="flex-row gap-2">
               <TouchableOpacity
@@ -294,19 +268,7 @@ export default function ScheduleScreen() {
                 )}
               </TouchableOpacity>
             </View>
-            <View className="flex-row gap-2 items-center justify-center mt-2">
-              <TouchableOpacity
-                onPress={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
-                className="bg-surface border border-border rounded-lg px-4 py-3 flex-row items-center gap-2 justify-center"
-              >
-                <IconSymbol
-                name={viewMode === 'grid' ? 'list.bullet' : 'square.grid.2x2'}
-                size={20}
-                color="#888"
-                />
-                <Text className="text-foreground">{viewMode === 'grid' ? '点击切换列表模式' : '点击切换网格模式'}</Text>
-              </TouchableOpacity>
-            </View>
+
             {showSemesterPicker && (
               <View className="bg-surface border border-border rounded-lg mt-2 overflow-hidden">
                 {semesters.map((semester, index) => (
@@ -332,103 +294,109 @@ export default function ScheduleScreen() {
                 ))}
               </View>
             )}
-            
-          </View>
-
-          {/* 周次选择器 */}
-          <View className="px-4 py-4 gap-4">
-            {/* 周次显示和导航 */}
-            <View className="flex-row items-center justify-between">
+              
+            {/* 视图切换按钮 */}
+            <View className="flex-row gap-2 items-center justify-center mt-2">
               <TouchableOpacity
-                onPress={handlePrevWeek}
-                disabled={state.currentWeek === 1}
-                className={cn(
-                  "px-4 py-2 rounded-lg",
-                  state.currentWeek === 1 ? "bg-surface opacity-50" : "bg-primary"
-                )}
+                onPress={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+                className="bg-surface border border-border rounded-lg px-4 py-3 flex-row items-center gap-2 justify-center"
               >
-                <Text className={cn("font-semibold", state.currentWeek === 1 ? "text-muted" : "text-white")}>
-                  上一周
-                </Text>
-              </TouchableOpacity>
-
-              <View className="items-center">
-                <Text className="text-2xl font-bold text-foreground">第 {state.currentWeek} 周</Text>
-                <Text className="text-xs text-muted mt-1">
-                  {state.currentWeek % 2 === 1 ? "单周" : "双周"}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                onPress={handleNextWeek}
-                disabled={state.currentWeek === 8}
-                className={cn(
-                  "px-4 py-2 rounded-lg",
-                  state.currentWeek === 8 ? "bg-surface opacity-50" : "bg-primary"
-                )}
-              >
-                <Text className={cn("font-semibold", state.currentWeek === 8 ? "text-muted" : "text-white")}>
-                  下一周
+                <IconSymbol
+                  name={viewMode === 'grid' ? 'list.bullet' : 'square.grid.2x2'}
+                  size={20}
+                  color="#888"
+                />
+                <Text className="text-foreground">
+                  {viewMode === 'grid' ? '点击切换列表模式' : '点击切换网格模式'}
                 </Text>
               </TouchableOpacity>
             </View>
-          </View>
             
-          {coursesForWeek.length > 0 && (
+            {/* 单双周筛选按钮 */}
+            <View className="flex-row gap-2 mt-2">
+              {[
+                { label: '全部', value: 'all' },
+                { label: '单周', value: 'single' },
+                { label: '双周', value: 'double' },
+              ].map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  onPress={() => setFilterType(option.value as typeof filterType)}
+                  className={cn(
+                    "flex-1 py-2 rounded-lg items-center",
+                    filterType === option.value
+                      ? "bg-primary"
+                      : "bg-surface border border-border"
+                  )}
+                >
+                  <Text
+                    className={cn(
+                      "font-medium",
+                      filterType === option.value ? "text-white" : "text-foreground"
+                    )}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+          </View>
+
+
+          {filteredCourses.length > 0 && (
             <View className="items-center gap-2 mt-4">
               <Text className="text-sm text-muted text-center">
                 点击课程块可查看详细信息
               </Text>
             </View>
           )}
+
           {/* 课表 */}
           <View className="flex-1 px-4 pb-4">
-            {coursesForWeek.length === 0 ? (
+            {filteredCourses.length === 0 ? (
               <View className="h-96 justify-center items-center">
                 <Text className="text-muted text-center">
-                  本周没有课程安排
+                  当前筛选条件下没有课程
                 </Text>
               </View>
             ) : (
               <ScheduleTable
-                courses={coursesForWeek}
+                courses={filteredCourses}
                 onCoursePress={handleCoursePress}
                 mode={viewMode}
               />
             )}
-            </View>
+          </View>
 
           <View className="items-center mt-4">
             <Text className="text-xs text-muted text-center">
               本课表调休和节假日信息仅供参考，具体以学校通知为准。
-              </Text>
-              <Text className="text-xs text-muted text-center">
+            </Text>
+            <Text className="text-xs text-muted text-center">
               部分单、双周课程具体情况请依据教学班通知。
             </Text>
           </View>
         </ScrollView>
       )}
 
-      {/* 课程详情弹窗 */}
+      {/* 课程详情弹窗（保持不变） */}
       <Modal
         visible={modalVisible}
         transparent={true}
         animationType="fade"
         onRequestClose={closeModal}
       >
-        {/* 半透明背景遮罩，点击关闭 */}
         <TouchableOpacity
           style={{ flex: 1, backgroundColor: 'rgba(255, 255, 255, 0.5)', justifyContent: 'center', alignItems: 'center' }}
           activeOpacity={1}
           onPress={closeModal}
         >
-          {/* 弹窗内容容器，阻止点击事件冒泡到遮罩 */}
           <TouchableOpacity
             activeOpacity={1}
             onPress={(e) => e.stopPropagation()}
             className="w-[60%] max-w-md bg-surface rounded-xl p-5"
           >
-            {/* 关闭按钮 */}
             <View className="flex-row justify-end mb-2">
               <TouchableOpacity onPress={closeModal} className="p-2">
                 <Text className="text-muted text-lg">✕</Text>
@@ -445,7 +413,7 @@ export default function ScheduleScreen() {
                     ? "single"
                     : selectedCourse.isSingleWeek === 2
                     ? "double"
-                    : "" // 单双周
+                    : ""
                 }
                 examInfo={selectedCourse.examInfo}
               />
@@ -454,17 +422,5 @@ export default function ScheduleScreen() {
         </TouchableOpacity>
       </Modal>
     </ScreenContainer>
-  );
-}
-
-// 辅助组件：信息行（可根据需要提取到单独文件）
-function InfoRow({ icon, label, value }: { icon: SFSymbols7_0; label: string; value: string }) {
-  return (
-    <View className="flex-row items-center gap-3">
-      {/* 这里需要根据你的 IconSymbol 组件调整 */}
-      <IconSymbol name={icon} size={20} color="#888" />
-      <Text className="text-foreground font-medium">{label}:</Text>
-      <Text className="text-foreground flex-1">{value}</Text>
-    </View>
   );
 }

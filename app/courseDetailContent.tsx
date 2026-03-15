@@ -68,7 +68,7 @@ export default function CourseDetailContent({
         </View>
 
         {/* 周次类型 */}
-        <View className="gap-2 border-t border-border pt-4">
+        {/* <View className="gap-2 border-t border-border pt-4">
           <Text className="text-xs text-muted font-semibold">周次类型</Text>
           <View className="flex-row items-center gap-2">
             <View className={cn("px-3 py-1 rounded-full", weekTypeStyles.container)}>
@@ -77,7 +77,7 @@ export default function CourseDetailContent({
               </Text>
             </View>
           </View>
-        </View>
+        </View> */}
       </View>
 
       {/* 考试信息 */}

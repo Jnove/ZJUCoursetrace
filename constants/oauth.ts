@@ -1,5 +1,6 @@
 import * as Linking from "expo-linking";
 import * as ReactNative from "react-native";
+import { getCurrentApiBaseUrl } from '@/lib/api-url';
 
 // Extract scheme from bundle ID 
 const bundleId = "zju.schedule.app.t20260224143431";
@@ -28,7 +29,7 @@ export const API_BASE_URL = env.apiBaseUrl;
  * Metro runs on 8081, API server runs on 3000.
  * URL pattern: https://PORT-sandboxid.region.domain
  */
-export function getApiBaseUrl(): string {
+export function getDefaultApiBaseUrl(): string {
   // If API_BASE_URL is set, use it
   if (API_BASE_URL) {
     return API_BASE_URL.replace(/\/$/, "");
@@ -54,6 +55,10 @@ export function getApiBaseUrl(): string {
 
   // Fallback to empty (will use relative URL)
   return "";
+}
+
+export function getApiBaseUrl(): string {
+  return getCurrentApiBaseUrl();
 }
 
 export const SESSION_TOKEN_KEY = "app_session_token";

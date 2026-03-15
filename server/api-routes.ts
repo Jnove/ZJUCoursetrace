@@ -693,4 +693,16 @@ router.post("/schedule/logout", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * 测试 API 连通性
+ * GET /api/test
+ */
+router.get("/test", (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    message: "API is working",
+    timestamp: Date.now()
+  });
+});
+
 export default router;

@@ -13,7 +13,12 @@
       "@shared/*": [
         "./shared/*"
       ]
-    }
+    },
+    "plugins": [
+      {
+        "name": "expo-router"
+      }
+    ]
   },
   "include": [
     "**/*.ts",

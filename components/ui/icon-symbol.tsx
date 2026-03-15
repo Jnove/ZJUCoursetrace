@@ -31,6 +31,7 @@ const MAPPING = {
   "square.grid.2x2": "grid-view",
   "eye": "visibility",
   "eye.slash": "visibility-off",
+  "chevron.left": "chevron-left"
 } as IconMapping;
 
 /**
