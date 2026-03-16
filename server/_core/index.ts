@@ -2,10 +2,6 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
-import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
-import { appRouter } from "../routers";
-import { createContext } from "./context";
 import apiRoutes from "../api-routes";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -55,7 +51,6 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  registerOAuthRoutes(app);
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });
@@ -64,23 +59,6 @@ async function startServer() {
   // 注册自定义 API 路由
   app.use("/api", apiRoutes);
 
-  app.use(
-    "/api/trpc",
-    createExpressMiddleware({
-      router: appRouter,
-      createContext,
-      responseMeta({ type, errors }) {
-        const allOk = errors.length === 0;
-        const isQuery = type === "query";
-        return {
-          status: allOk ? 200 : 400,
-          headers: {
-            "content-type": "application/json",
-          },
-        };
-      },
-    }),
-  );
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);

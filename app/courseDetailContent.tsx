@@ -83,7 +83,7 @@ export default function CourseDetailContent({
       {/* 考试信息 */}
       {examInfo && (
         <View className="bg-surface border border-orange-400 rounded-lg p-6 gap-2">
-          <Text className="text-sm text-muted font-semibold">📝考试信息</Text>
+          <Text className="text-sm text-muted font-semibold">考试信息</Text>
           <Text className="text-base text-foreground">{examInfo}</Text>
         </View>
       )}
