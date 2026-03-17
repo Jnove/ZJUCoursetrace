@@ -287,7 +287,7 @@ export class ZJUService {
       console.log("等待登录完成...");
       try {
         await this.page!.waitForFunction(
-          () => !window.location.href.includes('cas/login'),
+          () => document.title !== '统一身份认证平台',
           { timeout: 4000 }
         );
         console.log("✅ 已离开 CAS 登录页面");

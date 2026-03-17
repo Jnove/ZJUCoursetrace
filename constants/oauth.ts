@@ -1,11 +1,11 @@
 import * as Linking from "expo-linking";
 import * as ReactNative from "react-native";
+import { getCurrentApiBaseUrl } from '@/lib/api-url';
 
-// Extract scheme from bundle ID (last segment timestamp, prefixed with "manus")
-// e.g., "space.manus.my.app.t20240115103045" -> "manus20240115103045"
-const bundleId = "space.manus.zju.schedule.app.t20260201071231";
+// Extract scheme from bundle ID 
+const bundleId = "zju.schedule.app.t20260224143431";
 const timestamp = bundleId.split(".").pop()?.replace(/^t/, "") ?? "";
-const schemeFromBundleId = `manus${timestamp}`;
+const schemeFromBundleId = `zju-schedule-app${timestamp}`;
 
 const env = {
   portal: process.env.EXPO_PUBLIC_OAUTH_PORTAL_URL ?? "",
@@ -29,7 +29,7 @@ export const API_BASE_URL = env.apiBaseUrl;
  * Metro runs on 8081, API server runs on 3000.
  * URL pattern: https://PORT-sandboxid.region.domain
  */
-export function getApiBaseUrl(): string {
+export function getDefaultApiBaseUrl(): string {
   // If API_BASE_URL is set, use it
   if (API_BASE_URL) {
     return API_BASE_URL.replace(/\/$/, "");
@@ -43,18 +43,22 @@ export function getApiBaseUrl(): string {
     if (apiHostname !== hostname) {
       return `${protocol}//${apiHostname}`;
     }
-    
+
     // If no port replacement happened, try to use localhost:3000 for development
     if (hostname === "localhost" || hostname === "127.0.0.1") {
       return `${protocol}//localhost:3000`;
     }
-    
+
     // Otherwise use the current hostname with port 3000
     return `${protocol}//${hostname.split(":")[0]}:3000`;
   }
 
   // Fallback to empty (will use relative URL)
   return "";
+}
+
+export function getApiBaseUrl(): string {
+  return getCurrentApiBaseUrl();
 }
 
 export const SESSION_TOKEN_KEY = "app_session_token";
@@ -114,7 +118,7 @@ export async function startOAuthLogin(): Promise<string | null> {
 
   if (ReactNative.Platform.OS === "web") {
     // On web, just redirect
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && window.location) {
       window.location.href = loginUrl;
     }
     return null;

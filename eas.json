@@ -11,11 +11,19 @@
     "preview": {
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "http://10.207.235.129:3000",
+        "ENCRYPTION_KEY":"7bea86e0d31741fb09000d2e4addd7d564366f333d6e6cae056485b168ce17f8"
       }
     },
     "production": {
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "http://10.207.235.129:3000",
+        "ENCRYPTION_KEY":"7bea86e0d31741fb09000d2e4addd7d564366f333d6e6cae056485b168ce17f8"
       }
     }
   },

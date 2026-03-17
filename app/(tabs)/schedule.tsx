@@ -1,16 +1,19 @@
-import { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Image, Modal} from "react-native";
+import { useState, useEffect, useRef } from "react";
+import {
+  View, Text, TouchableOpacity, ScrollView,
+  ActivityIndicator, Alert, Modal, Pressable, Image,
+} from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScheduleTable } from "@/components/schedule-table";
 import { useSchedule } from "@/lib/schedule-context";
-import { useRouter } from "expo-router";
-import { cn } from "@/lib/utils";
 import { getApiBaseUrl } from "@/constants/oauth";
 import CourseDetailContent from "@/app/courseDetailContent";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { SFSymbol } from "expo-symbols";
-import { SFSymbols7_0 } from "sf-symbols-typescript";
+import { useColors } from "@/hooks/use-colors";
+import { Course } from "@/lib/schedule-context";
+import { captureRef } from "react-native-view-shot";
+import * as Sharing from "expo-sharing";
 
 interface SemesterOption {
   year: string;
@@ -19,83 +22,85 @@ interface SemesterOption {
 }
 
 export default function ScheduleScreen() {
-  const { state, setCurrentWeek, getCoursesForWeek, fetchScheduleBySemester } = useSchedule();
-  //const router = useRouter();
+  const { state, fetchScheduleBySemester } = useSchedule();
+  const colors = useColors();
+
   const [semesters, setSemesters] = useState<SemesterOption[]>([]);
   const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
   const [showSemesterPicker, setShowSemesterPicker] = useState(false);
   const [loadingSemesters, setLoadingSemesters] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedCourse, setSelectedCourse] = useState<any>(null);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [filterType, setFilterType] = useState<"all" | "single" | "double">("all");
+  const [tableAvailableH, setTableAvailableH] = useState(0);
+  const [isDownloading, setIsDownloading] = useState(false);
 
-  // 加载学期列表
+  // Modals
+  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [overlappingCourses, setOverlappingCourses] = useState<Course[]>([]);
+  const [overlapVisible, setOverlapVisible] = useState(false);
+
+  // Ref for screenshot capture
+  const captureViewRef = useRef<View>(null);
+
+  const pollingTimerRef = useRef<number | null>(null);
+  const retryCountRef = useRef(0);
+  const MAX_RETRY = 15;
+
+  // ── Init ──────────────────────────────────────────────────────
   useEffect(() => {
     const loadInitialData = async () => {
       const username = await AsyncStorage.getItem("username");
       if (username) {
-        // 尝试从缓存加载活跃学期列表
         try {
-          const cachedActiveSemesters = await AsyncStorage.getItem(`activeSemesters_${username}`);
-          if (cachedActiveSemesters) {
-            setSemesters(JSON.parse(cachedActiveSemesters));
-            console.log("[ScheduleScreen] 从缓存加载活跃学期列表");
-          }
-        } catch (e) {
-          console.warn("[ScheduleScreen] 从缓存加载活跃学期列表失败", e);
-        }
-
-        // 尝试从缓存加载上次选择的学期
+          const cached = await AsyncStorage.getItem(`activeSemesters_${username}`);
+          if (cached) setSemesters(JSON.parse(cached));
+        } catch {}
         try {
-          const cachedSelectedSemester = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
-          if (cachedSelectedSemester) {
-            setSelectedSemester(cachedSelectedSemester);
-            console.log(`[ScheduleScreen] 从缓存加载上次选择的学期: ${cachedSelectedSemester}`);
-          }
-        } catch (e) {
-          console.warn("[ScheduleScreen] 从缓存加载上次选择的学期失败", e);
-        }
+          const cached = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
+          if (cached) setSelectedSemester(cached);
+        } catch {}
       }
-      fetchSemesters(); // 无论是否从缓存加载，都尝试从 API 获取最新数据
+      fetchSemesters();
     };
     loadInitialData();
   }, []);
 
+  // ── Polling ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (pollingTimerRef.current) {
+      clearInterval(pollingTimerRef.current);
+      pollingTimerRef.current = null;
+    }
+    if (semesters.length > 0 || loadingSemesters) retryCountRef.current = 0;
+    if (semesters.length === 0 && !loadingSemesters && retryCountRef.current < MAX_RETRY) {
+      pollingTimerRef.current = setInterval(() => {
+        retryCountRef.current += 1;
+        fetchActiveSemesters();
+      }, 1000);
+    }
+    return () => { if (pollingTimerRef.current) clearInterval(pollingTimerRef.current); };
+  }, [semesters, loadingSemesters]);
+
+  // ── Fetch ─────────────────────────────────────────────────────
   const fetchSemesters = async () => {
     try {
       setLoadingSemesters(true);
-      const apiBaseUrl = getApiBaseUrl();
-      
-      // 1. 先获取基础学期选项，用于默认选择当前学期
-      const response = await fetch(`${apiBaseUrl}/api/schedule/semester-options`);
-      const data = await response.json();
-
+      const res = await fetch(`${getApiBaseUrl()}/api/schedule/semester-options`);
+      const data = await res.json();
       if (data.success) {
-        const currentYear = data.current_year;
-        const currentTerm = data.current_term;
-        
-        if (currentYear && currentTerm) {
-          // 如果没有从缓存加载 selectedSemester，则设置为当前学期
-          if (!selectedSemester) {
-            setSelectedSemester(`${currentYear}-${currentTerm}`);
-            console.log(`[ScheduleScreen] 设置默认当前学期: ${currentYear}-${currentTerm}`);
-          }
-          // 如果 semesters 为空，则初始显示当前学期
+        const { current_year, current_term } = data;
+        if (current_year && current_term) {
+          if (!selectedSemester) setSelectedSemester(`${current_year}-${current_term}`);
           if (semesters.length === 0) {
-            setSemesters([{
-              year: currentYear,
-              term: currentTerm,
-              label: `${currentYear} 第${currentTerm}学期`
-            }]);
+            setSemesters([{ year: current_year, term: current_term, label: `${current_year} ${current_term}学期` }]);
           }
         }
-
-        // 2. 后台异步获取所有“有课”的学期，并更新缓存
         fetchActiveSemesters();
       }
-    } catch (err) {
-      console.error("获取学期列表失败:", err);
+    } catch (e) {
+      console.error("获取学期列表失败:", e);
     } finally {
       setLoadingSemesters(false);
     }
@@ -103,337 +108,406 @@ export default function ScheduleScreen() {
 
   const fetchActiveSemesters = async () => {
     try {
-      const apiBaseUrl = getApiBaseUrl();
-      // 从 AsyncStorage 获取用户名
       const username = await AsyncStorage.getItem("username");
-      if (!username) {
-        console.error("未找到用户名，无法获取有课学期列表");
-        return;
-      }
-      
-      const response = await fetch(`${apiBaseUrl}/api/schedule/active-semesters?username=${encodeURIComponent(username)}`);
-      const data = await response.json();
-
+      if (!username) return;
+      const res = await fetch(`${getApiBaseUrl()}/api/schedule/active-semesters?username=${encodeURIComponent(username)}`);
+      const data = await res.json();
       if (data.success && data.semesters) {
         setSemesters(data.semesters);
         await AsyncStorage.setItem(`activeSemesters_${username}`, JSON.stringify(data.semesters));
-        console.log(`✅ 获取到 ${data.semesters.length} 个有课学期并已缓存`);
       }
-    } catch (err) {
-      console.error("后台获取活跃学期失败:", err);
+    } catch (e) {
+      console.error("获取活跃学期失败:", e);
     }
   };
-
-  const coursesForWeek = getCoursesForWeek(state.currentWeek);
 
   const handleSemesterChange = async (year: string, term: string) => {
     setSelectedSemester(`${year}-${term}`);
     setShowSemesterPicker(false);
-    
-    // 保存当前选中的学期到 AsyncStorage
     const username = await AsyncStorage.getItem("username");
-    if (username) {
-      await AsyncStorage.setItem(`lastSelectedSemester_${username}`, `${year}-${term}`);
-      console.log(`[ScheduleScreen] 保存 lastSelectedSemester: ${year}-${term}`);
-    }
-
-    // 调用 context 中的方法来获取新学期的课表
+    if (username) await AsyncStorage.setItem(`lastSelectedSemester_${username}`, `${year}-${term}`);
     await fetchScheduleBySemester(year, term);
   };
-
-  const handlePrevWeek = () => {
-    if (state.currentWeek > 1) {
-      setCurrentWeek(state.currentWeek - 1);
-    }
-  };
-
-  const handleNextWeek = () => {
-    if (state.currentWeek < 20) {
-      setCurrentWeek(state.currentWeek + 1);
-    }
-  };
-
-
 
   const handleRefresh = async () => {
     try {
       setIsRefreshing(true);
-      const apiBaseUrl = getApiBaseUrl();
       const username = await AsyncStorage.getItem("username");
+      if (!username) { Alert.alert("错误", "未找到用户信息，请重新登录"); return; }
+      if (semesters.length === 0) { Alert.alert("提示", "没有可刷新的学期"); return; }
 
-      if (!username) {
-        Alert.alert("错误", "未找到用户信息，请重新登录");
-        return;
-      }
-
-      if (semesters.length === 0) {
-        Alert.alert("提示", "没有可刷新的学期");
-        return;
-      }
-
-      // 逐个刷新每个学期（串行执行）
       for (const semester of semesters) {
-        const semesterParam = `${semester.year}_${semester.term}`; // 转换为 year_term 格式
-        console.log(`[Frontend] Refreshing semester: ${semesterParam}`);
-
         try {
-          const response = await fetch(`${apiBaseUrl}/api/schedule/refresh`, {
+          const res = await fetch(`${getApiBaseUrl()}/api/schedule/refresh`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username, semester: semesterParam }),
+            body: JSON.stringify({ username, semester: `${semester.year}_${semester.term}` }),
           });
-
-          const result = await response.json();
-          if (!result.success) {
-            // 单个学期刷新失败，给出警告并继续下一个学期（可根据需求改为中断）
-            Alert.alert("警告", `${semester.label} 刷新失败: ${result.error || "未知错误"}，继续刷新其他学期`);
-          }
-        } catch (err) {
-          console.error(`刷新学期 ${semester.label} 失败:`, err);
-          Alert.alert("警告", `${semester.label} 刷新失败，请稍后重试`);
-          // 继续处理下一个学期，不中断
+          const result = await res.json();
+          if (!result.success) Alert.alert("警告", `${semester.label} 刷新失败`);
+        } catch {
+          Alert.alert("警告", `${semester.label} 刷新失败`);
         }
       }
-
-      // 所有学期刷新尝试结束后，重新获取当前选中学期的课表以更新界面
       if (selectedSemester) {
         const [year, term] = selectedSemester.split("-");
         await fetchScheduleBySemester(year, term);
       }
-
-      Alert.alert("完成", "所有学期刷新处理完成");
-    } catch (error: any) {
-      console.error("刷新课表失败:", error);
-      Alert.alert("错误", error.message || "刷新课表失败，请稍后重试");
+      Alert.alert("完成", "刷新完成");
+    } catch (e: any) {
+      Alert.alert("错误", e.message || "刷新失败");
     } finally {
       setIsRefreshing(false);
     }
   };
 
-  const handleCoursePress = (course: any) => {
+  // ── Download ──────────────────────────────────────────────────
+  const handleDownload = async () => {
+    if (!captureViewRef.current) return;
+    try {
+      setIsDownloading(true);
+      const uri = await captureRef(captureViewRef, { format: "png", quality: 1.0 });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, { mimeType: "image/png", dialogTitle: "分享课表截图" });
+      } else {
+        Alert.alert("提示", "当前设备不支持分享");
+      }
+    } catch (e) {
+      Alert.alert("导出失败", "截图失败，请重试");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  // ── Course press ──────────────────────────────────────────────
+  const handleCoursePress = (course: Course) => {
     setSelectedCourse(course);
-    setModalVisible(true);
+    setDetailVisible(true);
   };
 
-  // 关闭弹窗
-  const closeModal = () => {
-    setModalVisible(false);
-    setSelectedCourse(null);
+  const handleMultipleCoursesPress = (courses: Course[]) => {
+    setOverlappingCourses(courses);
+    setOverlapVisible(true);
   };
 
+  const openDetailFromOverlap = (course: Course) => {
+    setOverlapVisible(false);
+    setTimeout(() => { setSelectedCourse(course); setDetailVisible(true); }, 220);
+  };
+
+  // ── Filtered courses ──────────────────────────────────────────
+  const filteredCourses = (state.courses ?? []).filter(c => {
+    if (filterType === "single") return c.isSingleWeek !== "double";
+    if (filterType === "double") return c.isSingleWeek !== "single";
+    return true;
+  });
+
+  const selectedLabel = selectedSemester
+    ? (semesters.find(s => `${s.year}-${s.term}` === selectedSemester)?.label ?? "选择学期")
+    : "选择学期";
+
+  // ── Render ────────────────────────────────────────────────────
   return (
-    <ScreenContainer className="flex-1 bg-background">
+    <ScreenContainer className="flex-1 bg-surface">
       {state.isLoading ? (
-        <View className="flex-1 justify-center items-center">
-          <ActivityIndicator size="large" color="#0a7ea4" />
-          <Text className="mt-4 text-muted">加载课表中...</Text>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", gap: 12 }}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={{ fontSize: 14, color: colors.muted }}>加载课表中...</Text>
         </View>
       ) : (
-        <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-           {/* 学期选择器和刷新按钮 */}
-          <View className="px-4 pt-4 pb-2">
-            <View className="flex-row gap-2">
+        <View style={{ flex: 1 }}>
+
+          {/* ── Fixed header ─────────────────────────────────── */}
+          <View style={{
+            paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10,
+            gap: 10,
+            backgroundColor: colors.surface,
+            borderBottomWidth: 0.5, borderBottomColor: colors.border,
+          }}>
+            {/* Row 1: semester selector + buttons */}
+            <View style={{ flexDirection: "row", gap: 8 }}>
               <TouchableOpacity
-                onPress={() => setShowSemesterPicker(!showSemesterPicker)}
-                className="flex-1 bg-surface border border-border rounded-lg px-4 py-3 flex-row justify-between items-center"
+                onPress={() => setShowSemesterPicker(v => !v)}
+                style={{
+                  flex: 1, flexDirection: "row", alignItems: "center",
+                  justifyContent: "space-between",
+                  backgroundColor: colors.background,
+                  borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                  borderWidth: 0.5, borderColor: colors.border,
+                }}
               >
-                <Text className="text-foreground font-semibold">
-                  {selectedSemester
-                    ? semesters.find((s) => `${s.year}-${s.term}` === selectedSemester)?.label || "选择学期"
-                    : "选择学期"}
+                <Text style={{ fontSize: 14, fontWeight: "600", color: colors.foreground }}>
+                  {selectedLabel}
                 </Text>
-                <Text className="text-muted">▼</Text>
+                <Text style={{ fontSize: 12, color: colors.muted }}>
+                  {showSemesterPicker ? "▲" : "▼"}
+                </Text>
               </TouchableOpacity>
 
+              {/* Download button */}
+              <TouchableOpacity
+                onPress={handleDownload}
+                disabled={isDownloading}
+                style={{
+                  width: 44, height: 44, borderRadius: 10,
+                  backgroundColor: colors.background,
+                  alignItems: "center", justifyContent: "center",
+                  borderWidth: 0.5, borderColor: colors.border,
+                }}
+              >
+                {isDownloading
+                  ? <ActivityIndicator size="small" color={colors.muted} />
+                  : <IconSymbol name="square.and.arrow.down" size={18} color={colors.foreground} />
+                }
+              </TouchableOpacity>
+
+              {/* Refresh button */}
               <TouchableOpacity
                 onPress={handleRefresh}
                 disabled={isRefreshing}
-                className={cn(
-                  "bg-primary rounded-lg px-4 py-3 justify-center items-center",
-                  isRefreshing && "opacity-50"
-                )}
+                style={{
+                  width: 44, height: 44, borderRadius: 10,
+                  backgroundColor: isRefreshing ? colors.surface : colors.primary,
+                  alignItems: "center", justifyContent: "center",
+                  borderWidth: isRefreshing ? 0.5 : 0, borderColor: colors.border,
+                }}
               >
-                {isRefreshing ? (
-                  <ActivityIndicator size="small" color="white" />
-                ) : (
-                  <Image
-                    source={require("@/assets/images/refresh-icon.png")}
-                    style={{ width: 20, height: 20, tintColor: "white" }}
-                  />
-                )}
+                {isRefreshing
+                  ? <ActivityIndicator size="small" color={colors.muted} />
+                  : <Image
+                      source={require("@/assets/images/refresh-icon.png")}
+                      style={{ width: 18, height: 18, tintColor: "#fff" }}
+                    />
+                }
               </TouchableOpacity>
             </View>
-            <View className="flex-row gap-2 items-center justify-center mt-2">
-              <TouchableOpacity
-                onPress={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
-                className="bg-surface border border-border rounded-lg px-4 py-3 flex-row items-center gap-2 justify-center"
-              >
-                <IconSymbol
-                name={viewMode === 'grid' ? 'list.bullet' : 'square.grid.2x2'}
-                size={20}
-                color="#888"
-                />
-                <Text className="text-foreground">{viewMode === 'grid' ? '点击切换列表模式' : '点击切换网格模式'}</Text>
-              </TouchableOpacity>
-            </View>
+
+            {/* Semester dropdown */}
             {showSemesterPicker && (
-              <View className="bg-surface border border-border rounded-lg mt-2 overflow-hidden">
-                {semesters.map((semester, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    onPress={() => handleSemesterChange(semester.year, semester.term)}
-                    className={cn(
-                      "px-4 py-3 border-b border-border",
-                      selectedSemester === `${semester.year}-${semester.term}` ? "bg-primary/10" : ""
-                    )}
-                  >
-                    <Text
-                      className={cn(
-                        "font-semibold",
-                        selectedSemester === `${semester.year}-${semester.term}`
-                          ? "text-primary"
-                          : "text-foreground"
-                      )}
+              <View style={{
+                backgroundColor: colors.background, borderRadius: 10,
+                overflow: "hidden", borderWidth: 0.5, borderColor: colors.border,
+              }}>
+                {semesters.map((s, i) => {
+                  const key = `${s.year}-${s.term}`;
+                  const isActive = selectedSemester === key;
+                  return (
+                    <TouchableOpacity
+                      key={i}
+                      onPress={() => handleSemesterChange(s.year, s.term)}
+                      style={{
+                        flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+                        paddingHorizontal: 14, paddingVertical: 12,
+                        borderTopWidth: i === 0 ? 0 : 0.5, borderTopColor: colors.border,
+                        backgroundColor: isActive ? `${colors.primary}15` : "transparent",
+                      }}
                     >
-                      {semester.label}
-                    </Text>
+                      <Text style={{
+                        fontSize: 14,
+                        fontWeight: isActive ? "600" : "400",
+                        color: isActive ? colors.primary : colors.foreground,
+                      }}>
+                        {s.label}
+                      </Text>
+                      {isActive && <Text style={{ fontSize: 14, color: colors.primary }}>✓</Text>}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* Row 2: view toggle + filter pills */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={{
+                flexDirection: "row",
+                backgroundColor: colors.background,
+                borderRadius: 8, borderWidth: 0.5, borderColor: colors.border,
+                overflow: "hidden",
+              }}>
+                {(["grid", "list"] as const).map(m => (
+                  <TouchableOpacity
+                    key={m}
+                    onPress={() => setViewMode(m)}
+                    style={{
+                      paddingHorizontal: 10, paddingVertical: 8,
+                      backgroundColor: viewMode === m ? colors.primary : "transparent",
+                    }}
+                  >
+                    <IconSymbol
+                      name={m === "grid" ? "square.grid.2x2" : "list.bullet"}
+                      size={16}
+                      color={viewMode === m ? "#fff" : colors.muted}
+                    />
                   </TouchableOpacity>
                 ))}
               </View>
-            )}
-            
-          </View>
 
-          {/* 周次选择器 */}
-          <View className="px-4 py-4 gap-4">
-            {/* 周次显示和导航 */}
-            <View className="flex-row items-center justify-between">
-              <TouchableOpacity
-                onPress={handlePrevWeek}
-                disabled={state.currentWeek === 1}
-                className={cn(
-                  "px-4 py-2 rounded-lg",
-                  state.currentWeek === 1 ? "bg-surface opacity-50" : "bg-primary"
-                )}
-              >
-                <Text className={cn("font-semibold", state.currentWeek === 1 ? "text-muted" : "text-white")}>
-                  上一周
-                </Text>
-              </TouchableOpacity>
-
-              <View className="items-center">
-                <Text className="text-2xl font-bold text-foreground">第 {state.currentWeek} 周</Text>
-                <Text className="text-xs text-muted mt-1">
-                  {state.currentWeek % 2 === 1 ? "单周" : "双周"}
-                </Text>
+              <View style={{ flex: 1, flexDirection: "row", gap: 6 }}>
+                {(["all", "single", "double"] as const).map(f => {
+                  const label = f === "all" ? "全部" : f === "single" ? "单周" : "双周";
+                  const isActive = filterType === f;
+                  return (
+                    <TouchableOpacity
+                      key={f}
+                      onPress={() => setFilterType(f)}
+                      style={{
+                        flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center",
+                        backgroundColor: isActive ? colors.primary : colors.background,
+                        borderWidth: isActive ? 0 : 0.5, borderColor: colors.border,
+                      }}
+                    >
+                      <Text style={{
+                        fontSize: 13,
+                        fontWeight: isActive ? "600" : "400",
+                        color: isActive ? "#fff" : colors.foreground,
+                      }}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
-
-              <TouchableOpacity
-                onPress={handleNextWeek}
-                disabled={state.currentWeek === 8}
-                className={cn(
-                  "px-4 py-2 rounded-lg",
-                  state.currentWeek === 8 ? "bg-surface opacity-50" : "bg-primary"
-                )}
-              >
-                <Text className={cn("font-semibold", state.currentWeek === 8 ? "text-muted" : "text-white")}>
-                  下一周
-                </Text>
-              </TouchableOpacity>
             </View>
           </View>
-            
-          {coursesForWeek.length > 0 && (
-            <View className="items-center gap-2 mt-4">
-              <Text className="text-sm text-muted text-center">
-                点击课程块可查看详细信息
-              </Text>
+
+          {/* ── Content (capturable area) ─────────────────────── */}
+          {filteredCourses.length === 0 ? (
+            <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+              <Text style={{ fontSize: 14, color: colors.muted }}>当前筛选条件下没有课程</Text>
+            </View>
+          ) : (
+            <View
+              ref={captureViewRef}
+              style={{ flex: 1, backgroundColor: colors.surface }}
+              onLayout={e => setTableAvailableH(e.nativeEvent.layout.height)}
+            >
+              {viewMode === "grid" ? (
+                <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                  <ScheduleTable
+                    courses={filteredCourses}
+                    onCoursePress={handleCoursePress}
+                    onMultipleCoursesPress={handleMultipleCoursesPress}
+                    mode="grid"
+                    availableHeight={tableAvailableH}
+                  />
+                  <View style={{ paddingVertical: 10, paddingHorizontal: 16, alignItems: "center" }}>
+                    <Text style={{ fontSize: 11, color: colors.muted, textAlign: "center", lineHeight: 17 }}>
+                      课表调休及节假日信息仅供参考，以学校通知为准{"\n"}
+                      部分单双周课程请依据教学班通知
+                    </Text>
+                  </View>
+                </ScrollView>
+              ) : (
+                <ScheduleTable
+                  courses={filteredCourses}
+                  onCoursePress={handleCoursePress}
+                  onMultipleCoursesPress={handleMultipleCoursesPress}
+                  mode="list"
+                  availableHeight={tableAvailableH}
+                />
+              )}
             </View>
           )}
-          {/* 课表 */}
-          <View className="flex-1 px-4 pb-4">
-            {coursesForWeek.length === 0 ? (
-              <View className="h-96 justify-center items-center">
-                <Text className="text-muted text-center">
-                  本周没有课程安排
-                </Text>
-              </View>
-            ) : (
-              <ScheduleTable
-                courses={coursesForWeek}
-                onCoursePress={handleCoursePress}
-                mode={viewMode}
-              />
-            )}
-            </View>
-
-          <View className="items-center mt-4">
-            <Text className="text-xs text-muted text-center">
-              本课表调休和节假日信息仅供参考，具体以学校通知为准。
-              </Text>
-              <Text className="text-xs text-muted text-center">
-              部分单、双周课程具体情况请依据教学班通知。
-            </Text>
-          </View>
-        </ScrollView>
+        </View>
       )}
 
-      {/* 课程详情弹窗 */}
-      <Modal
-        visible={modalVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={closeModal}
-      >
-        {/* 半透明背景遮罩，点击关闭 */}
-        <TouchableOpacity
-          style={{ flex: 1, backgroundColor: 'rgba(255, 255, 255, 0.5)', justifyContent: 'center', alignItems: 'center' }}
-          activeOpacity={1}
-          onPress={closeModal}
+      {/* ── Course detail modal ───────────────────────────────── */}
+      <Modal visible={detailVisible} transparent animationType="fade" onRequestClose={() => setDetailVisible(false)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.38)", justifyContent: "center", alignItems: "center" }}
+          onPress={() => setDetailVisible(false)}
         >
-          {/* 弹窗内容容器，阻止点击事件冒泡到遮罩 */}
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={(e) => e.stopPropagation()}
-            className="w-[60%] max-w-md bg-surface rounded-xl p-5"
+          <Pressable
+            onPress={e => e.stopPropagation()}
+            style={{
+              width: "85%", maxWidth: 360,
+              backgroundColor: colors.background,
+              borderRadius: 16, padding: 20,
+              shadowColor: "#000", shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.16, shadowRadius: 20, elevation: 10,
+            }}
           >
-            {/* 关闭按钮 */}
-            <View className="flex-row justify-end mb-2">
-              <TouchableOpacity onPress={closeModal} className="p-2">
-                <Text className="text-muted text-lg">✕</Text>
+            <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 4 }}>
+              <TouchableOpacity onPress={() => setDetailVisible(false)} style={{ padding: 4 }}>
+                <Text style={{ fontSize: 18, color: colors.muted }}>✕</Text>
               </TouchableOpacity>
             </View>
-
             {selectedCourse && (
               <CourseDetailContent
                 courseName={selectedCourse.name}
                 teacher={selectedCourse.teacher}
                 classroom={selectedCourse.classroom}
                 weekType={
-                  selectedCourse.isSingleWeek === 1
-                    ? "single"
-                    : selectedCourse.isSingleWeek === 2
-                    ? "double"
-                    : "" // 单双周
+                  selectedCourse.isSingleWeek === "single" ? "single"
+                  : selectedCourse.isSingleWeek === "double" ? "double"
+                  : ""
                 }
                 examInfo={selectedCourse.examInfo}
               />
             )}
-          </TouchableOpacity>
-        </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── Overlap modal ─────────────────────────────────────── */}
+      <Modal visible={overlapVisible} transparent animationType="fade" onRequestClose={() => setOverlapVisible(false)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.38)", justifyContent: "center", alignItems: "center" }}
+          onPress={() => setOverlapVisible(false)}
+        >
+          <Pressable
+            onPress={e => e.stopPropagation()}
+            style={{
+              width: "78%", maxWidth: 300,
+              backgroundColor: colors.background,
+              borderRadius: 16, overflow: "hidden",
+              shadowColor: "#000", shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.16, shadowRadius: 20, elevation: 10,
+            }}
+          >
+            <View style={{
+              flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+              paddingHorizontal: 18, paddingVertical: 14,
+              borderBottomWidth: 0.5, borderBottomColor: colors.border,
+            }}>
+              <Text style={{ fontSize: 15, fontWeight: "600", color: colors.foreground }}>
+                该时段 {overlappingCourses.length} 门课程
+              </Text>
+              <TouchableOpacity onPress={() => setOverlapVisible(false)} style={{ padding: 2 }}>
+                <Text style={{ fontSize: 16, color: colors.muted }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {overlappingCourses.map((course, i) => (
+              <TouchableOpacity
+                key={course.id}
+                onPress={() => openDetailFromOverlap(course)}
+                style={{
+                  flexDirection: "row", alignItems: "center", gap: 12,
+                  paddingHorizontal: 18, paddingVertical: 14,
+                  borderTopWidth: i === 0 ? 0 : 0.5, borderTopColor: colors.border,
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={{ width: 4, height: 38, borderRadius: 2, backgroundColor: course.color }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{
+                    fontSize: 14, fontWeight: "500",
+                    color: colors.foreground, lineHeight: 20,
+                  }} numberOfLines={2}>
+                    {course.name}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: colors.muted, marginTop: 1 }}>
+                    {course.classroom}
+                  </Text>
+                </View>
+                <IconSymbol name="chevron.right" size={14} color={colors.muted} />
+              </TouchableOpacity>
+            ))}
+          </Pressable>
+        </Pressable>
       </Modal>
     </ScreenContainer>
-  );
-}
-
-// 辅助组件：信息行（可根据需要提取到单独文件）
-function InfoRow({ icon, label, value }: { icon: SFSymbols7_0; label: string; value: string }) {
-  return (
-    <View className="flex-row items-center gap-3">
-      {/* 这里需要根据你的 IconSymbol 组件调整 */}
-      <IconSymbol name={icon} size={20} color="#888" />
-      <Text className="text-foreground font-medium">{label}:</Text>
-      <Text className="text-foreground flex-1">{value}</Text>
-    </View>
   );
 }

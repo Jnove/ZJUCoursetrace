@@ -37,7 +37,7 @@ export default function SettingsScreen() {
   // 主题选项列表
   const themeOptions: { label: string; value: 'light' | 'dark' | 'system'; icon: SFSymbols7_0 }[] = [
     { label: '跟随系统', value: 'system', icon: 'circle.righthalf.fill' },
-    { label: '浅色', value: 'light', icon: 'sun.max.fill' },
+    { label: '浅色', value: 'light', icon: 'sun.max' },
     { label: '深色', value: 'dark', icon: 'moon.fill' },
     
   ];
@@ -52,40 +52,49 @@ export default function SettingsScreen() {
           <Text className="text-2xl font-bold text-foreground items-center self-center justify-center p-2 mx-auto">设置</Text>
 
         {/* 主题区域 - 圆角背景容器包含标题和按钮 */}
-        <View className="bg-surface rounded-xl gap-3 p-3 mt-4 m-1/2">
-        {/* 主题标题 */}
-        <Text className="text-base text-foreground font-medium">主题</Text>
+        <View className="bg-surface rounded-xl gap-3 p-3 mt-4 m-1/2 border border-border overflow-hidden">
+          {/* 主题标题 */}
+          <Text className="text-base text-foreground font-medium">主题</Text>
         
-        {/* 按钮组 - 水平排列 */}
-        <View className="flex-row gap-6">
-            {themeOptions.map((option) => (
+          {/* 按钮组 - 水平排列 */}
+          <View className="flex-row gap-6">
+              {themeOptions.map((option) => (
+              <TouchableOpacity
+                  key={option.value}
+                  onPress={() => setThemePreference(option.value)}
+                  className={`py-2 flex-1 rounded-lg items-center justify-center ${
+                  themePreference === option.value ? 'bg-primary' : ''
+                  }`}
+              >
+                  <View className="items-center gap-1 px-2">
+                  <IconSymbol
+                      name={option.icon}
+                      size={24}
+                      color={themePreference === option.value ? 'white' : '#888'}
+                  />
+                  <Text
+                      className={`text-sm font-medium ${
+                      themePreference === option.value
+                          ? 'text-white'
+                          : 'text-foreground'
+                      }`}
+                  >
+                      {option.label}
+                  </Text>
+                  </View>
+              </TouchableOpacity>
+              ))}
+          </View>
+        </View>
+          <View className="bg-surface rounded-xl p-3 m-1/2 flex-row justify-between items-center border border-border ">
             <TouchableOpacity
-                key={option.value}
-                onPress={() => setThemePreference(option.value)}
-                className={`py-2 flex-1 rounded-lg items-center justify-center ${
-                themePreference === option.value ? 'bg-primary' : ''
-                }`}
+              onPress={() => router.push('/api-settings')}
+              className="flex-1 flex-row justify-between items-center"
             >
-                <View className="items-center gap-1 px-2">
-                <IconSymbol
-                    name={option.icon}
-                    size={24}
-                    color={themePreference === option.value ? 'white' : '#888'}
-                />
-                <Text
-                    className={`text-sm font-medium ${
-                    themePreference === option.value
-                        ? 'text-white'
-                        : 'text-foreground'
-                    }`}
-                >
-                    {option.label}
-                </Text>
-                </View>
+              <Text className="text-foreground text-base">API地址设置</Text>
+              <IconSymbol name="chevron.right" size={16} color="#888" />
             </TouchableOpacity>
-            ))}
-        </View>
-        </View>
+          </View>
         </View>
         {/* 底部：仅当用户已登录才显示退出登录按钮 */}
         {authState.userToken && (

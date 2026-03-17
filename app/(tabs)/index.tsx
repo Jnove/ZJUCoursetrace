@@ -1,113 +1,582 @@
-import { ScrollView, Text, View, TouchableOpacity, TextInput, ActivityIndicator } from "react-native";
+import {
+  ScrollView, Text, View, TouchableOpacity,
+  TextInput, ActivityIndicator,
+} from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/lib/auth-context";
 import { useSchedule } from "@/lib/schedule-context";
 import { useRouter } from "expo-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import * as Haptics from "expo-haptics";
-import { getApiBaseUrl } from "@/constants/oauth";
+import * as Location from "expo-location";
 import { getCurrentSemester, SemesterInfo } from "@/lib/semester-utils";
 import { Course } from "@/lib/schedule-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PasswordInput } from "@/components/password-input";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useColors } from "@/hooks/use-colors";
+import { Platform } from 'react-native';
+import { setupNotificationChannel, updateCourseNotification, clearCourseNotification } from '@/lib/course-notification';
 
+// ─── Period table ─────────────────────────────────────────────
+const PERIODS = [
+  { number: 1,  startTime: "08:00", endTime: "08:45" },
+  { number: 2,  startTime: "08:50", endTime: "09:35" },
+  { number: 3,  startTime: "10:00", endTime: "10:45" },
+  { number: 4,  startTime: "10:50", endTime: "11:35" },
+  { number: 5,  startTime: "11:40", endTime: "12:25" },
+  { number: 6,  startTime: "13:25", endTime: "14:10" },
+  { number: 7,  startTime: "14:15", endTime: "15:00" },
+  { number: 8,  startTime: "15:05", endTime: "15:50" },
+  { number: 9,  startTime: "16:15", endTime: "17:00" },
+  { number: 10, startTime: "17:05", endTime: "17:50" },
+  { number: 11, startTime: "18:50", endTime: "19:35" },
+  { number: 12, startTime: "19:40", endTime: "20:25" },
+  { number: 13, startTime: "20:30", endTime: "21:15" },
+];
+
+// ─── Time utils ───────────────────────────────────────────────
+function parseTimeStr(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 3600 + m * 60;
+}
+
+function getCourseSeconds(course: Course): { start: number; end: number } | null {
+  if (course.periodTime) {
+    const m = course.periodTime.match(/(\d{2}:\d{2})[—\-](\d{2}:\d{2})/);
+    if (m) return { start: parseTimeStr(m[1]), end: parseTimeStr(m[2]) };
+  }
+  const sp = PERIODS.find(p => p.number === course.startPeriod);
+  const ep = PERIODS.find(p => p.number === course.endPeriod);
+  if (sp && ep) return { start: parseTimeStr(sp.startTime), end: parseTimeStr(ep.endTime) };
+  return null;
+}
+
+function getNowSeconds(): number {
+  const n = new Date();
+  return n.getHours() * 3600 + n.getMinutes() * 60 + n.getSeconds();
+}
+
+function formatCountdown(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const c = hex.replace("#", "").slice(0, 6);
+  const r = parseInt(c.slice(0, 2), 16);
+  const g = parseInt(c.slice(2, 4), 16);
+  const b = parseInt(c.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function filterCourses(
+  allCourses: Course[], dayOfWeek: number, week: number, isOddWeek: boolean
+): Course[] {
+  return allCourses
+    .filter(c => {
+      if (c.dayOfWeek !== dayOfWeek) return false;
+      if (week < c.weekStart || week > c.weekEnd) return false;
+      if (c.isSingleWeek === "single") return isOddWeek;
+      if (c.isSingleWeek === "double") return !isOddWeek;
+      return true;
+    })
+    .sort((a, b) => a.startPeriod - b.startPeriod);
+}
+
+// ─── Weather ──────────────────────────────────────────────────
+type WeatherData = {
+  label: string;
+  desc: string;
+  icon: string;
+  tempMax: number;
+  tempMin: number;
+  rainProb: number;
+  isTomorrow: boolean;
+};
+
+function weatherCodeToDesc(code: number): { desc: string; icon: string } {
+  if (code === 0)                       return { desc: "晴",     icon: "sun.max.fill" };
+  if (code === 1)                       return { desc: "晴间多云", icon: "cloud.sun.fill" };
+  if (code === 2)                       return { desc: "多云",   icon: "cloud.sun.fill" };
+  if (code === 3)                       return { desc: "阴",     icon: "cloud.fill" };
+  if ([45, 48].includes(code))          return { desc: "雾",     icon: "cloud.fog.fill" };
+  if ([51, 53, 55].includes(code))      return { desc: "毛毛雨", icon: "cloud.drizzle.fill" };
+  if ([61, 63, 65].includes(code))      return { desc: "雨",     icon: "cloud.rain.fill" };
+  if ([71, 73, 75, 77].includes(code))  return { desc: "雪",     icon: "cloud.snow.fill" };
+  if ([80, 81, 82].includes(code))      return { desc: "阵雨",   icon: "cloud.rain.fill" };
+  if ([95, 96, 99].includes(code))      return { desc: "雷暴",   icon: "cloud.bolt.fill" };
+  return { desc: "未知", icon: "cloud.fill" };
+}
+
+function getWeatherTip(data: WeatherData): string | null {
+  const prefix = data.isTomorrow ? "明天" : "今天";
+  if (data.desc.includes("雷"))                   return `${prefix}有雷暴，尽量减少外出`;
+  if (data.rainProb >= 60)                        return `${prefix}降雨概率较高，记得带伞 ☂`;
+  if (data.rainProb >= 30)                        return `${prefix}可能有雨，建议备伞`;
+  if (data.desc.includes("雪"))                   return "注意防滑，小心路面结冰";
+  if (data.desc.includes("雾"))                   return "能见度低，骑行注意安全";
+  if (data.tempMax >= 35)                         return `高温预警（${data.tempMax}°），注意防暑补水`;
+  if (data.tempMin <= 3)                          return `气温较低（最低${data.tempMin}°），注意保暖`;
+  return null;
+}
+
+// 检测 GMS 是否可用
+const hasGMS = async (): Promise<boolean> => {
+  const status = await Location.getProviderStatusAsync();
+  return 'googlePlayServicesAvailable' in status && 
+    (status as any).googlePlayServicesAvailable === true;
+};
+
+const getLocationViaWatch = (): Promise<Location.LocationObject> => {
+  return new Promise((resolve, reject) => {
+    let sub: Location.LocationSubscription | undefined;
+    const timer = setTimeout(() => {
+      sub?.remove();
+      reject(new Error('定位超时'));
+    }, 15000);
+
+    Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.Low },
+      (loc) => {
+        clearTimeout(timer);
+        sub?.remove();
+        resolve(loc);
+      }
+    ).then(s => { sub = s; });
+  });
+};
+
+type SimpleCoords = { latitude: number; longitude: number };
+
+export const getLocation = async (): Promise<SimpleCoords | null> => {
+  if (Platform.OS === 'web') {
+    const loc = await Location.getCurrentPositionAsync();
+    return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+  }
+
+  const last = await Location.getLastKnownPositionAsync({
+    maxAge: 1000 * 60 * 60 * 24,
+    requiredAccuracy: 5000,
+  });
+  if (last) return { latitude: last.coords.latitude, longitude: last.coords.longitude };
+
+  try {
+    const ipRes = await fetch('https://api.ipify.org?format=json');
+    const { ip } = await ipRes.json();
+    const res = await fetch(`https://api.iping.cc/v1/query?ip=${ip}&language=zh`);
+    const json = await res.json();
+    const data = json.data;
+    if (data?.latitude && data?.longitude) {
+      console.log('[Location] 使用 IP 定位:', data.city);
+      return { latitude: parseFloat(data.latitude), longitude: parseFloat(data.longitude) };
+    }
+  } catch {}
+  const loc = await getLocationViaWatch();
+  return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+};
+
+const fetchWeather = async () => {
+  const location = await getLocation();
+  if (!location) {
+    console.log('[Weather] 无法获取位置，跳过天气');
+    return;
+  }
+
+  const { latitude, longitude } = location;
+  console.log('[Weather] 定位成功:', latitude, longitude);
+
+  const url =
+    `https://api.open-meteo.com/v1/forecast` +
+    `?latitude=${latitude.toFixed(4)}&longitude=${longitude.toFixed(4)}` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
+    `&timezone=auto&forecast_days=2`;
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  const json = await res.json();
+  const daily = json.daily;
+
+  const hour = new Date().getHours();
+  const idx = hour >= 21 ? 1 : 0;
+
+  const { desc, icon } = weatherCodeToDesc(daily.weather_code[idx]);
+  return {
+    label: idx === 1 ? "明天" : "今天",
+    desc, icon,
+    tempMax: Math.round(daily.temperature_2m_max[idx]),
+    tempMin: Math.round(daily.temperature_2m_min[idx]),
+    rainProb: Math.round(daily.precipitation_probability_max[idx]),
+    isTomorrow: idx === 1,
+  };
+}
+
+// ─── Period badge ─────────────────────────────────────────────
+function PeriodBadge({ course }: { course: Course }) {
+  const colors = useColors();
+  const label = course.startPeriod === course.endPeriod
+    ? `节 ${course.startPeriod}`
+    : `节 ${course.startPeriod}–${course.endPeriod}`;
+  return (
+    <View style={{
+      backgroundColor: colors.surface,
+      paddingHorizontal: 8, paddingVertical: 2,
+      borderRadius: 5,
+      borderWidth: 0.5, borderColor: colors.border,
+    }}>
+      <Text style={{ fontSize: 10, fontWeight: "500", color: colors.muted }}>{label}</Text>
+    </View>
+  );
+}
+
+// ─── Weather card ─────────────────────────────────────────────
+function WeatherCard({ data }: { data: WeatherData }) {
+  const colors = useColors();
+  const tip = getWeatherTip(data);
+  return (
+    <View style={{
+      borderRadius: 12,
+      backgroundColor: colors.background,
+      overflow: "hidden",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.06, shadowRadius: 5, elevation: 2,
+    }}>
+      <View style={{
+        flexDirection: "row", alignItems: "center",
+        paddingHorizontal: 16, paddingVertical: 12, gap: 12,
+      }}>
+        <IconSymbol
+          name={data.icon as any}
+          size={32}
+          color={data.isTomorrow ? colors.muted : colors.primary}
+        />
+        <View style={{ flex: 1, gap: 3 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ fontSize: 13, fontWeight: "600", color: colors.foreground }}>
+              {data.label}天气
+            </Text>
+            <Text style={{ fontSize: 13, color: colors.muted }}>{data.desc}</Text>
+            {data.rainProb > 0 && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                <IconSymbol name="drop.fill" size={10} color={colors.muted} />
+                <Text style={{ fontSize: 11, color: colors.muted }}>{data.rainProb}%</Text>
+              </View>
+            )}
+          </View>
+          {tip && (
+            <Text style={{ fontSize: 12, color: colors.primary }}>{tip}</Text>
+          )}
+        </View>
+        <View style={{ alignItems: "flex-end", gap: 1 }}>
+          <Text style={{ fontSize: 20, fontWeight: "500", color: colors.foreground }}>
+            {data.tempMax}°
+          </Text>
+          <Text style={{ fontSize: 11, color: colors.muted }}>{data.tempMin}° 最低</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── Ongoing card ─────────────────────────────────────────────
+function OngoingCard({ course, countdown, nowSec }: {
+  course: Course; countdown: number; nowSec: number;
+}) {
+  const colors = useColors();
+  const t = getCourseSeconds(course);
+  const progress = t
+    ? Math.min(1, Math.max(0, (nowSec - t.start) / (t.end - t.start)))
+    : 0;
+
+  return (
+    <View style={{
+      borderRadius: 14, backgroundColor: colors.background, overflow: "hidden",
+      shadowColor: course.color,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.22, shadowRadius: 12, elevation: 5,
+    }}>
+      <View style={{ height: 3, backgroundColor: course.color }} />
+      <View style={{
+        flexDirection: "row", alignItems: "center",
+        paddingHorizontal: 14, paddingTop: 11, gap: 10,
+      }}>
+        <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: course.color }} />
+            <Text style={{ fontSize: 11, fontWeight: "500", color: course.color }}>上课中</Text>
+          </View>
+          <Text style={{ fontSize: 16, fontWeight: "500", color: colors.foreground, lineHeight: 20 }} numberOfLines={2}>
+            {course.name}
+          </Text>
+          <View style={{ gap: 3, marginTop: 1 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+              <IconSymbol name="clock.fill" size={12} color={course.color} />
+              <Text style={{ fontSize: 13, fontWeight: "500", color: colors.foreground }}>
+                {course.periodTime ?? ""}
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+              <IconSymbol name="location.fill" size={12} color={colors.muted} />
+              <Text style={{ fontSize: 13, color: colors.muted }} numberOfLines={1}>
+                {course.classroom}
+              </Text>
+            </View>
+          </View>
+        </View>
+        <View style={{ alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
+          <Text style={{ fontSize: 10, color: colors.muted, letterSpacing: 0.3 }}>距下课</Text>
+          <Text style={{
+            fontSize: 24, fontWeight: "500", color: course.color,
+            fontVariant: ["tabular-nums"], lineHeight: 26,
+          }}>
+            {formatCountdown(countdown)}
+          </Text>
+        </View>
+      </View>
+      <View style={{ height: 3, backgroundColor: hexToRgba(course.color, 0.18), marginTop: 11 }}>
+        <View style={{
+          height: "100%",
+          width: `${progress * 100}%` as any,
+          backgroundColor: course.color,
+        }} />
+      </View>
+    </View>
+  );
+}
+
+// ─── Next card ────────────────────────────────────────────────
+function NextCard({ course, countdown }: { course: Course; countdown: number }) {
+  const colors = useColors();
+  return (
+    <View style={{
+      borderRadius: 14, backgroundColor: colors.background, overflow: "hidden",
+      shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.08, shadowRadius: 8, elevation: 3,
+    }}>
+      <View style={{ height: 3, backgroundColor: course.color }} />
+      <View style={{
+        flexDirection: "row", alignItems: "center",
+        paddingHorizontal: 14, paddingVertical: 11, gap: 10,
+      }}>
+        <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: course.color, opacity: 0.75 }} />
+            <Text style={{ fontSize: 11, fontWeight: "500", color: colors.muted }}>即将上课</Text>
+          </View>
+          <Text style={{ fontSize: 16, fontWeight: "500", color: colors.foreground, lineHeight: 20 }} numberOfLines={2}>
+            {course.name}
+          </Text>
+          <View style={{ gap: 3, marginTop: 1 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+              <IconSymbol name="clock.fill" size={12} color={course.color} />
+              <Text style={{ fontSize: 13, fontWeight: "500", color: colors.foreground }}>
+                {course.periodTime ?? ""}
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+              <IconSymbol name="location.fill" size={12} color={colors.muted} />
+              <Text style={{ fontSize: 13, color: colors.muted }} numberOfLines={1}>
+                {course.classroom}
+              </Text>
+            </View>
+          </View>
+        </View>
+        <View style={{ alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
+          <Text style={{ fontSize: 10, color: colors.muted, letterSpacing: 0.3 }}>距上课</Text>
+          <Text style={{
+            fontSize: 22, fontWeight: "500", color: colors.foreground,
+            fontVariant: ["tabular-nums"], lineHeight: 24,
+          }}>
+            {formatCountdown(countdown)}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── Plain course card ────────────────────────────────────────
+function CourseCard({ course }: { course: Course }) {
+  const colors = useColors();
+  return (
+    <View style={{
+      borderRadius: 13, backgroundColor: colors.background, overflow: "hidden",
+      shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.06, shadowRadius: 5, elevation: 2,
+    }}>
+      <View style={{
+        position: "absolute", left: 0, top: 0, bottom: 0,
+        width: 4, backgroundColor: course.color,
+      }} />
+      <View style={{ paddingLeft: 17, paddingRight: 13, paddingVertical: 11, gap: 4 }}>
+        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+          <Text style={{
+            flex: 1, fontSize: 14, fontWeight: "500",
+            color: colors.foreground, lineHeight: 18,
+          }} numberOfLines={2}>
+            {course.name}
+          </Text>
+          <PeriodBadge course={course} />
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <IconSymbol name="clock.fill" size={11} color={course.color} />
+            <Text style={{ fontSize: 12, fontWeight: "500", color: colors.foreground }}>
+              {course.periodTime ?? ""}
+            </Text>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flex: 1 }}>
+            <IconSymbol name="location.fill" size={11} color={colors.muted} />
+            <Text style={{ fontSize: 12, color: colors.muted }} numberOfLines={1}>
+              {course.classroom}
+            </Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── Main screen ──────────────────────────────────────────────
 export default function HomeScreen() {
-  const { state: authState, signIn, signOut } = useAuth();
-  const { state: scheduleState, fetchSchedule } = useSchedule();
+  const { state: authState, signIn } = useAuth();
+  const { state: scheduleState } = useSchedule();
   const router = useRouter();
+  const colors = useColors();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
   const [todaysCourses, setTodaysCourses] = useState<Course[]>([]);
+  const [tomorrowCourses, setTomorrowCourses] = useState<Course[]>([]);
   const [semesterInfo, setSemesterInfo] = useState<SemesterInfo | null>(null);
+  const [nowSeconds, setNowSeconds] = useState(getNowSeconds);
 
-  // 获取当天课程
+  const [poem, setPoem] = useState<{ content: string; origin: string; author: string } | null>(null);
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
+
+  // Tick every second
   useEffect(() => {
-    if (authState.userToken) {
-      fetchTodaysCourses();
-    }
-  }, [authState.userToken, scheduleState.courses]);
+    const t = setInterval(() => setNowSeconds(getNowSeconds()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
-  const fetchTodaysCourses = async () => {
+  // Poem
+  useEffect(() => {
+    fetch("https://v1.jinrishici.com/all.json")
+      .then(r => r.json())
+      .then(d => setPoem({ content: d.content, origin: d.origin, author: d.author }))
+      .catch(() => {});
+  }, []);
+
+  // Weather — fetch once on login
+  useEffect(() => {
+    fetchWeather()
+      .then(data => { if (data) setWeather(data); })
+      .catch(e => setWeatherError(e instanceof Error ? e.message : '天气获取失败'));
+  }, []);
+
+  const fetchDayCourses = useCallback(async () => {
     try {
-      // 1. 获取当前学期信息
       const now = new Date();
       const info = getCurrentSemester(now);
       setSemesterInfo(info);
+      if (!info) { setTodaysCourses([]); return; }
 
-      if (!info) {
-        setTodaysCourses([]);
-        return;
-      }
+      const raw = await AsyncStorage.getItem(`schedule_${info.schoolYear}_${info.semester}`);
+      if (!raw) { setTodaysCourses([]); return; }
 
-      // 2. 从本地缓存获取课表数据
-      const cacheKey = `schedule_${info.schoolYear}_${info.semester}`;
-      const cachedData = await AsyncStorage.getItem(cacheKey);
-      
-      if (cachedData) {
-        const allCourses: Course[] = JSON.parse(cachedData);
-        
-        // 3. 筛选今日课程
-        const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay(); // 1-7
-        const isOddWeek = info.week % 2 === 1;
+      const all: Course[] = JSON.parse(raw);
+      const todayDow = now.getDay() === 0 ? 7 : now.getDay();
+      setTodaysCourses(filterCourses(all, todayDow, info.week, info.week % 2 === 1));
 
-        const todays = allCourses.filter(course => {
-          // 检查星期
-          if (course.dayOfWeek !== dayOfWeek) return false;
-          
-          // 检查周次范围
-          if (info.week < course.weekStart || info.week > course.weekEnd) return false;
-          
-          // 检查单双周
-          if (course.isSingleWeek === "single") return isOddWeek;
-          if (course.isSingleWeek === "double") return !isOddWeek;
-          
-          return true;
-        });
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tInfo = getCurrentSemester(tomorrow);
+      if (!tInfo) { setTomorrowCourses([]); return; }
 
-        // 按节次排序
-        todays.sort((a, b) => a.startPeriod - b.startPeriod);
-        setTodaysCourses(todays);
-        console.log(`✅ 前端筛选到 ${todays.length} 门今日课程`);
-      } else {
-        setTodaysCourses([]);
-      }
-    } catch (err) {
-      console.error("获取当天课程失败:", err);
+      const tRaw = await AsyncStorage.getItem(`schedule_${tInfo.schoolYear}_${tInfo.semester}`);
+      const tAll: Course[] = JSON.parse(tRaw ?? raw);
+      const tomorrowDow = tomorrow.getDay() === 0 ? 7 : tomorrow.getDay();
+      setTomorrowCourses(filterCourses(tAll, tomorrowDow, tInfo.week, tInfo.week % 2 === 1));
+    } catch (e) {
+      console.error("获取课程失败:", e);
     }
-  };
-
-  useEffect(() => {
-    // 监听日期变化，每天凌晨刷新一次
-    const now = new Date();
-    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    const delay = tomorrow.getTime() - now.getTime();
-    
-    const timer = setTimeout(() => {
-      fetchTodaysCourses();
-    }, delay);
-    
-    return () => clearTimeout(timer);
   }, []);
 
-  const handleLogin = async () => {
-    if (!username.trim() || !password.trim()) {
-      setError("请输入学号和密码");
+  useEffect(() => {
+    if (authState.userToken) fetchDayCourses();
+  }, [authState.userToken, scheduleState.courses, fetchDayCourses]);
+
+  useEffect(() => {
+    const now = new Date();
+    const msToMidnight =
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime();
+    const t = setTimeout(fetchDayCourses, msToMidnight);
+    return () => clearTimeout(t);
+  }, [fetchDayCourses]);
+
+  // ── Course classification ─────────────────────────────────────
+  const ongoingCourse = todaysCourses.find(c => {
+    const t = getCourseSeconds(c);
+    return t ? nowSeconds >= t.start && nowSeconds < t.end : false;
+  });
+
+  const upcomingCourses = todaysCourses.filter(c => {
+    const t = getCourseSeconds(c);
+    return t ? nowSeconds < t.start : false;
+  });
+
+  const nextCourse = ongoingCourse ? null : upcomingCourses[0];
+  const laterCourses = ongoingCourse ? upcomingCourses : upcomingCourses.slice(1);
+  const showTomorrow = !ongoingCourse && upcomingCourses.length === 0;
+
+  const ongoingCountdown = (() => {
+    if (!ongoingCourse) return 0;
+    const t = getCourseSeconds(ongoingCourse);
+    return t ? Math.max(0, t.end - nowSeconds) : 0;
+  })();
+
+  const nextCountdown = (() => {
+    if (!nextCourse) return 0;
+    const t = getCourseSeconds(nextCourse);
+    return t ? Math.max(0, t.start - nowSeconds) : 0;
+  })();
+
+    // 初始化渠道（一次即可）
+  useEffect(() => {
+    setupNotificationChannel();
+    return () => { clearCourseNotification(); }; // 组件卸载时清除
+  }, []);
+
+  // 每秒更新通知内容（复用已有的 nowSeconds tick）
+  useEffect(() => {
+    if (!authState.userToken) {
+      clearCourseNotification();
       return;
     }
+    updateCourseNotification(
+      ongoingCourse ?? null,
+      nextCourse ?? null,
+      ongoingCourse ? formatCountdown(ongoingCountdown) : formatCountdown(nextCountdown),
+    );
+  }, [nowSeconds, ongoingCourse, nextCourse]); // nowSeconds 每秒变，但通知内容只在课程变化时真正改变
 
-    setLoading(true);
-    setError("");
-
+  const handleLogin = async () => {
+    if (!username.trim() || !password.trim()) { setError("请输入学号和密码"); return; }
+    setLoading(true); setError("");
     try {
       await signIn(username, password);
-      // 登录成功后获取课表
-      await fetchSchedule();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setUsername("");
-      setPassword("");
+      setUsername(""); setPassword("");
       router.push("/(tabs)/schedule");
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -117,193 +586,197 @@ export default function HomeScreen() {
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await signOut();
-      setUsername("");
-      setPassword("");
-      setError("");
-    } catch (error) {
-      console.error("Logout error:", error);
-    }
-  };
-
-  // 已登录状态 - 显示用户信息和课表统计
+  // ── Logged-in view ────────────────────────────────────────────
   if (authState.userToken) {
     return (
-      <ScreenContainer className="flex-1 bg-background">
+      <ScreenContainer className="flex-1 bg-surface">
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
-          <View className="flex-1 gap-6 p-6">
-            {/* 欢迎区域 */}
-            <View className="items-center gap-2">
-              <Text className="text-3xl font-bold text-foreground">欢迎回来</Text>
-              <Text className="text-base text-muted">{authState.username}</Text>
+          <View style={{ flex: 1, gap: 20, padding: 24 }}>
+
+            {/* Welcome */}
+            <View style={{ alignItems: "center", gap: 6 }}>
+              <Text style={{ fontSize: 28, fontWeight: "700", color: colors.foreground }}>
+                欢迎回来
+              </Text>
+              <Text style={{ fontSize: 15, color: colors.muted }}>{authState.username}</Text>
               {semesterInfo && (
-                <Text className="text-sm text-primary font-semibold">
+                <Text style={{ fontSize: 13, color: colors.primary, fontWeight: "600" }}>
                   {semesterInfo.schoolYear} {semesterInfo.semester}学期 第{semesterInfo.week}周
                 </Text>
               )}
             </View>
 
-            {/* 当天课程 */}
-            <View className="gap-3">
-              <Text className="text-lg font-semibold text-foreground">今天的课程</Text>
-              {todaysCourses.length > 0 ? (
-                <View className="gap-2">
-                  {todaysCourses.map((course, index) => (
-                    <View
-                      key={index}
-                      className="bg-surface border border-border rounded-lg p-4"
-                    >
-                      <Text className="text-base font-semibold text-foreground mb-1">
-                        {course.name}
-                      </Text>
-                      <Text className="text-sm text-muted mb-1">
-                        ⏰时间: {course.periodTime}
-                      </Text>
-                      <Text className="text-sm text-muted mb-1">
-                        📍地点: {course.classroom}
-                      </Text>
-                      <Text className="text-xs text-muted">
-                        👨‍🏫教师: {course.teacher}
-                      </Text>
-                    </View>
-                  ))}
+            {/* Poem */}
+            {poem && (
+              <View style={{
+                borderRadius: 12,
+                backgroundColor: colors.background,
+                borderLeftWidth: 3, borderLeftColor: colors.primary,
+                paddingHorizontal: 16, paddingVertical: 14, gap: 6,
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05, shadowRadius: 4, elevation: 1,
+              }}>
+                <Text style={{
+                  fontSize: 14, color: colors.foreground,
+                  lineHeight: 22, letterSpacing: 0.3,
+                }}>
+                  {poem.content}
+                </Text>
+                <Text style={{ fontSize: 12, color: colors.muted, textAlign: "right" }}>
+                  —— {poem.author}《{poem.origin}》
+                </Text>
+              </View>
+            )}
+
+            {/* Weather */}
+            {weather && <WeatherCard data={weather} />}
+
+            {/* Course section */}
+            <View style={{ gap: 10 }}>
+              <Text style={{ fontSize: 16, fontWeight: "600", color: colors.foreground }}>
+                {showTomorrow ? "明天的课程" : "今天的课程"}
+              </Text>
+
+              {showTomorrow ? (
+                <View style={{ gap: 8 }}>
+                  <View style={{
+                    backgroundColor: colors.background, borderRadius: 10,
+                    borderWidth: 0.5, borderColor: colors.border,
+                    paddingHorizontal: 16, paddingVertical: 10, alignItems: "center",
+                  }}>
+                    <Text style={{ fontSize: 13, color: colors.muted }}>
+                      {todaysCourses.length > 0 ? "今天的课程已全部结束" : "今天没有课程"}
+                    </Text>
+                  </View>
+                  {tomorrowCourses.length > 0
+                    ? tomorrowCourses.map((c, i) => <CourseCard key={i} course={c} />)
+                    : (
+                      <View style={{
+                        backgroundColor: colors.background, borderRadius: 10,
+                        borderWidth: 0.5, borderColor: colors.border,
+                        padding: 16, alignItems: "center",
+                      }}>
+                        <Text style={{ fontSize: 13, color: colors.muted }}>明天也没有课程</Text>
+                      </View>
+                    )}
                 </View>
               ) : (
-                <View className="bg-surface border border-border rounded-lg p-4 items-center">
-                  <Text className="text-muted text-sm">今天没有课程</Text>
+                <View style={{ gap: 10 }}>
+                  {ongoingCourse && (
+                    <OngoingCard
+                      course={ongoingCourse}
+                      countdown={ongoingCountdown}
+                      nowSec={nowSeconds}
+                    />
+                  )}
+                  {nextCourse && (
+                    <NextCard course={nextCourse} countdown={nextCountdown} />
+                  )}
+                  {laterCourses.map((c, i) => <CourseCard key={i} course={c} />)}
+                  {todaysCourses.length === 0 && (
+                    <View style={{
+                      backgroundColor: colors.background, borderRadius: 10,
+                      borderWidth: 0.5, borderColor: colors.border,
+                      padding: 16, alignItems: "center",
+                    }}>
+                      <Text style={{ fontSize: 13, color: colors.muted }}>今天没有课程</Text>
+                    </View>
+                  )}
                 </View>
               )}
             </View>
 
-            {/* 当日课表预览 */}
-            {todaysCourses.length > 0 && (
-              <View className="gap-3 mt-2">
-                <Text className="text-lg font-semibold text-foreground">当日课表</Text>
-                <View className="bg-surface border border-border rounded-lg overflow-hidden">
-                  <View className="flex-row bg-primary/10 border-b border-border">
-                    <View className="flex-1 p-3 items-center">
-                      <Text className="text-xs font-semibold text-muted">时间</Text>
-                    </View>
-                    <View className="flex-1 p-3 items-center border-l border-border">
-                      <Text className="text-xs font-semibold text-muted">课程</Text>
-                    </View>
-                    <View className="flex-1 p-3 items-center border-l border-border">
-                      <Text className="text-xs font-semibold text-muted">地点</Text>
-                    </View>
-                  </View>
-                  {todaysCourses.map((course, index) => (
-                    <View key={index} className="flex-row border-b border-border last:border-b-0">
-                      <View className="flex-1 p-3 items-center justify-center">
-                        <Text className="text-xs text-foreground font-semibold">{course.periodTime}</Text>
-                      </View>
-                      <View className="flex-1 p-3 items-center justify-center border-l border-border">
-                        <Text className="text-xs text-foreground text-center" numberOfLines={2}>
-                          {course.name}
-                        </Text>
-                      </View>
-                      <View className="flex-1 p-3 items-center justify-center border-l border-border">
-                        <Text className="text-xs text-muted text-center" numberOfLines={2}>
-                          {course.classroom}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
+            {/* View schedule button */}
+            <TouchableOpacity
+              onPress={() => router.push("/(tabs)/schedule")}
+              style={{
+                backgroundColor: colors.primary, borderRadius: 12,
+                paddingVertical: 14, alignItems: "center",
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={{ color: "#fff", fontWeight: "600", fontSize: 15 }}>查看课表</Text>
+            </TouchableOpacity>
 
-
-            {/* 快速操作 */}
-            <View className="gap-3">
-              <TouchableOpacity
-                onPress={() => router.push("/(tabs)/schedule")}
-                className="bg-primary rounded-lg py-4 items-center justify-center active:opacity-80"
-              >
-                <Text className="text-white font-semibold text-base">查看课表</Text>
-              </TouchableOpacity>
-
-              {/* <TouchableOpacity
-                onPress={handleLogout}
-                className="bg-error/10 border border-error rounded-lg py-4 items-center justify-center active:opacity-80"
-              >
-                <Text className="text-error font-semibold text-base">退出登录</Text>
-              </TouchableOpacity> */}
-            </View>
           </View>
         </ScrollView>
       </ScreenContainer>
     );
   }
 
-  // 未登录状态 - 显示登录表单
+  // ── Login view ────────────────────────────────────────────────
   return (
     <ScreenContainer className="flex-1 bg-background">
       <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
-        <View className="flex-1 justify-center gap-6 p-6">
-          {/* 标题 */}
-          <View className="items-center gap-2 mb-4">
-            <Text className="text-4xl font-bold text-foreground">ZJU 课表</Text>
-            <Text className="text-base text-muted">浙江大学课表助手</Text>
+        <View style={{ flex: 1, justifyContent: "center", gap: 24, padding: 24 }}>
+
+          <View style={{ alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <Text style={{ fontSize: 36, fontWeight: "700", color: colors.foreground }}>ZJU 课表</Text>
+            <Text style={{ fontSize: 15, color: colors.muted }}>浙江大学课表助手</Text>
           </View>
 
-          {/* 登录表单 */}
-          <View className="gap-4">
-            {/* 学号输入框 */}
+          <View style={{ gap: 14 }}>
             <View>
-              <Text className="text-sm font-semibold text-foreground mb-2">学号</Text>
+              <Text style={{ fontSize: 13, fontWeight: "600", color: colors.foreground, marginBottom: 8 }}>
+                学号
+              </Text>
               <TextInput
                 placeholder="请输入您的学号"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.muted}
                 value={username}
                 onChangeText={setUsername}
                 editable={!loading}
-                className="bg-surface border border-border rounded-lg px-4 py-3 text-foreground"
+                style={{
+                  backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+                  borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
+                  color: colors.foreground, fontSize: 15,
+                }}
               />
             </View>
 
-            {/* 密码输入框 */}
-            <View>
-              {/* <Text className="text-sm font-semibold text-foreground mb-2">密码</Text> */}
-              <PasswordInput
-                placeholder="请输入您的密码"
-                value={password}
-                onChangeText={setPassword}
-                loading={loading}
-              />
-            </View>
+            <PasswordInput
+              placeholder="请输入您的密码"
+              value={password}
+              onChangeText={setPassword}
+              loading={loading}
+            />
 
-            {/* 错误提示 */}
-            {error && (
-              <View className="bg-error/10 border border-error rounded-lg p-3">
-                <Text className="text-error text-sm">{error}</Text>
+            {error ? (
+              <View style={{
+                backgroundColor: hexToRgba(colors.error, 0.1),
+                borderWidth: 1, borderColor: colors.error,
+                borderRadius: 10, padding: 12,
+              }}>
+                <Text style={{ color: colors.error, fontSize: 13 }}>{error}</Text>
               </View>
-            )}
+            ) : null}
 
-            {/* 登录按钮 */}
             <TouchableOpacity
               onPress={handleLogin}
               disabled={loading}
-              className="bg-primary rounded-lg py-4 items-center justify-center active:opacity-80 disabled:opacity-50"
+              style={{
+                backgroundColor: colors.primary, borderRadius: 12,
+                paddingVertical: 14, alignItems: "center",
+                opacity: loading ? 0.5 : 1,
+              }}
+              activeOpacity={0.8}
             >
-              {loading ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Text className="text-white font-semibold text-base">登录</Text>
-              )}
+              {loading
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={{ color: "#fff", fontWeight: "600", fontSize: 15 }}>登录</Text>}
             </TouchableOpacity>
           </View>
 
-          {/* 提示文字 */}
-          <View className="items-center gap-2 mt-4">
-            <Text className="text-xs text-muted text-center">
+          <View style={{ alignItems: "center", gap: 6, marginTop: 8 }}>
+            <Text style={{ fontSize: 12, color: colors.muted, textAlign: "center" }}>
               使用浙江大学统一身份认证登录
             </Text>
-            <Text className="text-xs text-muted text-center">
+            <Text style={{ fontSize: 12, color: colors.muted, textAlign: "center" }}>
               登录后可查看您的课程安排
             </Text>
           </View>
+
         </View>
       </ScrollView>
     </ScreenContainer>

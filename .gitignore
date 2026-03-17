@@ -61,3 +61,8 @@ Thumbs.db
 *.tgz
 *.tar.gz
 .cache/
+
+#design
+INTEGRATION.
+
+package-lock.json

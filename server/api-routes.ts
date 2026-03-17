@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { ZJUService, Course } from "./_core/zju-service";
-
+import { encrypt, decrypt } from "./_core/crypto"; 
 const router = Router();
 
 // 全局 ZJU 服务实例
@@ -17,45 +17,19 @@ const userCredentialsCache: Map<string, { username: string; password: string }> 
 
 // 缓存策略：永久缓存，直至退出登录或刷新
 
-/**
- * 简单的加密函数（使用 Base64 + XOR）
- */
-function simpleEncrypt(text: string, key: string = 'zju-schedule-key'): string {
-  const encrypted = text.split('').map((char, i) => {
-    return String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length));
-  }).join('');
-  return Buffer.from(encrypted).toString('base64');
-}
-
-/**
- * 简单的解密函数
- */
-function simpleDecrypt(encrypted: string, key: string = 'zju-schedule-key'): string {
-  const decrypted = Buffer.from(encrypted, 'base64').toString();
-  return decrypted.split('').map((char, i) => {
-    return String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length));
-  }).join('');
-}
-
-/**
- * 保存用户凭证
- */
 function saveUserCredentials(username: string, password: string) {
   userCredentialsCache.set(username, {
     username,
-    password: simpleEncrypt(password)
+    password: encrypt(password)
   });
 }
 
-/**
- * 获取用户凭证
- */
-function getUserCredentials(username: string): { username: string; password: string } | null {
+function getUserCredentials(username: string) {
   const cached = userCredentialsCache.get(username);
   if (!cached) return null;
   return {
     username: cached.username,
-    password: simpleDecrypt(cached.password)
+    password: decrypt(cached.password)
   };
 }
 
@@ -134,8 +108,8 @@ async function fetchAllSemestersInBackground(username: string, service: ZJUServi
       });
     }
 
-    // 遍历最近3个学年
-    const yearsToCheck = year_options.slice(0, 3);
+    // 遍历最近5个学年
+    const yearsToCheck = year_options.slice(0, 5);
 
     for (const year of yearsToCheck) {
       for (const term of term_options) {
@@ -691,6 +665,18 @@ router.post("/schedule/logout", async (req: Request, res: Response) => {
       error: "退出登录失败",
     });
   }
+});
+
+/**
+ * 测试 API 连通性
+ * GET /api/test
+ */
+router.get("/test", (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    message: "API is working",
+    timestamp: Date.now()
+  });
 });
 
 export default router;

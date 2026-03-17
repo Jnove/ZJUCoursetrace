@@ -19,7 +19,7 @@
     "qr": "node scripts/generate_qr.mjs"
   },
   "dependencies": {
-    "@expo/vector-icons": "^15.0.3",
+    "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-navigation/bottom-tabs": "^7.8.12",
     "@react-navigation/elements": "^2.9.2",
@@ -43,20 +43,23 @@
     "expo-image": "~3.0.11",
     "expo-keep-awake": "~15.0.8",
     "expo-linking": "~8.0.10",
-    "expo-notifications": "~0.32.15",
+    "expo-location": "^55.1.2",
+    "expo-notifications": "~0.32.16",
     "expo-router": "~6.0.19",
     "expo-secure-store": "~15.0.8",
+    "expo-sharing": "^55.0.11",
     "expo-splash-screen": "~31.0.12",
     "expo-status-bar": "~3.0.9",
     "expo-symbols": "~1.0.8",
     "expo-system-ui": "~6.0.9",
+    "expo-task-manager": "~14.0.9",
     "expo-video": "~3.0.15",
     "expo-web-browser": "~15.0.10",
     "express": "^4.22.1",
     "jose": "6.1.0",
     "lunar-javascript": "^1.7.7",
     "mysql2": "^3.16.0",
-    "nativewind": "^4.2.1",
+    "nativewind": "^4.2.2",
     "puppeteer": "^24.36.1",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -66,6 +69,7 @@
     "react-native-safe-area-context": "~5.6.2",
     "react-native-screens": "~4.16.0",
     "react-native-svg": "15.12.1",
+    "react-native-view-shot": "^4.0.3",
     "react-native-web": "~0.21.2",
     "react-native-worklets": "0.5.1",
     "superjson": "^1.13.3",
@@ -85,6 +89,7 @@
     "esbuild": "^0.25.12",
     "eslint": "^9.39.2",
     "eslint-config-expo": "~10.0.0",
+    "expo-module-scripts": "^55.0.2",
     "prettier": "^3.7.4",
     "qrcode": "^1.5.4",
     "tailwindcss": "^3.4.17",
@@ -92,5 +97,5 @@
     "typescript": "~5.9.3",
     "vitest": "^2.1.9"
   },
-  "packageManager": "pnpm@9.12.0"
+  "packageManager": "pnpm@10.32.1"
 }
