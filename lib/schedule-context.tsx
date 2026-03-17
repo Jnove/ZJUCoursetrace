@@ -2,25 +2,22 @@ import React, { createContext, useContext, useReducer, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApiBaseUrl } from "@/constants/oauth";
 
-/**
- * 前端使用的课程数据类型
- */
 export interface Course {
   id: string;
   name: string;
   teacher: string;
   classroom: string;
-  dayOfWeek: number; // 1-7 (Monday-Sunday)
-  startPeriod: number; // 1-12
+  dayOfWeek: number;
+  startPeriod: number;
   endPeriod: number;
   weekStart: number;
   weekEnd: number;
   color: string;
-  isSingleWeek?: "single" | "double" | "both"; // single=单周, double=双周, both=单双周
-  periodTime?: string; // 具体时间，如"08:00—09:35"
+  isSingleWeek?: "single" | "double" | "both";
+  periodTime?: string;
   courseCode?: string;
   semester?: string;
-  examInfo?: string; // 考试信息
+  examInfo?: string;
 }
 
 export interface ScheduleState {
@@ -28,7 +25,7 @@ export interface ScheduleState {
   isLoading: boolean;
   error: string | null;
   currentWeek: number;
-  weekType: "all" | "single" | "double"; // Filter type
+  weekType: "all" | "single" | "double";
 }
 
 type ScheduleAction =
@@ -49,20 +46,13 @@ const initialState: ScheduleState = {
 
 function scheduleReducer(state: ScheduleState, action: ScheduleAction): ScheduleState {
   switch (action.type) {
-    case "SET_COURSES":
-      return { ...state, courses: action.payload };
-    case "SET_LOADING":
-      return { ...state, isLoading: action.payload };
-    case "SET_ERROR":
-      return { ...state, error: action.payload };
-    case "SET_CURRENT_WEEK":
-      return { ...state, currentWeek: action.payload };
-    case "SET_WEEK_TYPE":
-      return { ...state, weekType: action.payload };
-    case "CLEAR_ERROR":
-      return { ...state, error: null };
-    default:
-      return state;
+    case "SET_COURSES":    return { ...state, courses: action.payload };
+    case "SET_LOADING":    return { ...state, isLoading: action.payload };
+    case "SET_ERROR":      return { ...state, error: action.payload };
+    case "SET_CURRENT_WEEK": return { ...state, currentWeek: action.payload };
+    case "SET_WEEK_TYPE":  return { ...state, weekType: action.payload };
+    case "CLEAR_ERROR":    return { ...state, error: null };
+    default:               return state;
   }
 }
 
@@ -78,92 +68,103 @@ interface ScheduleContextType {
 
 const ScheduleContext = createContext<ScheduleContextType | undefined>(undefined);
 
+// ─── Color palette (20 visually distinct colors) ─────────────────────────────
+// Arranged so consecutive entries look different — helps greedy graph coloring
+const COLOR_PALETTE = [
+  "#ef4444", // red
+  "#3b82f6", // blue
+  "#22c55e", // green
+  "#f97316", // orange
+  "#8b5cf6", // violet
+  "#06b6d4", // cyan
+  "#ec4899", // pink
+  "#14b8a6", // teal
+  "#a855f7", // purple
+  "#84cc16", // lime
+  "#0ea5e9", // sky
+  "#f43f5e", // rose
+  "#10b981", // emerald
+  "#6366f1", // indigo
+  "#d97706", // amber
+  "#0891b2", // dark cyan
+  "#7c3aed", // dark violet
+  "#059669", // dark emerald
+  "#db2777", // dark pink
+  "#65a30d", // dark lime
+];
+
 /**
- * 简单的字符串哈希函数
+ * Graph-colour the course list so no two visually adjacent cells share a colour.
+ * "Adjacent" = (same day, periods overlap or touch) OR (neighbouring days, periods overlap).
  */
-function hashString(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32bit integer
+function assignCourseColors(courses: Course[]): Course[] {
+  if (courses.length === 0) return [];
+
+  const colorMap = new Map<string, string>();
+
+  // Stable sort: day → startPeriod → name (deterministic across sessions)
+  const sorted = [...courses].sort((a, b) =>
+    a.dayOfWeek !== b.dayOfWeek ? a.dayOfWeek - b.dayOfWeek
+    : a.startPeriod !== b.startPeriod ? a.startPeriod - b.startPeriod
+    : a.name.localeCompare(b.name)
+  );
+
+  for (const course of sorted) {
+    const usedColors = new Set<string>();
+
+    for (const other of sorted) {
+      if (other.id === course.id) continue;
+      const assigned = colorMap.get(other.id);
+      if (!assigned) continue;
+
+      const dayDiff = Math.abs(course.dayOfWeek - other.dayOfWeek);
+      if (dayDiff > 1) continue; // not adjacent in the grid
+
+      // Periods "touch" if they overlap or are immediately consecutive
+      const touches =
+        course.startPeriod <= other.endPeriod + 1 &&
+        other.startPeriod <= course.endPeriod + 1;
+
+      if (touches) usedColors.add(assigned);
+    }
+
+    const color =
+      COLOR_PALETTE.find(c => !usedColors.has(c)) ??
+      COLOR_PALETTE[Math.abs(
+        course.name.split("").reduce((h, ch) => (h << 5) - h + ch.charCodeAt(0), 0)
+      ) % COLOR_PALETTE.length];
+
+    colorMap.set(course.id, color);
   }
-  return Math.abs(hash);
+
+  return sorted.map(c => ({ ...c, color: colorMap.get(c.id)! }));
 }
 
-// 极简扰动：RGB 整体偏移 ±delta，保留原透明度
-function perturbHex8(hex: string, seed: number, delta = 10): string {
-  // 提取 RRGGBB 和 AA（兼容 #RRGGBB 和 #RRGGBBAA）
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  const a = hex.length >= 9 ? hex.slice(7, 9) : 'ff'; // 默认不透明
-
-  // 根据 seed 生成 [-delta, delta] 内的偏移
-  const off = (seed % (delta * 2 + 1)) - delta;
-  const clamp = (n: number) => Math.max(0, Math.min(255, n + off));
-  const toHex = (n: number) => n.toString(16).padStart(2, '0');
-
-  return `#${toHex(clamp(r))}${toHex(clamp(g))}${toHex(clamp(b))}${a}`;
-}
-
-/**
- * 将后端课程数据转换为前端格式
- */
-function convertBackendCourse(backendCourse: any, index: number): Course {
-  // 优化后的颜色库，具有更高的对比度和区分度
-  const colors = [
-    "#ef746bff", // 珊瑚红
-    "#4eef71ff", // 草绿
-    "#3cc0ddff", // 天蓝
-    "#f79872ff", // 浅橙
-    "#a0e3d2ff", // 薄荷绿
-    "#e6e595ff", // 浅黄
-    "#bc9bfeff", // 浅紫
-    "#f67be1ff", // 亮粉
-    "#f5bc54ff", // 橙黄
-    "#432ee7ff", // 深紫
-    "#6dc2f3ff", // 亮蓝
-    "#057c21ff", // 深绿
-    "#f68317ff", // 橙色
-    "#f91d1dff", // 红色
-    "#0de2e2ff", // 青色
-  ];
-  
-  // 使用课程名称的哈希值来选择颜色
-  const hash = hashString(backendCourse.course_name);
-  const colorIndex = (hash * 7 + 1) % colors.length;
-
-  // 解析周次范围
-  let weekStart = 1;
-  let weekEnd = 20;
-
+// ─── Backend → frontend conversion (no colour here) ──────────────────────────
+function convertBackendCourse(backendCourse: any): Omit<Course, "color"> {
+  let weekStart = 1, weekEnd = 20;
   if (backendCourse.week_range) {
-    const match = backendCourse.week_range.match(/(\d+)-(\d+)/);
-    if (match) {
-      weekStart = parseInt(match[1]);
-      weekEnd = parseInt(match[2]);
-    }
+    const m = backendCourse.week_range.match(/(\d+)-(\d+)/);
+    if (m) { weekStart = parseInt(m[1]); weekEnd = parseInt(m[2]); }
   }
 
-  // 解析节次范围
-  let startPeriod = 1;
-  let endPeriod = 2;
-
+  let startPeriod = 1, endPeriod = 2;
   if (backendCourse.period) {
-    const match = backendCourse.period.match(/(\d+)-?(\d+)?/);
-    if (match) {
-      startPeriod = parseInt(match[1]);
-      endPeriod = match[2] ? parseInt(match[2]) : startPeriod;
+    const m = backendCourse.period.match(/(\d+)-?(\d+)?/);
+    if (m) {
+      startPeriod = parseInt(m[1]);
+      endPeriod = m[2] ? parseInt(m[2]) : startPeriod;
     }
   }
-  const color = perturbHex8(colors[colorIndex],(backendCourse.day_of_week || 0) * 3 + startPeriod, 15);
-  // 判断单双周
+
   let isSingleWeek: "single" | "double" | "both" = "both";
-  if (backendCourse.is_single_week === true) {
-    isSingleWeek = "single";
-  } else if (backendCourse.is_single_week === false) {
-    isSingleWeek = "double";
+  if (backendCourse.is_single_week === true)       isSingleWeek = "single";
+  else if (backendCourse.is_single_week === false) isSingleWeek = "double";
+
+  let examInfo = "";
+  if (backendCourse.exam_time) {
+    examInfo = `时间: ${backendCourse.exam_time}`;
+    if (backendCourse.exam_location) examInfo += `\n地点: ${backendCourse.exam_location}`;
   }
 
   return {
@@ -176,109 +177,85 @@ function convertBackendCourse(backendCourse: any, index: number): Course {
     endPeriod,
     weekStart,
     weekEnd,
-    color,
     isSingleWeek,
     periodTime: backendCourse.period_time,
     courseCode: backendCourse.course_code,
     semester: backendCourse.semester,
-    examInfo: backendCourse.exam_info,
+    examInfo: examInfo || backendCourse.exam_info,
   };
 }
 
+// ─── Provider ─────────────────────────────────────────────────────────────────
 export function ScheduleProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(scheduleReducer, initialState);
 
   const scheduleContext: ScheduleContextType = {
     state,
+
     fetchSchedule: async () => {
       dispatch({ type: "SET_LOADING", payload: true });
       let loadedFromCache = false;
 
-      // 尝试从 AsyncStorage 加载当前学期课表
       try {
         const username = await AsyncStorage.getItem("username");
         if (username) {
-          // 尝试获取上次选择的学期，或者默认当前学期
-          const lastSelectedSemester = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
-          let year, term;
-          if (lastSelectedSemester) {
-            [year, term] = lastSelectedSemester.split("-");
+          const lastSemester = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
+          let year: string | undefined, term: string | undefined;
+
+          if (lastSemester) {
+            [year, term] = lastSemester.split("-");
           } else {
-            // 如果没有上次选择的学期，尝试从后端获取当前学期信息
-            const apiBaseUrl = getApiBaseUrl();
-            const optionsResponse = await fetch(`${apiBaseUrl}/api/schedule/semester-options`);
-            const optionsData = await optionsResponse.json();
-            if (optionsData.success && optionsData.current_year && optionsData.current_term) {
-              year = optionsData.current_year;
-              term = optionsData.current_term;
+            const res = await fetch(`${getApiBaseUrl()}/api/schedule/semester-options`);
+            const data = await res.json();
+            if (data.success && data.current_year && data.current_term) {
+              year = data.current_year;
+              term = data.current_term;
             }
           }
 
           if (year && term) {
-            const cacheKey = `schedule_${year}_${term}`;
-            const cachedData = await AsyncStorage.getItem(cacheKey);
-            if (cachedData) {
-              const courses = JSON.parse(cachedData);
-              dispatch({ type: "SET_COURSES", payload: courses });
+            const raw = await AsyncStorage.getItem(`schedule_${year}_${term}`);
+            if (raw) {
+              dispatch({ type: "SET_COURSES", payload: JSON.parse(raw) });
               dispatch({ type: "SET_ERROR", payload: null });
               loadedFromCache = true;
-              console.log(`[ScheduleContext] 从缓存加载课表: ${cacheKey}`);
             }
           }
         }
       } catch (e) {
-        console.warn("[ScheduleContext] 尝试从缓存加载课表失败", e);
+        console.warn("[ScheduleContext] cache load failed", e);
       }
 
-      // 无论是否从缓存加载成功，都尝试从后端 API 获取最新数据
       try {
-        const apiBaseUrl = getApiBaseUrl();
-        const response = await fetch(`${apiBaseUrl}/api/schedule/timetable`, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
+        const res = await fetch(`${getApiBaseUrl()}/api/schedule/timetable`);
+        const result = await res.json();
+        if (!result.success) throw new Error(result.error || "获取课表失败");
 
-        const result = await response.json();
-
-        if (!result.success) {
-          throw new Error(result.error || "获取课表失败");
-        }
-
-        const convertedCourses = (result.courses || []).map((course: any, index: number) =>
-          convertBackendCourse(course, index)
-        );
+        const raw = (result.courses || []).map(convertBackendCourse);
+        const converted = assignCourseColors(raw as Course[]);
 
         if (result.semester_info?.school_year && result.semester_info?.semester) {
-          const semesterKey = `schedule_${result.semester_info.school_year}_${result.semester_info.semester}`;
-          await AsyncStorage.setItem(semesterKey, JSON.stringify(convertedCourses));
-          console.log(`[ScheduleContext] 从API获取并缓存当前学期课表: ${semesterKey}`);
-        } else {
-          console.warn("[ScheduleContext] 无法获取当前学期信息，未缓存课表。");
+          const key = `schedule_${result.semester_info.school_year}_${result.semester_info.semester}`;
+          await AsyncStorage.setItem(key, JSON.stringify(converted));
         }
-        dispatch({ type: "SET_COURSES", payload: convertedCourses });
+        dispatch({ type: "SET_COURSES", payload: converted });
         dispatch({ type: "SET_ERROR", payload: null });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "获取课表失败";
-        console.error("Fetch schedule error:", error);
-        if (!loadedFromCache) { // 如果没有从缓存加载成功，才设置错误
-          dispatch({ type: "SET_ERROR", payload: errorMessage });
-        }
+        if (!loadedFromCache)
+          dispatch({ type: "SET_ERROR", payload: error instanceof Error ? error.message : "获取课表失败" });
       } finally {
         dispatch({ type: "SET_LOADING", payload: false });
       }
     },
+
     fetchScheduleBySemester: async (year: string, term: string, useCache = true) => {
       const cacheKey = `schedule_${year}_${term}`;
-      
-      // 尝试从缓存获取
+
       if (useCache) {
         try {
-          const cachedData = await AsyncStorage.getItem(cacheKey);
-          if (cachedData) {
-            const courses = JSON.parse(cachedData);
-            dispatch({ type: "SET_COURSES", payload: courses });
+          const raw = await AsyncStorage.getItem(cacheKey);
+          if (raw) {
+            dispatch({ type: "SET_COURSES", payload: JSON.parse(raw) });
             return;
           }
         } catch (e) {
@@ -288,91 +265,50 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
       dispatch({ type: "SET_LOADING", payload: true });
       try {
-        const apiBaseUrl = getApiBaseUrl();
-        // 从 AsyncStorage 获取用户名
         const username = await AsyncStorage.getItem("username");
-        if (!username) {
-          throw new Error("未找到用户名，请先登录");
-        }
-        
-        const response = await fetch(
-          `${apiBaseUrl}/api/schedule/timetable-by-semester?username=${encodeURIComponent(username)}&year=${encodeURIComponent(
-            year
-          )}&term=${encodeURIComponent(term)}`,
-          {
-            method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }
+        if (!username) throw new Error("未找到用户名，请先登录");
+
+        const res = await fetch(
+          `${getApiBaseUrl()}/api/schedule/timetable-by-semester` +
+          `?username=${encodeURIComponent(username)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`
         );
+        const result = await res.json();
+        if (!result.success) throw new Error(result.error || "获取学期课表失败");
 
-        const result = await response.json();
+        const raw = (result.courses || []).map(convertBackendCourse);
+        const converted = assignCourseColors(raw as Course[]);
 
-        if (!result.success) {
-          throw new Error(result.error || "获取学期课表失败");
-        }
-
-        const convertedCourses = (result.courses || []).map((course: any, index: number) =>
-          convertBackendCourse(course, index)
-        );
-
-        // 写入缓存
-        await AsyncStorage.setItem(cacheKey, JSON.stringify(convertedCourses));
-        
-        dispatch({ type: "SET_COURSES", payload: convertedCourses });
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(converted));
+        dispatch({ type: "SET_COURSES", payload: converted });
         dispatch({ type: "SET_ERROR", payload: null });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "获取学期课表失败";
-        console.error("Fetch semester schedule error:", error);
-        dispatch({ type: "SET_ERROR", payload: errorMessage });
+        dispatch({ type: "SET_ERROR", payload: error instanceof Error ? error.message : "获取学期课表失败" });
       } finally {
         dispatch({ type: "SET_LOADING", payload: false });
       }
     },
-    setCurrentWeek: (week: number) => {
-      dispatch({ type: "SET_CURRENT_WEEK", payload: week });
-    },
-    setWeekType: (type: "all" | "single" | "double") => {
-      dispatch({ type: "SET_WEEK_TYPE", payload: type });
-    },
-    getCoursesForWeek: (week: number) => {
-      // 筛选在当前周次范围内的课程
-      let filtered = state.courses.filter(
-        (course) => course.weekStart <= week && week <= course.weekEnd
-      );
 
-      // 根据单双周过滤课程
-      const isOddWeek = week % 2 === 1; // 奇数周 = 单周
-      
-      filtered = filtered.filter((course) => {
-        if (course.isSingleWeek === "both") {
-          // 单双周都上，总是显示
-          return true;
-        } else if (course.isSingleWeek === "single") {
-          // 单周课，只在奇数周显示
-          return isOddWeek;
-        } else if (course.isSingleWeek === "double") {
-          // 双周课，只在偶数周显示
-          return !isOddWeek;
-        }
+    setCurrentWeek: (week: number) => dispatch({ type: "SET_CURRENT_WEEK", payload: week }),
+    setWeekType: (type) => dispatch({ type: "SET_WEEK_TYPE", payload: type }),
+
+    getCoursesForWeek: (week: number) => {
+      const isOddWeek = week % 2 === 1;
+      return state.courses.filter(course => {
+        if (course.weekStart > week || week > course.weekEnd) return false;
+        if (course.isSingleWeek === "single") return isOddWeek;
+        if (course.isSingleWeek === "double") return !isOddWeek;
         return true;
       });
+    },
 
-      return filtered;
-    },
-    clearError: () => {
-      dispatch({ type: "CLEAR_ERROR" });
-    },
+    clearError: () => dispatch({ type: "CLEAR_ERROR" }),
   };
 
   return <ScheduleContext.Provider value={scheduleContext}>{children}</ScheduleContext.Provider>;
 }
 
 export function useSchedule() {
-  const context = useContext(ScheduleContext);
-  if (!context) {
-    throw new Error("useSchedule must be used within a ScheduleProvider");
-  }
-  return context;
+  const ctx = useContext(ScheduleContext);
+  if (!ctx) throw new Error("useSchedule must be used within a ScheduleProvider");
+  return ctx;
 }

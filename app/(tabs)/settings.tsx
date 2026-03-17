@@ -37,7 +37,7 @@ export default function SettingsScreen() {
   // 主题选项列表
   const themeOptions: { label: string; value: 'light' | 'dark' | 'system'; icon: SFSymbols7_0 }[] = [
     { label: '跟随系统', value: 'system', icon: 'circle.righthalf.fill' },
-    { label: '浅色', value: 'light', icon: 'sun.max.fill' },
+    { label: '浅色', value: 'light', icon: 'sun.max' },
     { label: '深色', value: 'dark', icon: 'moon.fill' },
     
   ];

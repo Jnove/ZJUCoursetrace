@@ -63,4 +63,6 @@ Thumbs.db
 .cache/
 
 #design
-INTEGRATION.md
+INTEGRATION.
+
+package-lock.json

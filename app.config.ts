@@ -59,7 +59,6 @@ const config: ExpoConfig = {
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
     package: env.androidPackage,
-    permissions: ["POST_NOTIFICATIONS"],
     intentFilters: [
       {
         action: "VIEW",
@@ -72,6 +71,11 @@ const config: ExpoConfig = {
         ],
         category: ["BROWSABLE", "DEFAULT"],
       },
+    ],
+    permissions: [
+      "POST_NOTIFICATIONS",
+      "ACCESS_COARSE_LOCATION",   // 加这两行
+      "ACCESS_FINE_LOCATION",
     ],
   },
   web: {
@@ -116,6 +120,12 @@ const config: ExpoConfig = {
         },
       },
     ],
+    ["expo-location", {
+      locationWhenInUsePermission: "Allow ZJU 课表 to access your location for weather."
+    }],
+    ["expo-notifications", {
+      "androidMode": "default"
+    }],
   ],
   experiments: {
     typedRoutes: true,
