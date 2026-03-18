@@ -14,6 +14,7 @@ import { useColors } from "@/hooks/use-colors";
 import { Course } from "@/lib/schedule-context";
 import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
+import * as MediaLibrary from "expo-media-library";
 
 interface SemesterOption {
   year: string;
@@ -48,7 +49,7 @@ export default function ScheduleScreen() {
   const retryCountRef = useRef(0);
   const MAX_RETRY = 15;
 
-  // ── Init ──────────────────────────────────────────────────────
+  // ── Init
   useEffect(() => {
     const loadInitialData = async () => {
       const username = await AsyncStorage.getItem("username");
@@ -67,7 +68,7 @@ export default function ScheduleScreen() {
     loadInitialData();
   }, []);
 
-  // ── Polling ───────────────────────────────────────────────────
+  // ── Polling 
   useEffect(() => {
     if (pollingTimerRef.current) {
       clearInterval(pollingTimerRef.current);
@@ -83,7 +84,7 @@ export default function ScheduleScreen() {
     return () => { if (pollingTimerRef.current) clearInterval(pollingTimerRef.current); };
   }, [semesters, loadingSemesters]);
 
-  // ── Fetch ─────────────────────────────────────────────────────
+  // ── Fetch 
   const fetchSemesters = async () => {
     try {
       setLoadingSemesters(true);
@@ -161,26 +162,53 @@ export default function ScheduleScreen() {
     }
   };
 
-  // ── Download ──────────────────────────────────────────────────
+  // ── Download 
+
   const handleDownload = async () => {
     if (!captureViewRef.current) return;
     try {
       setIsDownloading(true);
       const uri = await captureRef(captureViewRef, { format: "png", quality: 1.0 });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(uri, { mimeType: "image/png", dialogTitle: "分享课表截图" });
-      } else {
-        Alert.alert("提示", "当前设备不支持分享");
-      }
+
+      Alert.alert("课表截图", "选择操作", [
+        {
+          text: "保存到相册",
+          onPress: async () => {
+            const { status } = await MediaLibrary.requestPermissionsAsync();
+            if (status !== "granted") {
+              Alert.alert("权限不足", "请允许访问相册");
+              return;
+            }
+            await MediaLibrary.saveToLibraryAsync(uri);
+            Alert.alert("完成", "已保存到相册");
+          },
+        },
+        {
+          text: "分享",
+          onPress: async () => {
+            const canShare = await Sharing.isAvailableAsync();
+            if (canShare) {
+              await Sharing.shareAsync(uri, { mimeType: "image/png", dialogTitle: "分享课表截图" });
+            } else {
+              Alert.alert("提示", "当前设备不支持分享");
+            }
+          },
+        },
+        { text: "取消", style: "cancel" },
+      ]);
     } catch (e) {
       Alert.alert("导出失败", "截图失败，请重试");
     } finally {
       setIsDownloading(false);
     }
-  };
+  };<View
+    ref={captureViewRef}
+    collapsable={false}
+    style={{ flex: 1, backgroundColor: colors.surface }}
+    onLayout={e => setTableAvailableH(e.nativeEvent.layout.height)}
+  ></View>
 
-  // ── Course press ──────────────────────────────────────────────
+  // ── Course press 
   const handleCoursePress = (course: Course) => {
     setSelectedCourse(course);
     setDetailVisible(true);
@@ -196,7 +224,7 @@ export default function ScheduleScreen() {
     setTimeout(() => { setSelectedCourse(course); setDetailVisible(true); }, 220);
   };
 
-  // ── Filtered courses ──────────────────────────────────────────
+  // ── Filtered courses 
   const filteredCourses = (state.courses ?? []).filter(c => {
     if (filterType === "single") return c.isSingleWeek !== "double";
     if (filterType === "double") return c.isSingleWeek !== "single";
@@ -207,7 +235,7 @@ export default function ScheduleScreen() {
     ? (semesters.find(s => `${s.year}-${s.term}` === selectedSemester)?.label ?? "选择学期")
     : "选择学期";
 
-  // ── Render ────────────────────────────────────────────────────
+  // ── Render 
   return (
     <ScreenContainer className="flex-1 bg-surface">
       {state.isLoading ? (
@@ -218,7 +246,7 @@ export default function ScheduleScreen() {
       ) : (
         <View style={{ flex: 1 }}>
 
-          {/* ── Fixed header ─────────────────────────────────── */}
+          {/* ── Fixed header */}
           <View style={{
             paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10,
             gap: 10,
@@ -258,7 +286,7 @@ export default function ScheduleScreen() {
               >
                 {isDownloading
                   ? <ActivityIndicator size="small" color={colors.muted} />
-                  : <IconSymbol name="square.and.arrow.down" size={18} color={colors.foreground} />
+                  : <IconSymbol name="arrowshape.turn.up.right" size={18} color={colors.foreground} />
                 }
               </TouchableOpacity>
 
@@ -371,7 +399,7 @@ export default function ScheduleScreen() {
             </View>
           </View>
 
-          {/* ── Content (capturable area) ─────────────────────── */}
+          {/* ── Content (capturable area)  */}
           {filteredCourses.length === 0 ? (
             <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
               <Text style={{ fontSize: 14, color: colors.muted }}>当前筛选条件下没有课程</Text>
@@ -379,6 +407,7 @@ export default function ScheduleScreen() {
           ) : (
             <View
               ref={captureViewRef}
+              collapsable={false}
               style={{ flex: 1, backgroundColor: colors.surface }}
               onLayout={e => setTableAvailableH(e.nativeEvent.layout.height)}
             >
@@ -412,7 +441,7 @@ export default function ScheduleScreen() {
         </View>
       )}
 
-      {/* ── Course detail modal ───────────────────────────────── */}
+      {/* ── Course detail modal */}
       <Modal visible={detailVisible} transparent animationType="fade" onRequestClose={() => setDetailVisible(false)}>
         <Pressable
           style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.38)", justifyContent: "center", alignItems: "center" }}
@@ -450,7 +479,7 @@ export default function ScheduleScreen() {
         </Pressable>
       </Modal>
 
-      {/* ── Overlap modal ─────────────────────────────────────── */}
+      {/* ── Overlap modal */}
       <Modal visible={overlapVisible} transparent animationType="fade" onRequestClose={() => setOverlapVisible(false)}>
         <Pressable
           style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.38)", justifyContent: "center", alignItems: "center" }}
