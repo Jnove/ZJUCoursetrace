@@ -3,9 +3,9 @@ import * as ReactNative from "react-native";
 import { getCurrentApiBaseUrl } from '@/lib/api-url';
 
 // Extract scheme from bundle ID 
-const bundleId = "zju.schedule.app.t20260224143431";
+const bundleId = "zju.coursetrace.t20260317221431";
 const timestamp = bundleId.split(".").pop()?.replace(/^t/, "") ?? "";
-const schemeFromBundleId = `zju-schedule-app${timestamp}`;
+const schemeFromBundleId = `zju-Coursetrace${timestamp}`;
 
 const env = {
   portal: process.env.EXPO_PUBLIC_OAUTH_PORTAL_URL ?? "",
@@ -62,7 +62,6 @@ export function getApiBaseUrl(): string {
 }
 
 export const SESSION_TOKEN_KEY = "app_session_token";
-export const USER_INFO_KEY = "manus-runtime-user-info";
 
 const encodeState = (value: string) => {
   if (typeof globalThis.btoa === "function") {

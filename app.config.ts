@@ -23,8 +23,8 @@ const schemeFromBundleId = `zju.schedule.app${timestamp}`;
 
 const env = {
   // App branding - update these values directly (do not use env vars)
-  appName: "ZJU 课表",
-  appSlug: "zju-schedule-app",
+  appName: "ZJU 课迹",
+  appSlug: "zju-CourseTrace",
   // S3 URL of the app logo - set this to the URL returned by generate_image when creating custom logo
   // Leave empty to use the default icon from assets/images/icon.png
   logoUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663160765823/tDORcbEdvQaawurF.png",
@@ -36,7 +36,7 @@ const env = {
 const config: ExpoConfig = {
   name: env.appName,
   slug: env.appSlug,
-  version: "1.0.0",
+  version: "1.1.0",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: env.scheme,
@@ -131,11 +131,11 @@ const config: ExpoConfig = {
     typedRoutes: true,
     reactCompiler: true,
   },
-  extra: {
-    eas: {
-      projectId: "93dd300b-e1b6-4ffe-a4d3-55198a81c7a7",
-    },
-  },
+  "extra": {
+      "eas": {
+        "projectId": "2fd29c50-b361-4ace-b866-7b550fc746b5"
+      }
+  }
 };
 
 export default config;

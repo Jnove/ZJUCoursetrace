@@ -18,7 +18,7 @@ import { useColors } from "@/hooks/use-colors";
 import { Platform } from 'react-native';
 import { setupNotificationChannel, updateCourseNotification, clearCourseNotification } from '@/lib/course-notification';
 
-// ─── Period table ─────────────────────────────────────────────
+// ─── Period table 
 const PERIODS = [
   { number: 1,  startTime: "08:00", endTime: "08:45" },
   { number: 2,  startTime: "08:50", endTime: "09:35" },
@@ -35,7 +35,7 @@ const PERIODS = [
   { number: 13, startTime: "20:30", endTime: "21:15" },
 ];
 
-// ─── Time utils ───────────────────────────────────────────────
+// ─── Time utils 
 function parseTimeStr(t: string): number {
   const [h, m] = t.split(":").map(Number);
   return h * 3600 + m * 60;
