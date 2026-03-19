@@ -3,7 +3,7 @@ import "./scripts/load-env.js";
 import type { ExpoConfig } from "expo/config";
 
 
-const rawBundleId = "zju.schedule.app.t20260224143431";
+const rawBundleId = "zju.coursetrace.t20260224143431";
 const bundleId =
   rawBundleId
     .replace(/[-_]/g, ".") // Replace hyphens/underscores with dots
@@ -17,9 +17,9 @@ const bundleId =
       // Prefix with 'x' if segment starts with a digit
       return /^[a-zA-Z]/.test(segment) ? segment : "x" + segment;
     })
-    .join(".") || "zju.schedule.app";
+    .join(".") || "zju.coursetrace";
 const timestamp = bundleId.split(".").pop()?.replace(/^t/, "") ?? "";
-const schemeFromBundleId = `zju.schedule.app${timestamp}`;
+const schemeFromBundleId = `zju.coursetrace${timestamp}`;
 
 const env = {
   // App branding - update these values directly (do not use env vars)
@@ -132,9 +132,7 @@ const config: ExpoConfig = {
     reactCompiler: true,
   },
   "extra": {
-      "eas": {
-        "projectId": "2fd29c50-b361-4ace-b866-7b550fc746b5"
-      }
+
   }
 };
 
