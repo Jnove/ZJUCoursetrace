@@ -158,17 +158,18 @@ export const getLocation = async (): Promise<SimpleCoords | null> => {
     const loc = await Location.getCurrentPositionAsync();
     return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
   }
-
-  const last = await Location.getLastKnownPositionAsync({
-    maxAge: 1000 * 60 * 60 * 24,
-    requiredAccuracy: 5000,
-  });
-  if (last) return { latitude: last.coords.latitude, longitude: last.coords.longitude };
-
+  try{
+    const last = await Location.getLastKnownPositionAsync({
+      maxAge: 1000 * 60 * 60 * 24,
+      requiredAccuracy: 5000,
+    });
+    if (last) return { latitude: last.coords.latitude, longitude: last.coords.longitude };
+  }
+  catch{
   try {
-    const ipRes = await fetch('https://api.ipify.org?format=json');
-    const { ip } = await ipRes.json();
-    const res = await fetch(`https://api.iping.cc/v1/query?ip=${ip}&language=zh`);
+    const ipRes = await fetch('https://httpbin.org/ip');
+    const { origin } = await ipRes.json();
+    const res = await fetch(`https://api.iping.cc/v1/query?ip=${origin}&language=zh`);
     const json = await res.json();
     const data = json.data;
     if (data?.latitude && data?.longitude) {
@@ -176,6 +177,7 @@ export const getLocation = async (): Promise<SimpleCoords | null> => {
       return { latitude: parseFloat(data.latitude), longitude: parseFloat(data.longitude) };
     }
   } catch {}
+  }
   const loc = await getLocationViaWatch();
   return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
 };
