@@ -7,7 +7,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScheduleTable } from "@/components/schedule-table";
 import { useSchedule } from "@/lib/schedule-context";
-import { getApiBaseUrl } from "@/constants/oauth";
 import CourseDetailContent from "@/app/courseDetailContent";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
@@ -15,15 +14,25 @@ import { Course } from "@/lib/schedule-context";
 import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import * as MediaLibrary from "expo-media-library";
+import { getSemesterOptions as zjuGetSemesterOptions, ZjuSession, checkSemesterHasCourses, invalidateSession, } from "@/lib/zju-client";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface SemesterOption {
-  year: string;
-  term: string;
-  label: string;
+  yearValue: string;   // e.g. "2025-2026"
+  termValue: string;   // e.g. "2|春"
+  yearText: string;    // e.g. "2025-2026学年"
+  termText: string;    // e.g. "第一学期"
+  label: string;       // e.g. "2025-2026学年 第一学期"
+}
+
+// Stable key for AsyncStorage: uses original value
+function semesterKey(yearValue: string, termValue: string) {
+  return `${yearValue}|${termValue}`;
 }
 
 export default function ScheduleScreen() {
-  const { state, fetchScheduleBySemester } = useSchedule();
+  const { state, fetchScheduleBySemester, refreshAllSemesters } = useSchedule();
   const colors = useColors();
 
   const [semesters, setSemesters] = useState<SemesterOption[]>([]);
@@ -45,140 +54,179 @@ export default function ScheduleScreen() {
   // Ref for screenshot capture
   const captureViewRef = useRef<View>(null);
 
-  const pollingTimerRef = useRef<number | null>(null);
-  const retryCountRef = useRef(0);
-  const MAX_RETRY = 15;
-
-  // ── Init
+  // ── Init: restore cache, then refresh from API ─────────────────────────────
   useEffect(() => {
-    const loadInitialData = async () => {
-      const username = await AsyncStorage.getItem("username");
-      if (username) {
-        try {
-          const cached = await AsyncStorage.getItem(`activeSemesters_${username}`);
-          if (cached) setSemesters(JSON.parse(cached));
-        } catch {}
-        try {
-          const cached = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
-          if (cached) setSelectedSemester(cached);
-        } catch {}
-      }
-      fetchSemesters();
-    };
-    loadInitialData();
-  }, []);
-
-  // ── Polling 
-  useEffect(() => {
-    if (pollingTimerRef.current) {
-      clearInterval(pollingTimerRef.current);
-      pollingTimerRef.current = null;
-    }
-    if (semesters.length > 0 || loadingSemesters) retryCountRef.current = 0;
-    if (semesters.length === 0 && !loadingSemesters && retryCountRef.current < MAX_RETRY) {
-      pollingTimerRef.current = setInterval(() => {
-        retryCountRef.current += 1;
-        fetchActiveSemesters();
-      }, 1000);
-    }
-    return () => { if (pollingTimerRef.current) clearInterval(pollingTimerRef.current); };
-  }, [semesters, loadingSemesters]);
-
-  // ── Fetch 
-  const fetchSemesters = async () => {
-    try {
-      setLoadingSemesters(true);
-      const res = await fetch(`${getApiBaseUrl()}/api/schedule/semester-options`);
-      const data = await res.json();
-      if (data.success) {
-        const { current_year, current_term } = data;
-        if (current_year && current_term) {
-          if (!selectedSemester) setSelectedSemester(`${current_year}-${current_term}`);
-          if (semesters.length === 0) {
-            setSemesters([{ year: current_year, term: current_term, label: `${current_year} ${current_term}学期` }]);
-          }
-        }
-        fetchActiveSemesters();
-      }
-    } catch (e) {
-      console.error("获取学期列表失败:", e);
-    } finally {
-      setLoadingSemesters(false);
-    }
-  };
-
-  const fetchActiveSemesters = async () => {
-    try {
+    const init = async () => {
       const username = await AsyncStorage.getItem("username");
       if (!username) return;
-      const res = await fetch(`${getApiBaseUrl()}/api/schedule/active-semesters?username=${encodeURIComponent(username)}`);
-      const data = await res.json();
-      if (data.success && data.semesters) {
-        setSemesters(data.semesters);
-        await AsyncStorage.setItem(`activeSemesters_${username}`, JSON.stringify(data.semesters));
-      }
-    } catch (e) {
-      console.error("获取活跃学期失败:", e);
-    }
-  };
 
-  const handleSemesterChange = async (year: string, term: string) => {
-    setSelectedSemester(`${year}-${term}`);
+      // 1. Restore cached semester list and last selection instantly
+      let restoredKey: string | null = null;
+      try {
+        const cachedSems = await AsyncStorage.getItem(`activeSemesters_${username}`);
+        if (cachedSems) setSemesters(JSON.parse(cachedSems));
+        const lastKey = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
+        if (lastKey) { setSelectedSemester(lastKey); restoredKey = lastKey; }
+      } catch {}
+
+      // 2. Load schedule for restored selection from local cache
+      if (restoredKey && typeof restoredKey === "string" && restoredKey.includes("|")) {
+        const [yearValue, termValue] = restoredKey.split("|");
+        await fetchScheduleBySemester(yearValue, termValue, true);
+      }
+
+      // 3. Refresh semester options from network
+      setLoadingSemesters(true);
+      try {
+        const session: ZjuSession = { username, jsessionId: "native", routeCookie: null };
+        const opts = await zjuGetSemesterOptions(session);
+
+        // 构建所有学年-学期组合（笛卡尔积）
+        const allCombos: { yearValue: string; termValue: string; yearText: string; termText: string }[] = [];
+        for (const yo of opts.yearOptions) {
+          for (const to of opts.termOptions) {
+            allCombos.push({
+              yearValue: yo.value,
+              termValue: to.value,
+              yearText: yo.text,
+              termText: to.text,
+            });
+          }
+        }
+
+        // 并发检测哪些组合有课程（限制并发数，避免过多请求）
+        const concurrency = 3;
+        const results: { combo: typeof allCombos[0]; hasCourses: boolean }[] = [];
+        for (let i = 0; i < allCombos.length; i += concurrency) {
+          const chunk = allCombos.slice(i, i + concurrency);
+          const chunkResults = await Promise.all(
+            chunk.map(combo =>
+              checkSemesterHasCourses(session, combo.yearValue, combo.termValue)
+                .then(has => ({ combo, hasCourses: has }))
+            )
+          );
+          results.push(...chunkResults);
+        }
+
+        // 过滤出有课程的学期
+        const allSemesters: SemesterOption[] = results
+          .filter(r => r.hasCourses)
+          .map(r => ({
+            yearValue: r.combo.yearValue,
+            termValue: r.combo.termValue,
+            yearText: r.combo.yearText,
+            termText: r.combo.termText,
+            label: `${r.combo.yearText} ${r.combo.termText}`,
+          }));
+
+        // 如果没有检测到有课程的学期（可能全部请求失败），回退到所有组合
+        if (allSemesters.length === 0) {
+          console.warn("未检测到有课程的学期，回退到全部学期组合");
+          allSemesters.push(...allCombos.map(c => ({
+            yearValue: c.yearValue,
+            termValue: c.termValue,
+            yearText: c.yearText,
+            termText: c.termText,
+            label: `${c.yearText} ${c.termText}`,
+          })));
+        }
+
+        setSemesters(allSemesters);
+        await AsyncStorage.setItem(`activeSemesters_${username}`, JSON.stringify(allSemesters));
+
+        // 如果没有恢复上次选择的学期，默认选择第一个有课程的学期（或当前学期）
+        if (!restoredKey) {
+          // 尝试从 opts 中获取当前选中的学期，但仅当该学期在有课程列表中时使用
+          const defaultYearValue = opts.yearOptions.find(o => o.selected)?.value ?? opts.yearOptions[0]?.value;
+          const defaultTermValue = opts.termOptions.find(o => o.selected)?.value ?? opts.termOptions[0]?.value;
+          const defaultSemester = allSemesters.find(
+            s => s.yearValue === defaultYearValue && s.termValue === defaultTermValue
+          ) ?? allSemesters[0];
+
+          if (defaultSemester) {
+            const key = semesterKey(defaultSemester.yearValue, defaultSemester.termValue);
+            setSelectedSemester(key);
+            await AsyncStorage.setItem(`lastSelectedSemester_${username}`, key);
+            await fetchScheduleBySemester(defaultSemester.yearValue, defaultSemester.termValue, true);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load semester options:", e);
+      } finally {
+        setLoadingSemesters(false);
+      }
+    };
+    init();
+  }, []); // run once on mount
+
+  // ── Semester change ────────────────────────────────────────────────────────
+  const handleSemesterChange = async (yearValue: string, termValue: string) => {
+    console.log("semester change:",yearValue,termValue);
+    const key = semesterKey(yearValue, termValue);
+    setSelectedSemester(key);
     setShowSemesterPicker(false);
     const username = await AsyncStorage.getItem("username");
-    if (username) await AsyncStorage.setItem(`lastSelectedSemester_${username}`, `${year}-${term}`);
-    await fetchScheduleBySemester(year, term);
+    if (username) await AsyncStorage.setItem(`lastSelectedSemester_${username}`, key);
+    await fetchScheduleBySemester(yearValue, termValue);
   };
 
+  // ── Refresh (re-fetch from network, bypass cache) ──────────────────────────
   const handleRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    if(!selectedSemester) return;
+    const [yearValue, termValue] = selectedSemester.split("|");
+    // console.log(yearValue,termValue);
     try {
-      setIsRefreshing(true);
-      const username = await AsyncStorage.getItem("username");
-      if (!username) { Alert.alert("错误", "未找到用户信息，请重新登录"); return; }
-      if (semesters.length === 0) { Alert.alert("提示", "没有可刷新的学期"); return; }
+      // 获取所有可用学期（从 semesters state 中提取）
+      const allSemesters = semesters.map(s => ({
+        yearValue: s.yearValue,
+        termValue: s.termValue,
+      }));
 
-      for (const semester of semesters) {
-        try {
-          const res = await fetch(`${getApiBaseUrl()}/api/schedule/refresh`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username, semester: `${semester.year}_${semester.term}` }),
-          });
-          const result = await res.json();
-          if (!result.success) Alert.alert("警告", `${semester.label} 刷新失败`);
-        } catch {
-          Alert.alert("警告", `${semester.label} 刷新失败`);
-        }
+      if (allSemesters.length === 0) {
+        Alert.alert("提示", "学期列表未加载，请稍后重试");
+        return;
       }
-      if (selectedSemester) {
-        const [year, term] = selectedSemester.split("-");
-        await fetchScheduleBySemester(year, term);
+
+      // 显示加载提示（可选，用户可看到进度）
+      //Alert.alert("刷新中", "正在刷新所有学期课表，请稍候...", [{ text: "确定" }], { cancelable: false });
+
+      const { success, failedCount } = await refreshAllSemesters(allSemesters);
+
+      if (failedCount > 0) {
+        console.warn(`${failedCount} 个学期刷新失败`);
+        // 可以选择提示部分失败，但不影响主流程
       }
-      Alert.alert("完成", "刷新完成");
-    } catch (e: any) {
-      Alert.alert("错误", e.message || "刷新失败");
+
+      // // 刷新完成后，重新加载当前学期（确保 UI 更新）
+      // if (selectedSemester && selectedSemester.includes("|")) {
+      //   const [yearValue, termValue] = selectedSemester.split("|");
+      //   await fetchScheduleBySemester(yearValue, termValue, false);
+      // }
+
+      Alert.alert("完成", success ? "所有学期课表已更新" : `部分学期更新失败（${failedCount} 个）`);
+    } catch (error: any) {
+      Alert.alert("错误", error.message || "刷新失败，请重试");
     } finally {
       setIsRefreshing(false);
     }
+    console.log(selectedCourse);
+    await handleSemesterChange(yearValue,termValue);
   };
 
-  // ── Download 
-
+  // ── Download (screenshot) ──────────────────────────────────────────────────
   const handleDownload = async () => {
     if (!captureViewRef.current) return;
     try {
       setIsDownloading(true);
       const uri = await captureRef(captureViewRef, { format: "png", quality: 1.0 });
-
       Alert.alert("课表截图", "选择操作", [
         {
           text: "保存到相册",
           onPress: async () => {
             const { status } = await MediaLibrary.requestPermissionsAsync();
-            if (status !== "granted") {
-              Alert.alert("权限不足", "请允许访问相册");
-              return;
-            }
+            if (status !== "granted") { Alert.alert("权限不足", "请允许访问相册"); return; }
             await MediaLibrary.saveToLibraryAsync(uri);
             Alert.alert("完成", "已保存到相册");
           },
@@ -196,35 +244,22 @@ export default function ScheduleScreen() {
         },
         { text: "取消", style: "cancel" },
       ]);
-    } catch (e) {
+    } catch {
       Alert.alert("导出失败", "截图失败，请重试");
     } finally {
       setIsDownloading(false);
     }
-  };<View
-    ref={captureViewRef}
-    collapsable={false}
-    style={{ flex: 1, backgroundColor: colors.surface }}
-    onLayout={e => setTableAvailableH(e.nativeEvent.layout.height)}
-  ></View>
-
-  // ── Course press 
-  const handleCoursePress = (course: Course) => {
-    setSelectedCourse(course);
-    setDetailVisible(true);
   };
 
-  const handleMultipleCoursesPress = (courses: Course[]) => {
-    setOverlappingCourses(courses);
-    setOverlapVisible(true);
-  };
-
+  // ── Course press ───────────────────────────────────────────────────────────
+  const handleCoursePress = (course: Course) => { setSelectedCourse(course); setDetailVisible(true); };
+  const handleMultipleCoursesPress = (courses: Course[]) => { setOverlappingCourses(courses); setOverlapVisible(true); };
   const openDetailFromOverlap = (course: Course) => {
     setOverlapVisible(false);
     setTimeout(() => { setSelectedCourse(course); setDetailVisible(true); }, 220);
   };
 
-  // ── Filtered courses 
+  // ── Filtered courses ───────────────────────────────────────────────────────
   const filteredCourses = (state.courses ?? []).filter(c => {
     if (filterType === "single") return c.isSingleWeek !== "double";
     if (filterType === "double") return c.isSingleWeek !== "single";
@@ -232,10 +267,10 @@ export default function ScheduleScreen() {
   });
 
   const selectedLabel = selectedSemester
-    ? (semesters.find(s => `${s.year}-${s.term}` === selectedSemester)?.label ?? "选择学期")
+    ? (semesters.find(s => semesterKey(s.yearValue, s.termValue) === selectedSemester)?.label ?? "选择学期")
     : "选择学期";
 
-  // ── Render 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <ScreenContainer className="flex-1 bg-surface">
       {state.isLoading ? (
@@ -266,7 +301,7 @@ export default function ScheduleScreen() {
                 }}
               >
                 <Text style={{ fontSize: 14, fontWeight: "600", color: colors.foreground }}>
-                  {selectedLabel}
+                  {loadingSemesters ? "加载中..." : selectedLabel}
                 </Text>
                 <Text style={{ fontSize: 12, color: colors.muted }}>
                   {showSemesterPicker ? "▲" : "▼"}
@@ -318,12 +353,12 @@ export default function ScheduleScreen() {
                 overflow: "hidden", borderWidth: 0.5, borderColor: colors.border,
               }}>
                 {semesters.map((s, i) => {
-                  const key = `${s.year}-${s.term}`;
+                  const key = semesterKey(s.yearValue, s.termValue);
                   const isActive = selectedSemester === key;
                   return (
                     <TouchableOpacity
                       key={i}
-                      onPress={() => handleSemesterChange(s.year, s.term)}
+                      onPress={() => handleSemesterChange(s.yearValue, s.termValue)}
                       style={{
                         flexDirection: "row", alignItems: "center", justifyContent: "space-between",
                         paddingHorizontal: 14, paddingVertical: 12,
@@ -399,8 +434,13 @@ export default function ScheduleScreen() {
             </View>
           </View>
 
-          {/* ── Content (capturable area)  */}
-          {filteredCourses.length === 0 ? (
+          {/* ── Content (capturable area) */}
+          {state.isLoading || !selectedSemester  ? (
+            <View style={{ flex: 1, justifyContent: "center", alignItems: "center", gap: 12 }}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={{ fontSize: 14, color: colors.muted }}>加载课表中...</Text>
+            </View>
+          ) : filteredCourses.length === 0 ? (
             <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
               <Text style={{ fontSize: 14, color: colors.muted }}>当前筛选条件下没有课程</Text>
             </View>
@@ -521,10 +561,7 @@ export default function ScheduleScreen() {
               >
                 <View style={{ width: 4, height: 38, borderRadius: 2, backgroundColor: course.color }} />
                 <View style={{ flex: 1 }}>
-                  <Text style={{
-                    fontSize: 14, fontWeight: "500",
-                    color: colors.foreground, lineHeight: 20,
-                  }} numberOfLines={2}>
+                  <Text style={{ fontSize: 14, fontWeight: "500", color: colors.foreground, lineHeight: 20 }} numberOfLines={2}>
                     {course.name}
                   </Text>
                   <Text style={{ fontSize: 12, color: colors.muted, marginTop: 1 }}>

@@ -69,3 +69,5 @@ package-lock.json
 
 #npm config
 .npmrc
+
+*.code-workspace

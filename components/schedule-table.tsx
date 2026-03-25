@@ -77,12 +77,13 @@ export function ScheduleTable({
             <View key={p.number} style={{
               height: CELL_H, alignItems: "center", justifyContent: "center",
             }}>
-              <Text style={{ fontSize: 10, color: colors.muted, fontWeight: "600" }}>
-                {p.number}
-              </Text>
               <Text style={{ fontSize: 8, color: colors.muted, opacity: 0.6, marginTop: 1 }}>
                 {p.startTime}
               </Text>
+              <Text style={{ fontSize: 10, color: colors.muted, fontWeight: "600" }}>
+                {p.number}
+              </Text>
+              
             </View>
           ))}
         </View>

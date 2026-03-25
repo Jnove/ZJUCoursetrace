@@ -18,7 +18,7 @@ import { useColors } from "@/hooks/use-colors";
 import { Platform } from 'react-native';
 import { setupNotificationChannel, updateCourseNotification, clearCourseNotification } from '@/lib/course-notification';
 
-// ─── Period table 
+// ─── Period table ─────────────────────────────────────────────────────────────
 const PERIODS = [
   { number: 1,  startTime: "08:00", endTime: "08:45" },
   { number: 2,  startTime: "08:50", endTime: "09:35" },
@@ -35,7 +35,17 @@ const PERIODS = [
   { number: 13, startTime: "20:30", endTime: "21:15" },
 ];
 
-// ─── Time utils 
+// ─── Cache key helper ─────────────────────────────────────────────────────────
+// Maps semester-utils format → new schedule-context cache key format.
+// semester-utils: { schoolYear: "2025-2026", semester: "秋" | "冬" | "春" | "夏" }
+// schedule-context stores as: schedule_2025-2026学年_第一学期
+function scheduleStorageKey(schoolYear: string, semester: string): string {
+  const yearText = `${schoolYear}学年`;
+  const termText = (semester === "秋" || semester === "冬") ? "第一学期" : "第二学期";
+  return `schedule_${yearText}_${termText}`;
+}
+
+// ─── Time utils ───────────────────────────────────────────────────────────────
 function parseTimeStr(t: string): number {
   const [h, m] = t.split(":").map(Number);
   return h * 3600 + m * 60;
@@ -88,7 +98,7 @@ function filterCourses(
     .sort((a, b) => a.startPeriod - b.startPeriod);
 }
 
-// ─── Weather ──────────────────────────────────────────────────
+// ─── Weather ──────────────────────────────────────────────────────────────────
 type WeatherData = {
   label: string;
   desc: string;
@@ -115,38 +125,23 @@ function weatherCodeToDesc(code: number): { desc: string; icon: string } {
 
 function getWeatherTip(data: WeatherData): string | null {
   const prefix = data.isTomorrow ? "明天" : "今天";
-  if (data.desc.includes("雷"))                   return `${prefix}有雷暴，尽量减少外出`;
-  if (data.rainProb >= 60)                        return `${prefix}降雨概率较高，记得带伞 ☂`;
-  if (data.rainProb >= 30)                        return `${prefix}可能有雨，建议备伞`;
-  if (data.desc.includes("雪"))                   return "注意防滑，小心路面结冰";
-  if (data.desc.includes("雾"))                   return "能见度低，骑行注意安全";
-  if (data.tempMax >= 35)                         return `高温预警（${data.tempMax}°），注意防暑补水`;
-  if (data.tempMin <= 3)                          return `气温较低（最低${data.tempMin}°），注意保暖`;
+  if (data.desc.includes("雷"))   return `${prefix}有雷暴，尽量减少外出`;
+  if (data.rainProb >= 60)        return `${prefix}降雨概率较高，记得带伞 ☂`;
+  if (data.rainProb >= 30)        return `${prefix}可能有雨，建议备伞`;
+  if (data.desc.includes("雪"))   return "注意防滑，小心路面结冰";
+  if (data.desc.includes("雾"))   return "能见度低，骑行注意安全";
+  if (data.tempMax >= 35)         return `高温预警（${data.tempMax}°），注意防暑补水`;
+  if (data.tempMin <= 3)          return `气温较低（最低${data.tempMin}°），注意保暖`;
   return null;
 }
-
-// 检测 GMS 是否可用
-const hasGMS = async (): Promise<boolean> => {
-  const status = await Location.getProviderStatusAsync();
-  return 'googlePlayServicesAvailable' in status && 
-    (status as any).googlePlayServicesAvailable === true;
-};
 
 const getLocationViaWatch = (): Promise<Location.LocationObject> => {
   return new Promise((resolve, reject) => {
     let sub: Location.LocationSubscription | undefined;
-    const timer = setTimeout(() => {
-      sub?.remove();
-      reject(new Error('定位超时'));
-    }, 15000);
-
+    const timer = setTimeout(() => { sub?.remove(); reject(new Error('定位超时')); }, 15000);
     Location.watchPositionAsync(
       { accuracy: Location.Accuracy.Low },
-      (loc) => {
-        clearTimeout(timer);
-        sub?.remove();
-        resolve(loc);
-      }
+      (loc) => { clearTimeout(timer); sub?.remove(); resolve(loc); }
     ).then(s => { sub = s; });
   });
 };
@@ -158,25 +153,21 @@ export const getLocation = async (): Promise<SimpleCoords | null> => {
     const loc = await Location.getCurrentPositionAsync();
     return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
   }
-  try{
-    const last = await Location.getLastKnownPositionAsync({
-      maxAge: 1000 * 60 * 60 * 24,
-      requiredAccuracy: 5000,
-    });
-    if (last) return { latitude: last.coords.latitude, longitude: last.coords.longitude };
-  }
-  catch{
   try {
-    const ipRes = await fetch('https://httpbin.org/ip');
-    const { origin } = await ipRes.json();
-    const res = await fetch(`https://api.iping.cc/v1/query?ip=${origin}&language=zh`);
-    const json = await res.json();
-    const data = json.data;
-    if (data?.latitude && data?.longitude) {
-      console.log('[Location] 使用 IP 定位:', data.city);
-      return { latitude: parseFloat(data.latitude), longitude: parseFloat(data.longitude) };
-    }
-  } catch {}
+    const last = await Location.getLastKnownPositionAsync({ maxAge: 1000 * 60 * 60 * 24, requiredAccuracy: 5000 });
+    if (last) return { latitude: last.coords.latitude, longitude: last.coords.longitude };
+  } catch {
+    try {
+      const ipRes = await fetch('https://httpbin.org/ip');
+      const { origin } = await ipRes.json();
+      const res = await fetch(`https://api.iping.cc/v1/query?ip=${origin}&language=zh`);
+      const json = await res.json();
+      const data = json.data;
+      if (data?.latitude && data?.longitude) {
+        console.log('[Location] 使用 IP 定位:', data.city);
+        return { latitude: parseFloat(data.latitude), longitude: parseFloat(data.longitude) };
+      }
+    } catch {}
   }
   const loc = await getLocationViaWatch();
   return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
@@ -184,28 +175,20 @@ export const getLocation = async (): Promise<SimpleCoords | null> => {
 
 const fetchWeather = async () => {
   const location = await getLocation();
-  if (!location) {
-    console.log('[Weather] 无法获取位置，跳过天气');
-    return;
-  }
-
+  if (!location) { console.log('[Weather] 无法获取位置，跳过天气'); return; }
   const { latitude, longitude } = location;
   console.log('[Weather] 定位成功:', latitude, longitude);
-
   const url =
     `https://api.open-meteo.com/v1/forecast` +
     `?latitude=${latitude.toFixed(4)}&longitude=${longitude.toFixed(4)}` +
     `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
     `&timezone=auto&forecast_days=2`;
-
   const res = await fetch(url);
   if (!res.ok) throw new Error(`API ${res.status}`);
   const json = await res.json();
   const daily = json.daily;
-
   const hour = new Date().getHours();
   const idx = hour >= 21 ? 1 : 0;
-
   const { desc, icon } = weatherCodeToDesc(daily.weather_code[idx]);
   return {
     label: idx === 1 ? "明天" : "今天",
@@ -215,9 +198,9 @@ const fetchWeather = async () => {
     rainProb: Math.round(daily.precipitation_probability_max[idx]),
     isTomorrow: idx === 1,
   };
-}
+};
 
-// ─── Period badge ─────────────────────────────────────────────
+// ─── Period badge ─────────────────────────────────────────────────────────────
 function PeriodBadge({ course }: { course: Course }) {
   const colors = useColors();
   const label = course.startPeriod === course.endPeriod
@@ -235,7 +218,7 @@ function PeriodBadge({ course }: { course: Course }) {
   );
 }
 
-// ─── Weather card ─────────────────────────────────────────────
+// ─── Weather card ─────────────────────────────────────────────────────────────
 function WeatherCard({ data }: { data: WeatherData }) {
   const colors = useColors();
   const tip = getWeatherTip(data);
@@ -285,7 +268,7 @@ function WeatherCard({ data }: { data: WeatherData }) {
   );
 }
 
-// ─── Ongoing card ─────────────────────────────────────────────
+// ─── Ongoing card ─────────────────────────────────────────────────────────────
 function OngoingCard({ course, countdown, nowSec }: {
   course: Course; countdown: number; nowSec: number;
 }) {
@@ -351,7 +334,7 @@ function OngoingCard({ course, countdown, nowSec }: {
   );
 }
 
-// ─── Next card ────────────────────────────────────────────────
+// ─── Next card ────────────────────────────────────────────────────────────────
 function NextCard({ course, countdown }: { course: Course; countdown: number }) {
   const colors = useColors();
   return (
@@ -402,7 +385,7 @@ function NextCard({ course, countdown }: { course: Course; countdown: number }) 
   );
 }
 
-// ─── Plain course card ────────────────────────────────────────
+// ─── Plain course card ────────────────────────────────────────────────────────
 function CourseCard({ course }: { course: Course }) {
   const colors = useColors();
   return (
@@ -444,7 +427,7 @@ function CourseCard({ course }: { course: Course }) {
   );
 }
 
-// ─── Main screen ──────────────────────────────────────────────
+// ─── Main screen ──────────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const { state: authState, signIn } = useAuth();
   const { state: scheduleState } = useSchedule();
@@ -479,12 +462,13 @@ export default function HomeScreen() {
       .catch(() => {});
   }, []);
 
-  // Weather — fetch once on login
+  // Weather
   useEffect(() => {
     fetchWeather()
       .then(data => { if (data) setWeather(data); })
       .catch(e => setWeatherError(e instanceof Error ? e.message : '天气获取失败'));
   }, []);
+
 
   const fetchDayCourses = useCallback(async () => {
     try {
@@ -493,22 +477,56 @@ export default function HomeScreen() {
       setSemesterInfo(info);
       if (!info) { setTodaysCourses([]); return; }
 
-      const raw = await AsyncStorage.getItem(`schedule_${info.schoolYear}_${info.semester}`);
+      const username = await AsyncStorage.getItem("username");
+      let yearValue = info.schoolYear; // 原始学年值（如"2025-2026"）
+      let termValue = info.semester;   // 学期显示文本（如"春"）
+
+      // 尝试从缓存的学期列表中获取原始学期值（如"2|春"）
+      if (username) {
+        const cachedSemesters = await AsyncStorage.getItem(`activeSemesters_${username}`);
+        if (cachedSemesters) {
+          const allSemesters = JSON.parse(cachedSemesters);
+          const match = allSemesters.find((s: any) => s.yearText === info.schoolYear && s.termText === info.semester);
+          if (match) {
+            yearValue = match.yearValue;
+            termValue = match.termValue;
+          }
+        }
+      }
+
+      const cacheKey = `schedule_${yearValue}_${termValue}`;
+      const raw = await AsyncStorage.getItem(cacheKey);
       if (!raw) { setTodaysCourses([]); return; }
 
       const all: Course[] = JSON.parse(raw);
+      // 后续筛选逻辑不变
       const todayDow = now.getDay() === 0 ? 7 : now.getDay();
       setTodaysCourses(filterCourses(all, todayDow, info.week, info.week % 2 === 1));
 
+      // 明天类似处理
       const tomorrow = new Date(now);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tInfo = getCurrentSemester(tomorrow);
-      if (!tInfo) { setTomorrowCourses([]); return; }
-
-      const tRaw = await AsyncStorage.getItem(`schedule_${tInfo.schoolYear}_${tInfo.semester}`);
-      const tAll: Course[] = JSON.parse(tRaw ?? raw);
-      const tomorrowDow = tomorrow.getDay() === 0 ? 7 : tomorrow.getDay();
-      setTomorrowCourses(filterCourses(tAll, tomorrowDow, tInfo.week, tInfo.week % 2 === 1));
+      if (tInfo) {
+        let tYearValue = tInfo.schoolYear;
+        let tTermValue = tInfo.semester;
+        if (username) {
+          const cachedSemesters = await AsyncStorage.getItem(`activeSemesters_${username}`);
+          if (cachedSemesters) {
+            const allSemesters = JSON.parse(cachedSemesters);
+            const match = allSemesters.find((s: any) => s.yearText === tInfo.schoolYear && s.termText === tInfo.semester);
+            if (match) {
+              tYearValue = match.yearValue;
+              tTermValue = match.termValue;
+            }
+          }
+        }
+        const tCacheKey = `schedule_${tYearValue}_${tTermValue}`;
+        const tRaw = await AsyncStorage.getItem(tCacheKey);
+        const tAll: Course[] = JSON.parse(tRaw ?? raw);
+        const tomorrowDow = tomorrow.getDay() === 0 ? 7 : tomorrow.getDay();
+        setTomorrowCourses(filterCourses(tAll, tomorrowDow, tInfo.week, tInfo.week % 2 === 1));
+      }
     } catch (e) {
       console.error("获取课程失败:", e);
     }
@@ -526,7 +544,7 @@ export default function HomeScreen() {
     return () => clearTimeout(t);
   }, [fetchDayCourses]);
 
-  // ── Course classification ─────────────────────────────────────
+  // ── Course classification ──────────────────────────────────────────────────
   const ongoingCourse = todaysCourses.find(c => {
     const t = getCourseSeconds(c);
     return t ? nowSeconds >= t.start && nowSeconds < t.end : false;
@@ -553,24 +571,19 @@ export default function HomeScreen() {
     return t ? Math.max(0, t.start - nowSeconds) : 0;
   })();
 
-    // 初始化渠道（一次即可）
   useEffect(() => {
     setupNotificationChannel();
-    return () => { clearCourseNotification(); }; // 组件卸载时清除
+    return () => { clearCourseNotification(); };
   }, []);
 
-  // 每秒更新通知内容（复用已有的 nowSeconds tick）
   useEffect(() => {
-    if (!authState.userToken) {
-      clearCourseNotification();
-      return;
-    }
+    if (!authState.userToken) { clearCourseNotification(); return; }
     updateCourseNotification(
       ongoingCourse ?? null,
       nextCourse ?? null,
       ongoingCourse ? formatCountdown(ongoingCountdown) : formatCountdown(nextCountdown),
     );
-  }, [nowSeconds, ongoingCourse, nextCourse]); // nowSeconds 每秒变，但通知内容只在课程变化时真正改变
+  }, [nowSeconds, ongoingCourse, nextCourse]);
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) { setError("请输入学号和密码"); return; }
@@ -588,7 +601,7 @@ export default function HomeScreen() {
     }
   };
 
-  // ── Logged-in view ────────────────────────────────────────────
+  // ── Logged-in view ─────────────────────────────────────────────────────────
   if (authState.userToken) {
     return (
       <ScreenContainer className="flex-1 bg-surface">
@@ -619,10 +632,7 @@ export default function HomeScreen() {
                 shadowOffset: { width: 0, height: 1 },
                 shadowOpacity: 0.05, shadowRadius: 4, elevation: 1,
               }}>
-                <Text style={{
-                  fontSize: 14, color: colors.foreground,
-                  lineHeight: 22, letterSpacing: 0.3,
-                }}>
+                <Text style={{ fontSize: 14, color: colors.foreground, lineHeight: 22, letterSpacing: 0.3 }}>
                   {poem.content}
                 </Text>
                 <Text style={{ fontSize: 12, color: colors.muted, textAlign: "right" }}>
@@ -707,14 +717,14 @@ export default function HomeScreen() {
     );
   }
 
-  // ── Login view ────────────────────────────────────────────────
+  // ── Login view ─────────────────────────────────────────────────────────────
   return (
     <ScreenContainer className="flex-1 bg-background">
       <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
         <View style={{ flex: 1, justifyContent: "center", gap: 24, padding: 24 }}>
 
           <View style={{ alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <Text style={{ fontSize: 36, fontWeight: "700", color: colors.foreground }}>ZJU 课表</Text>
+            <Text style={{ fontSize: 36, fontWeight: "700", color: colors.foreground }}>ZJU 课迹</Text>
             <Text style={{ fontSize: 15, color: colors.muted }}>浙江大学课表助手</Text>
           </View>
 
