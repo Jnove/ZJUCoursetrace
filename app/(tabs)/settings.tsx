@@ -270,7 +270,7 @@ export default function SettingsScreen() {
           </View>
           <SettingsRow
             icon="pencil"
-            iconBg="#6366f1"
+            iconBg={primaryColor}
             label="个性化"
             value="颜色与样式"
             onPress={() => router.push("/personalization")}
@@ -279,7 +279,7 @@ export default function SettingsScreen() {
         </SettingsSection>
 
         {/* General */}
-        <SettingsSection title="通用">
+        {/*<SettingsSection title="通用">
           <SettingsRow
             icon="square.and.arrow.down"
             iconBg="#64748b"
@@ -287,13 +287,13 @@ export default function SettingsScreen() {
             onPress={handleClearCache}
             last
           />
-        </SettingsSection>
+        </SettingsSection>*/}
 
         {/* About — now a single navigation row */}
         <SettingsSection title="关于">
           <SettingsRow
             icon="person.fill"
-            iconBg="#64748b"
+            iconBg={primaryColor}
             label="关于 ZJU 课迹"
             value={`v${version}`}
             onPress={() => router.push("/about")}
@@ -330,9 +330,9 @@ export default function SettingsScreen() {
             )}
           </TouchableOpacity>
         )}
-        <TouchableOpacity onPress={() => router.push("/dev/login-debug")}>
+        {/*<TouchableOpacity onPress={() => router.push("/dev/login-debug")}>
           <Text>🔧 CAS 调试</Text>
-        </TouchableOpacity>
+        </TouchableOpacity>*/}
       </ScrollView>
     </ScreenContainer>
   );

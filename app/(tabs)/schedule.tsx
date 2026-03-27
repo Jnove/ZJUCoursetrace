@@ -15,6 +15,7 @@ import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import * as MediaLibrary from "expo-media-library";
 import { getSemesterOptions as zjuGetSemesterOptions, ZjuSession, checkSemesterHasCourses, invalidateSession, } from "@/lib/zju-client";
+import { useTheme } from "@/lib/theme-provider";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,7 +23,7 @@ interface SemesterOption {
   yearValue: string;   // e.g. "2025-2026"
   termValue: string;   // e.g. "2|春"
   yearText: string;    // e.g. "2025-2026学年"
-  termText: string;    // e.g. "第一学期"
+  termText: string;    // e.g. "第1学期"
   label: string;       // e.g. "2025-2026学年 第一学期"
 }
 
@@ -31,10 +32,21 @@ function semesterKey(yearValue: string, termValue: string) {
   return `${yearValue}|${termValue}`;
 }
 
+/**
+ * Split a stored key back into [yearValue, termValue].
+ * termValue itself may contain "|" (e.g. "2|春"), so we only
+ * split on the FIRST pipe character.
+ */
+function parseKey(key: string): [string, string] {
+  const idx = key.indexOf("|");
+  if (idx === -1) return [key, ""];
+  return [key.slice(0, idx), key.slice(idx + 1)];
+}
+
 export default function ScheduleScreen() {
   const { state, fetchScheduleBySemester, refreshAllSemesters } = useSchedule();
   const colors = useColors();
-
+  const { primaryColor } = useTheme();
   const [semesters, setSemesters] = useState<SemesterOption[]>([]);
   const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
   const [showSemesterPicker, setShowSemesterPicker] = useState(false);
@@ -71,7 +83,7 @@ export default function ScheduleScreen() {
 
       // 2. Load schedule for restored selection from local cache
       if (restoredKey && typeof restoredKey === "string" && restoredKey.includes("|")) {
-        const [yearValue, termValue] = restoredKey.split("|");
+        const [yearValue, termValue] = parseKey(restoredKey);  //  split on first | only
         await fetchScheduleBySemester(yearValue, termValue, true);
       }
 
@@ -116,7 +128,7 @@ export default function ScheduleScreen() {
             termValue: r.combo.termValue,
             yearText: r.combo.yearText,
             termText: r.combo.termText,
-            label: `${r.combo.yearText} ${r.combo.termText}`,
+            label: `${r.combo.yearText}学年 ${r.combo.termText}学期`,
           }));
 
         // 如果没有检测到有课程的学期（可能全部请求失败），回退到所有组合
@@ -127,7 +139,7 @@ export default function ScheduleScreen() {
             termValue: c.termValue,
             yearText: c.yearText,
             termText: c.termText,
-            label: `${c.yearText} ${c.termText}`,
+            label: `${c.yearText}学年 ${c.termText}学期`,
           })));
         }
 
@@ -173,10 +185,12 @@ export default function ScheduleScreen() {
   // ── Refresh (re-fetch from network, bypass cache) ──────────────────────────
   const handleRefresh = async () => {
     if (isRefreshing) return;
+    if (!selectedSemester) return;
     setIsRefreshing(true);
-    if(!selectedSemester) return;
-    const [yearValue, termValue] = selectedSemester.split("|");
-    // console.log(yearValue,termValue);
+
+    // ← fixed: split on first | only so termValue like "2|春" is preserved
+    const [yearValue, termValue] = parseKey(selectedSemester);
+
     try {
       // 获取所有可用学期（从 semesters state 中提取）
       const allSemesters = semesters.map(s => ({
@@ -189,21 +203,11 @@ export default function ScheduleScreen() {
         return;
       }
 
-      // 显示加载提示（可选，用户可看到进度）
-      //Alert.alert("刷新中", "正在刷新所有学期课表，请稍候...", [{ text: "确定" }], { cancelable: false });
-
       const { success, failedCount } = await refreshAllSemesters(allSemesters);
 
       if (failedCount > 0) {
         console.warn(`${failedCount} 个学期刷新失败`);
-        // 可以选择提示部分失败，但不影响主流程
       }
-
-      // // 刷新完成后，重新加载当前学期（确保 UI 更新）
-      // if (selectedSemester && selectedSemester.includes("|")) {
-      //   const [yearValue, termValue] = selectedSemester.split("|");
-      //   await fetchScheduleBySemester(yearValue, termValue, false);
-      // }
 
       Alert.alert("完成", success ? "所有学期课表已更新" : `部分学期更新失败（${failedCount} 个）`);
     } catch (error: any) {
@@ -212,7 +216,7 @@ export default function ScheduleScreen() {
       setIsRefreshing(false);
     }
     console.log(selectedCourse);
-    await handleSemesterChange(yearValue,termValue);
+    await handleSemesterChange(yearValue, termValue);
   };
 
   // ── Download (screenshot) ──────────────────────────────────────────────────
@@ -331,7 +335,7 @@ export default function ScheduleScreen() {
                 disabled={isRefreshing}
                 style={{
                   width: 44, height: 44, borderRadius: 10,
-                  backgroundColor: isRefreshing ? colors.surface : colors.primary,
+                  backgroundColor: isRefreshing ? colors.surface : primaryColor,
                   alignItems: "center", justifyContent: "center",
                   borderWidth: isRefreshing ? 0.5 : 0, borderColor: colors.border,
                 }}
@@ -369,11 +373,11 @@ export default function ScheduleScreen() {
                       <Text style={{
                         fontSize: 14,
                         fontWeight: isActive ? "600" : "400",
-                        color: isActive ? colors.primary : colors.foreground,
+                        color: isActive ? primaryColor: colors.foreground,
                       }}>
                         {s.label}
                       </Text>
-                      {isActive && <Text style={{ fontSize: 14, color: colors.primary }}>✓</Text>}
+                      {isActive && <Text style={{ fontSize: 14, color: primaryColor}}>✓</Text>}
                     </TouchableOpacity>
                   );
                 })}
@@ -394,7 +398,7 @@ export default function ScheduleScreen() {
                     onPress={() => setViewMode(m)}
                     style={{
                       paddingHorizontal: 10, paddingVertical: 8,
-                      backgroundColor: viewMode === m ? colors.primary : "transparent",
+                      backgroundColor: viewMode === m ? primaryColor: "transparent",
                     }}
                   >
                     <IconSymbol
@@ -416,7 +420,7 @@ export default function ScheduleScreen() {
                       onPress={() => setFilterType(f)}
                       style={{
                         flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center",
-                        backgroundColor: isActive ? colors.primary : colors.background,
+                        backgroundColor: isActive ? primaryColor: colors.background,
                         borderWidth: isActive ? 0 : 0.5, borderColor: colors.border,
                       }}
                     >

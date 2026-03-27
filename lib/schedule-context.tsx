@@ -18,6 +18,7 @@ import {
 } from "@/lib/zju-client";
 import { assignColors, ColorableItem, COURSE_PALETTES } from "@/lib/course-palette";
 import { useTheme } from "@/lib/theme-provider";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface Course {
@@ -87,45 +88,16 @@ interface ScheduleContextType {
 
 const ScheduleContext = createContext<ScheduleContextType | undefined>(undefined);
 
-// ─── Color palette (20 visually distinct colors) ─────────────────────────────
-const COLOR_PALETTE = [
-  "#ef4444", "#3b82f6", "#22c55e", "#f97316", "#8b5cf6",
-  "#06b6d4", "#ec4899", "#14b8a6", "#a855f7", "#84cc16",
-  "#0ea5e9", "#f43f5e", "#10b981", "#6366f1", "#d97706",
-  "#0891b2", "#7c3aed", "#059669", "#db2777", "#65a30d",
-];
-
-// function assignCourseColors(courses: Course[]): Course[] {
-//   if (courses.length === 0) return [];
-//   const colorMap = new Map<string, string>();
-//   const sorted = [...courses].sort((a, b) =>
-//     a.dayOfWeek !== b.dayOfWeek ? a.dayOfWeek - b.dayOfWeek
-//     : a.startPeriod !== b.startPeriod ? a.startPeriod - b.startPeriod
-//     : a.name.localeCompare(b.name)
-//   );
-//   for (const course of sorted) {
-//     const usedColors = new Set<string>();
-//     for (const other of sorted) {
-//       if (other.id === course.id) continue;
-//       const assigned = colorMap.get(other.id);
-//       if (!assigned) continue;
-//       if (Math.abs(course.dayOfWeek - other.dayOfWeek) > 1) continue;
-//       if (course.startPeriod <= other.endPeriod + 1 && other.startPeriod <= course.endPeriod + 1)
-//         usedColors.add(assigned);
-//     }
-//     const color =
-//       COLOR_PALETTE.find(c => !usedColors.has(c)) ??
-//       COLOR_PALETTE[Math.abs(
-//         course.name.split("").reduce((h, ch) => (h << 5) - h + ch.charCodeAt(0), 0)
-//       ) % COLOR_PALETTE.length];
-//     colorMap.set(course.id, color);
-//   }
-//   return sorted.map(c => ({ ...c, color: colorMap.get(c.id)! }));
-// }
+// ─── Helper: split stored key on FIRST pipe only ──────────────────────────────
+// termValue may itself contain "|" (e.g. "2|春"), so we must not use
+// plain .split("|") which would give the wrong termValue.
+function parseStoredKey(key: string): [string, string] {
+  const idx = key.indexOf("|");
+  if (idx === -1) return [key, ""];
+  return [key.slice(0, idx), key.slice(idx + 1)];
+}
 
 // ─── Session helper ───────────────────────────────────────────────────────────
-// zju-client auth is handled by native cookie jar + withRelogin.
-// We only need username for URL construction.
 async function buildSession(): Promise<ZjuSession> {
   const username = await AsyncStorage.getItem("username");
   if (!username) throw new Error("未找到用户名，请先登录");
@@ -137,29 +109,31 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(scheduleReducer, initialState);
   const latestRequestIdRef = useRef(0);
   const { coursePaletteKey } = useTheme();
+
   useEffect(() => {
-  const reColor = async () => {
-    // 获取当前显示的学期
-    const username = await AsyncStorage.getItem("username");
-    if (!username) return;
-    const lastKey = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
-    if (!lastKey || !lastKey.includes("|")) return;
-    const [yearValue, termValue] = lastKey.split("|");
-    const rawCacheKey = `raw_schedule_${yearValue}_${termValue}`;
-    try {
-      const raw = await AsyncStorage.getItem(rawCacheKey);
-      if (raw) {
-        const rawCourses: RawCourse[] = JSON.parse(raw);
-        const palette = COURSE_PALETTES[coursePaletteKey].colors;
-        const colored = assignColors(rawCourses as ColorableItem[], palette) as Course[];
-        dispatch({ type: "SET_COURSES", payload: colored });
+    const reColor = async () => {
+      const username = await AsyncStorage.getItem("username");
+      if (!username) return;
+      const lastKey = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
+      if (!lastKey || !lastKey.includes("|")) return;
+      // ← fixed: split on first | only
+      const [yearValue, termValue] = parseStoredKey(lastKey);
+      const rawCacheKey = `raw_schedule_${yearValue}_${termValue}`;
+      try {
+        const raw = await AsyncStorage.getItem(rawCacheKey);
+        if (raw) {
+          const rawCourses: RawCourse[] = JSON.parse(raw);
+          const palette = COURSE_PALETTES[coursePaletteKey].colors;
+          const colored = assignColors(rawCourses as ColorableItem[], palette) as Course[];
+          dispatch({ type: "SET_COURSES", payload: colored });
+        }
+      } catch (e) {
+        console.warn("重新着色失败", e);
       }
-    } catch (e) {
-      console.warn("重新着色失败", e);
-    }
-  };
-  reColor();
-}, [coursePaletteKey]);
+    };
+    reColor();
+  }, [coursePaletteKey]);
+
   const scheduleContext: ScheduleContextType = {
     state,
 
@@ -174,7 +148,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         if (username) {
           const lastKey = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
           if (lastKey && typeof lastKey === "string" && lastKey.includes("|")) {
-            const [yearValue, termValue] = lastKey.split("|");
+            // ← fixed: split on first | only
+            const [yearValue, termValue] = parseStoredKey(lastKey);
             const raw = await AsyncStorage.getItem(`schedule_${yearValue}_${termValue}`);
             if (raw) {
               dispatch({ type: "SET_COURSES", payload: JSON.parse(raw) });
@@ -191,7 +166,6 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       try {
         const session = await buildSession();
         const opts = await getSemesterOptions(session);
-        // Find the currently selected year and term (raw values)
         const currentYearValue = opts.yearOptions.find(o => o.selected)?.value ?? opts.yearOptions[0]?.value;
         const currentTermValue = opts.termOptions.find(o => o.selected)?.value ?? opts.termOptions[0]?.value;
         if (!currentYearValue || !currentTermValue) throw new Error("无法获取当前学期原始值");
@@ -252,12 +226,12 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
           dispatch({ type: "SET_ERROR", payload: error instanceof Error ? error.message : "获取学期课表失败" });
         }
       } finally {
-        // 只有最新请求才关闭loading状态
         if (requestId === latestRequestIdRef.current) {
           dispatch({ type: "SET_LOADING", payload: false });
         }
       }
     },
+
     setCurrentWeek: (week) => dispatch({ type: "SET_CURRENT_WEEK", payload: week }),
     setWeekType: (type) => dispatch({ type: "SET_WEEK_TYPE", payload: type }),
     getCoursesForWeek: (week: number) => {
@@ -295,7 +269,6 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       return { success: failedCount === 0, failedCount };
     }
   };
-  
 
   return <ScheduleContext.Provider value={scheduleContext}>{children}</ScheduleContext.Provider>;
 }

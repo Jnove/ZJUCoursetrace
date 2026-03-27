@@ -6,6 +6,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/lib/auth-context";
 import { useSchedule } from "@/lib/schedule-context";
 import { useRouter } from "expo-router";
+import { useTheme } from "@/lib/theme-provider";
 import { useState, useEffect, useCallback } from "react";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
@@ -17,6 +18,8 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { Platform } from 'react-native';
 import { setupNotificationChannel, updateCourseNotification, clearCourseNotification } from '@/lib/course-notification';
+
+
 
 // ─── Period table ─────────────────────────────────────────────────────────────
 const PERIODS = [
@@ -429,6 +432,7 @@ function CourseCard({ course }: { course: Course }) {
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function HomeScreen() {
+  const { primaryColor } = useTheme();
   const { state: authState, signIn } = useAuth();
   const { state: scheduleState } = useSchedule();
   const router = useRouter();
@@ -478,52 +482,61 @@ export default function HomeScreen() {
       if (!info) { setTodaysCourses([]); return; }
 
       const username = await AsyncStorage.getItem("username");
-      let yearValue = info.schoolYear; // 原始学年值（如"2025-2026"）
-      let termValue = info.semester;   // 学期显示文本（如"春"）
 
-      // 尝试从缓存的学期列表中获取原始学期值（如"2|春"）
+      /**
+       * semester-utils gives us:  info.schoolYear = "2025-2026"  info.semester = "春"
+       * SemesterOption stores:    yearValue = "2025-2026"  termValue = "2|春"
+       *
+       * Match on yearValue (exact) + termValue contains the season char after "|".
+       * Do NOT compare against yearText ("2025-2026学年") or termText ("第二学期") —
+       * those are display strings and don't match semester-utils output.
+       */
+      let cacheKey = `schedule_${info.schoolYear}_${info.semester}`; // fallback (unlikely to hit)
+
       if (username) {
         const cachedSemesters = await AsyncStorage.getItem(`activeSemesters_${username}`);
         if (cachedSemesters) {
-          const allSemesters = JSON.parse(cachedSemesters);
-          const match = allSemesters.find((s: any) => s.yearText === info.schoolYear && s.termText === info.semester);
+          const allSemesters: { yearValue: string; termValue: string }[] = JSON.parse(cachedSemesters);
+          const match = allSemesters.find(
+            s => s.yearValue === info.schoolYear &&
+                 s.termValue.split("|").pop() === info.semester   // "2|春".split("|").pop() === "春"
+          );
           if (match) {
-            yearValue = match.yearValue;
-            termValue = match.termValue;
+            cacheKey = `schedule_${match.yearValue}_${match.termValue}`;
           }
         }
       }
 
-      const cacheKey = `schedule_${yearValue}_${termValue}`;
       const raw = await AsyncStorage.getItem(cacheKey);
       if (!raw) { setTodaysCourses([]); return; }
 
       const all: Course[] = JSON.parse(raw);
-      // 后续筛选逻辑不变
       const todayDow = now.getDay() === 0 ? 7 : now.getDay();
       setTodaysCourses(filterCourses(all, todayDow, info.week, info.week % 2 === 1));
 
-      // 明天类似处理
+      // 明天
       const tomorrow = new Date(now);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tInfo = getCurrentSemester(tomorrow);
       if (tInfo) {
-        let tYearValue = tInfo.schoolYear;
-        let tTermValue = tInfo.semester;
+        let tCacheKey = `schedule_${tInfo.schoolYear}_${tInfo.semester}`; // fallback
+
         if (username) {
           const cachedSemesters = await AsyncStorage.getItem(`activeSemesters_${username}`);
           if (cachedSemesters) {
-            const allSemesters = JSON.parse(cachedSemesters);
-            const match = allSemesters.find((s: any) => s.yearText === tInfo.schoolYear && s.termText === tInfo.semester);
+            const allSemesters: { yearValue: string; termValue: string }[] = JSON.parse(cachedSemesters);
+            const match = allSemesters.find(
+              s => s.yearValue === tInfo.schoolYear &&
+                   s.termValue.split("|").pop() === tInfo.semester
+            );
             if (match) {
-              tYearValue = match.yearValue;
-              tTermValue = match.termValue;
+              tCacheKey = `schedule_${match.yearValue}_${match.termValue}`;
             }
           }
         }
-        const tCacheKey = `schedule_${tYearValue}_${tTermValue}`;
-        const tRaw = await AsyncStorage.getItem(tCacheKey);
-        const tAll: Course[] = JSON.parse(tRaw ?? raw);
+
+        const tRaw = await AsyncStorage.getItem(tCacheKey) ?? raw;
+        const tAll: Course[] = JSON.parse(tRaw);
         const tomorrowDow = tomorrow.getDay() === 0 ? 7 : tomorrow.getDay();
         setTomorrowCourses(filterCourses(tAll, tomorrowDow, tInfo.week, tInfo.week % 2 === 1));
       }
@@ -615,7 +628,7 @@ export default function HomeScreen() {
               </Text>
               <Text style={{ fontSize: 15, color: colors.muted }}>{authState.username}</Text>
               {semesterInfo && (
-                <Text style={{ fontSize: 13, color: colors.primary, fontWeight: "600" }}>
+                <Text style={{ fontSize: 13, color: primaryColor, fontWeight: "600" }}>
                   {semesterInfo.schoolYear} {semesterInfo.semester}学期 第{semesterInfo.week}周
                 </Text>
               )}
@@ -702,10 +715,7 @@ export default function HomeScreen() {
             {/* View schedule button */}
             <TouchableOpacity
               onPress={() => router.push("/(tabs)/schedule")}
-              style={{
-                backgroundColor: colors.primary, borderRadius: 12,
-                paddingVertical: 14, alignItems: "center",
-              }}
+              style={{ backgroundColor:primaryColor, borderRadius:10, paddingVertical:14, alignItems:"center",flexDirection:"row", justifyContent:"center", gap:8 }}
               activeOpacity={0.8}
             >
               <Text style={{ color: "#fff", fontWeight: "600", fontSize: 15 }}>查看课表</Text>
@@ -768,7 +778,7 @@ export default function HomeScreen() {
               onPress={handleLogin}
               disabled={loading}
               style={{
-                backgroundColor: colors.primary, borderRadius: 12,
+                backgroundColor: primaryColor, borderRadius: 12,
                 paddingVertical: 14, alignItems: "center",
                 opacity: loading ? 0.5 : 1,
               }}

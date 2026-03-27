@@ -8,6 +8,7 @@ import { SchemeColors } from "@/constants/theme";
 
 export default function TabLayout() {
   const { resolvedTheme } = useTheme();
+  const { primaryColor } = useTheme();
   const colors = SchemeColors[resolvedTheme];
   const insets = useSafeAreaInsets();
   const bottomPadding = Platform.OS === "web" ? 12 : Math.max(insets.bottom, 8);
@@ -33,21 +34,28 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "首页",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={primaryColor} />,
         }}
       />
       <Tabs.Screen
         name="schedule"
         options={{
           title: "课表",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={primaryColor} />,
+        }}
+      />
+      <Tabs.Screen
+        name="Academic"
+        options={{
+          title: "学业",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="graduationcap.fill" color={primaryColor} />,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: "设置",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="gearshape.2.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="gearshape.2.fill" color={primaryColor} />,
         }}
       />
     </Tabs>

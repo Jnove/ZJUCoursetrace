@@ -3,6 +3,7 @@ import { View, Text, ScrollView, Pressable, TouchableOpacity } from "react-nativ
 import { Course } from "@/lib/schedule-context";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useTheme } from "@/lib/theme-provider";
 
 const HEADER_H = 38;
 const TIME_COL_W = 34;
@@ -59,7 +60,7 @@ export function ScheduleTable({
 }: ScheduleTableProps) {
   const colors = useColors();
   const [selectedDay, setSelectedDay] = useState(1);
-
+  const primaryColor = useTheme();
   const CELL_H = availableHeight > 200
     ? Math.max(44, Math.floor((availableHeight - HEADER_H) / PERIODS.length))
     : 52;
@@ -262,7 +263,7 @@ export function ScheduleTable({
               onPress={() => { setSelectedDay(dayNum); onDayChange?.(dayNum); }}
               style={{
                 paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20,
-                backgroundColor: isSelected ? colors.primary : colors.surface,
+                backgroundColor: isSelected ? colors.background : colors.surface,
                 borderWidth: isSelected ? 0 : 0.5, borderColor: colors.border,
               }}
             >

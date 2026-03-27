@@ -24,7 +24,7 @@ const MAPPING = {
   "person.fill": "account",
   "location.fill": "map-marker",
   "clock.fill": "clock",
-  "pencil": "edit",
+  "pencil": "pencil",
   "list.bullet": "format-list-bulleted",
   "square.grid.2x2": "view-grid",
   "square.and.arrow.down":"download",
@@ -42,6 +42,11 @@ const MAPPING = {
   "drop.fill":           "water",
   "square.and.arrow.up": "upload",
   "arrowshape.turn.up.right":"share",
+
+  "graduationcap.fill":                    "school",
+  "medal.fill":                            "medal",
+  "chart.bar.fill":                        "chart-bar",
+  "star.fill":                             "star",
 } as IconMapping;
 
 /**

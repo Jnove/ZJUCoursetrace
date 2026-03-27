@@ -132,9 +132,8 @@ const config: ExpoConfig = {
     typedRoutes: true,
     reactCompiler: true,
   },
-  "extra": {
-
-  }
+    "extra": {
+    }
 };
 
 export default config;

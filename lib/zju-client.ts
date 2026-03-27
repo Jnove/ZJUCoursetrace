@@ -74,7 +74,7 @@ export interface Grade {
   courseCode:  string;
   courseName:  string;
   credit:      number;
-  score:       number | null;
+  score:       string | null;
   gpaPoints:   number | null;
   courseType?: string;
   semester?:   string;
@@ -640,28 +640,47 @@ function parseKbList(kbList: any[], yearText: string, termText: string): RawCour
 
 // ─── Grades ───────────────────────────────────────────────────────────────────
 
-export async function fetchTranscript(session: ZjuSession): Promise<Grade[]> {
-  const text = await withRelogin(session, () =>
-    zPost(`${ZDBK_BASE}/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&queryModel.showCount=5000`, ""));
-  return parseGrades(text, false);
-}
-
 export async function fetchMajorGrade(session: ZjuSession): Promise<{ grades: Grade[]; gpa: number; totalCredits: number }> {
   const text = await withRelogin(session, () =>
     zPost(`${ZDBK_BASE}/jwglxt/zycjtj/xszgkc_cxXsZgkcIndex.html?doType=query&queryModel.showCount=5000`, ""));
   const grades = parseGrades(text, true);
   let ws = 0, tc = 0;
-  for (const g of grades) if (g.gpaPoints != null && g.credit > 0) { ws += g.gpaPoints * g.credit; tc += g.credit; }
+  for (const g of grades) {
+    // 检查是否满足绩点、学分有效，且成绩字符串是数字格式
+    const isValidScore = /^\d+(\.\d+)?$/.test(g.score?.trim() ?? '');
+    if (g.gpaPoints != null && g.credit > 0 && isValidScore) {
+      ws += g.gpaPoints * g.credit;
+      tc += g.credit;
+    }
+  }
+  return { grades, gpa: tc > 0 ? Math.round(ws / tc * 1000) / 1000 : 0, totalCredits: tc };
+}
+
+export async function fetchGrade(session: ZjuSession): Promise<{ grades: Grade[]; gpa: number; totalCredits: number }> {
+  const text = await withRelogin(session, () =>
+    zPost(`${ZDBK_BASE}/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&queryModel.showCount=5000`, ""));
+  console.log("[DEBUG] fetchGrade raw response length:", text.length, "preview:", text.slice(0, 500));
+  const grades = parseGrades(text, true);
+  let ws = 0, tc = 0;
+  for (const g of grades) {
+    // 检查是否满足绩点、学分有效，且成绩字符串是数字格式
+    const isValidScore = /^\d+(\.\d+)?$/.test(g.score?.trim() ?? '');
+    if (g.gpaPoints != null && g.credit > 0 && isValidScore) {
+      ws += g.gpaPoints * g.credit;
+      tc += g.credit;
+    }
+  }
   return { grades, gpa: tc > 0 ? Math.round(ws / tc * 1000) / 1000 : 0, totalCredits: tc };
 }
 
 function parseGrades(text: string, isMajor: boolean): Grade[] {
   const m = text.match(/(?<="items":)(\[[\s\S]*?\])(?=,"limit")/);
+  console.log("[DEBUG] parseGrades regex match:", m ? "success" : "fail", m ? m[1].slice(0, 200) : "");
   if (!m) return [];
   let items: any[]; try { items = JSON.parse(m[1]); } catch { return []; }
   return items.filter(e => e.xkkh != null).map(e => ({
     courseCode: String(e.kch ?? ""), courseName: String(e.kcmc ?? ""),
-    credit: parseFloat(String(e.xf ?? "0")) || 0, score: toNum(e.cj), gpaPoints: toNum(e.jd),
+    credit: parseFloat(String(e.xf ?? "0")) || 0, score: (e.cj), gpaPoints: toNum(e.jd),
     courseType: e.kcxzdm_display ?? e.kclbmc ?? undefined,
     semester: e.xnxqdm_display ?? undefined, isMajor,
   }));
