@@ -1,12 +1,8 @@
 /**
- * app/personalization.tsx
- *
  * Three customisation panels:
  *   1. Accent colour  — 15 presets, live preview
- *   2. Card radius    — sm / medium / lg
+ *   2. Card radius    — small / medium / large
  *   3. Course palette — 5 colour schemes for timetable blocks, with full swatch preview
- *
- * Every change applies immediately (no separate Save button).
  */
 
 import {
@@ -22,7 +18,8 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { COURSE_PALETTES, PALETTE_ORDER, PaletteKey } from "@/lib/course-palette";
 
-// ─── Accent colour palette ────────────────────────────────────────────────────
+
+// Accent colour palette
 
 const ACCENT_COLORS = [
   { name: "海洋蓝", value: "#0a7ea4" },
@@ -48,7 +45,7 @@ const RADII: { label: string; sub: string; value: "small" | "medium" | "large" }
   { label: "圆润", sub: "22 px", value: "large" },
 ];
 
-// ─── Utils ────────────────────────────────────────────────────────────────────
+// Utils 
 function hexToRgba(hex: string, a: number) {
   const c = hex.replace("#", "").slice(0, 6);
   const r = parseInt(c.slice(0, 2), 16);
@@ -57,7 +54,7 @@ function hexToRgba(hex: string, a: number) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-// ─── Section label ────────────────────────────────────────────────────────────
+// Section label
 function SectionLabel({ children }: { children: string }) {
   const colors = useColors();
   return (
@@ -71,7 +68,7 @@ function SectionLabel({ children }: { children: string }) {
   );
 }
 
-// ─── Live preview card ────────────────────────────────────────────────────────
+// Live preview card
 function Preview({
   accentColor, radius, coursePaletteKey,
 }: {

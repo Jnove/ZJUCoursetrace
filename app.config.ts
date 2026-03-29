@@ -1,4 +1,4 @@
-// Load environment variables with proper priority (system > .env)
+
 import "./scripts/load-env.js";
 import type { ExpoConfig } from "expo/config";
 
@@ -27,7 +27,6 @@ const env = {
   appSlug: "zju-CourseTrace",
   // S3 URL of the app logo - set this to the URL returned by generate_image when creating custom logo
   // Leave empty to use the default icon from assets/images/icon.png
-  logoUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663160765823/tDORcbEdvQaawurF.png",
   scheme: schemeFromBundleId,
   iosBundleId: bundleId,
   androidPackage: bundleId,
@@ -74,7 +73,7 @@ const config: ExpoConfig = {
     ],
     permissions: [
       "POST_NOTIFICATIONS",
-      "ACCESS_COARSE_LOCATION",   // 加这两行
+      "ACCESS_COARSE_LOCATION",
       "ACCESS_FINE_LOCATION",
     ],
   },
@@ -115,9 +114,12 @@ const config: ExpoConfig = {
       "expo-build-properties",
       {
         android: {
-          buildArchs: ["armeabi-v7a", "arm64-v8a"],
+          //"useLegacyPackaging":true,
+          buildArchs: ["arm64-v8a"],
           minSdkVersion: 24,
           usesCleartextTraffic: true,
+          enableProguardInReleaseBuilds: true,
+          enableShrinkResourcesInReleaseBuilds: true,
         },
       },
     ],

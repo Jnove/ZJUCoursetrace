@@ -8,9 +8,30 @@ import { useColors } from "@/hooks/use-colors";
 import { useAuth } from "@/lib/auth-context";
 import { useState, useEffect, useRef, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { loadSession, fetchGrade, fetchMajorGrade,fetchExams, Grade, ExamInfo } from "@/lib/zju-client";
+import { loadSession, fetchGrade, fetchMajorGrade, fetchExams, Grade, ExamInfo } from "@/lib/zju-client";
+import { useRouter } from 'expo-router';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Cache helpers
+function academicCacheKey(type: "major_grade" | "all_grade" | "exams", username: string) {
+  return `academic_${type}_${username}`;
+}
+
+async function readCache<T>(key: string): Promise<T | null> {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeCache(key: string, data: unknown): Promise<void> {
+  try {
+    await AsyncStorage.setItem(key, JSON.stringify(data));
+  } catch {}
+}
+
+// Helpers
 
 function hexToRgba(hex: string, alpha: number): string {
   const c = hex.replace("#", "").slice(0, 6);
@@ -44,43 +65,101 @@ function formatExamTimeDisplay(examTime: string): string {
   return `${month}月${day}日${time ? "  " + time : ""}`;
 }
 
-/** Sort exams: upcoming first (ascending), then past (most recent first) */
-function sortExams(exams: ExamInfo[]): { upcoming: ExamInfo[]; past: ExamInfo[] } {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+// 学期类型解析
+function getSemesterType(semester?: string): "春夏" | "秋冬" | "未知" {
+  if (!semester) return "未知";
+  const lower = semester.toLowerCase();
+  if (lower.includes("春") || lower.includes("夏")) return "春夏";
+  if (lower.includes("秋") || lower.includes("冬")) return "秋冬";
+  // 处理数字编码：1->秋冬, 2->春夏
+  if (semester.includes("1") && !semester.includes("2")) return "秋冬";
+  if (semester.includes("2") || semester.includes("3")) return "春夏";
+  return "未知";
+}
 
-  const withDate = exams.map(e => ({ e, d: parseExamDate(e.examTime) }));
-  const upcoming = withDate
-    .filter(x => x.d && x.d >= today)
-    .sort((a, b) => (a.d!.getTime() - b.d!.getTime()))
-    .map(x => x.e);
-  const past = withDate
-    .filter(x => !x.d || x.d < today)
-    .sort((a, b) => {
-      const at = a.d?.getTime() ?? 0;
-      const bt = b.d?.getTime() ?? 0;
-      return bt - at;
-    })
-    .map(x => x.e);
+// 根据学年字符串和学期类型计算学期结束日期（用于判断是否已结束）
+function getSemesterEndDate(yearStr: string, semesterType: string): Date {
+  // yearStr 格式如 "2025-2026"
+  const startYear = parseInt(yearStr.slice(0, 4));
+  const endYear = parseInt(yearStr.slice(5, 9));
+  let endDate: Date;
+  if (semesterType === "秋冬") {
+    // 秋冬学期通常 1 月中下旬结束，取 1 月 20 日
+    endDate = new Date(endYear, 0, 20);
+  } else {
+    // 春夏学期通常 6 月底结束
+    endDate = new Date(endYear, 5, 30);
+  }
+  return endDate;
+}
 
-  return { upcoming, past };
+// 提取学年和学期类型，返回用于分组的 key 和显示名称
+function extractSemesterInfo(exam: ExamInfo): { year: string; semesterType: string; displayName: string; endDate: Date } {
+  // 优先使用已有的 year 字段，否则从 semester 解析
+  let year = exam.year;
+  let semester = exam.semester;
+  if (!year && semester) {
+    const match = semester.match(/(\d{4}-\d{4})/);
+    if (match) year = match[1];
+  }
+  // 如果依然没有，尝试从 examTime 的年份推断（后备）
+  if (!year) {
+    const date = parseExamDate(exam.examTime);
+    if (date) {
+      const y = date.getFullYear();
+      year = `${y}-${y+1}`;
+    } else {
+      year = "未知学年";
+    }
+  }
+  const semesterType = getSemesterType(semester);
+  const displayName = `${year} ${semesterType}`;
+  const endDate = getSemesterEndDate(year, semesterType);
+  return { year, semesterType, displayName, endDate };
+}
+
+// 按学期分组考试
+function groupExamsBySemester(exams: ExamInfo[]): Map<string, { key: string; displayName: string; endDate: Date; exams: ExamInfo[] }> {
+  const groups = new Map<string, { key: string; displayName: string; endDate: Date; exams: ExamInfo[] }>();
+  for (const exam of exams) {
+    const { year, semesterType, displayName, endDate } = extractSemesterInfo(exam);
+    const key = `${year}-${semesterType}`;
+    if (!groups.has(key)) {
+      groups.set(key, { key, displayName, endDate, exams: [] });
+    }
+    groups.get(key)!.exams.push(exam);
+  }
+  // 对每个组内的考试按考试时间排序
+  for (const group of groups.values()) {
+    group.exams.sort((a, b) => {
+      const da = parseExamDate(a.examTime)?.getTime() ?? 0;
+      const db = parseExamDate(b.examTime)?.getTime() ?? 0;
+      return da - db;
+    });
+  }
+  return groups;
+}
+
+// 判断学期是否已结束（基于结束日期 < 今天）
+function isSemesterPast(endDate: Date): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return endDate < today;
 }
 
 const GPA_MAX  = 5.0;
-const EXAM_COLOR  = "#f97316";  // amber-orange, consistent across all exam cards
+const EXAM_COLOR  = "#f97316";
 const PAST_COLOR  = "#9BA1A6";
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// Sub-components
 
-
-
-/** The GPA hero card */
 function getGpaColor(gpa: number, colors: any) {
   if (gpa >= 3.7) return colors.success;
   if (gpa >= 3.0) return colors.primary;
   if (gpa >= 2.0) return colors.warning;
   return colors.error;
 }
+
 function GpaCard({
   majorGpa,
   majorTotalCredits,
@@ -94,6 +173,8 @@ function GpaCard({
   onRetryAll,
   hidden,
   onToggleHide,
+  onPress,
+  stale = false,
 }: {
   majorGpa: number;
   majorTotalCredits: number;
@@ -107,13 +188,14 @@ function GpaCard({
   onRetryAll: () => void;
   hidden: boolean;
   onToggleHide: () => void;
+  onPress: () => void;
+  stale?: boolean;
 }) {
   const colors = useColors();
   
   const majorColor = getGpaColor(majorGpa, colors);
   const allColor = getGpaColor(allGpa, colors);
 
-  // 动画透明度（隐藏时统一控制）
   const opacity = useRef(new Animated.Value(hidden ? 0 : 1)).current;
   useEffect(() => {
     Animated.timing(opacity, {
@@ -123,7 +205,6 @@ function GpaCard({
     }).start();
   }, [hidden]);
 
-  // 单个绩点区域的渲染函数
   const renderGpaColumn = (
     title: string,
     gpa: number,
@@ -133,28 +214,31 @@ function GpaCard({
     onRetry: () => void,
     color: string,
   ) => (
-    
-    <View style={{ flex: 1, gap: 8 }}>
-      {/* 标题行 */}
+    <View style={{ 
+      flex: 1, 
+      gap: 0,
+      borderWidth: 0,
+      borderColor: colors.border,
+      borderRadius: 12,
+      padding: 12,  
+    }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
-        <Text style={{ fontSize: 16, fontWeight: "600", color }}>{title}</Text>
+        <Text style={{ fontSize: 12, fontWeight: "600", color }}>{title}</Text>
+        <Text style={{ fontSize: 10, color: colors.muted, textAlign: "center" }}>
+            已修 {totalCredits} 学分
+        </Text>
       </View>
 
-      {/* 绩点数值或隐藏占位 */}
       {loading ? (
         <ActivityIndicator size="small" color={colors.primary} />
-        ) : hidden ? (
+      ) : hidden ? (
         <View style={{ flexDirection: "row", gap: 10, alignItems: "center", height: 56 }}>
-            {[0, 1, 2].map(i => (
-            <Text key={i} style={{
-                fontSize: 36,           // 根据设计调整大小
-                color: colors.primary,
-                opacity: 1,
-            }}>
-                *
+          {[0, 1, 2].map(i => (
+            <Text key={i} style={{ fontSize: 36, color: colors.primary, opacity: 1 }}>
+              *
             </Text>
-            ))}
+          ))}
         </View>
       ) : (
         <Animated.View style={{ opacity, alignItems: "center", gap: 2 }}>
@@ -168,14 +252,13 @@ function GpaCard({
                 lineHeight: 42,
               }}
             >
-              {gpa.toFixed(3)}
+              {gpa.toFixed(2)}
             </Text>
             <Text style={{ fontSize: 12, color: colors.muted }}>/5.0</Text>
           </View>
         </Animated.View>
       )}
 
-      {/* 进度条 */}
       {!loading && !error && !hidden && (
         <View style={{ gap: 4 }}>
           <View
@@ -195,16 +278,32 @@ function GpaCard({
               }}
             />
           </View>
-          <Text style={{ fontSize: 10, color: colors.muted, textAlign: "center" }}>
-            已修 {totalCredits} 学分
-          </Text>
+        </View>
+      )}
+      {!hidden && !majorLoading && !allLoading && !majorError && !allError && (
+        <View style={{ marginTop: 8 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              paddingHorizontal: 8,
+            }}
+          >
+            {["0", "1", "2", "3", "4", "5"].map(label => (
+              <Text key={label} style={{ fontSize: 9, color: colors.muted }}>
+                {label}
+              </Text>
+            ))}
+          </View>
         </View>
       )}
     </View>
   );
 
   return (
-    <View
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={onPress}
       style={{
         borderRadius: 16,
         backgroundColor: colors.background,
@@ -216,14 +315,12 @@ function GpaCard({
         elevation: 6,
       }}
     >
-      {/* 顶部双色条（可选，用两个并列渐变） */}
       <View style={{ flexDirection: "row", height: 3 }}>
         <View style={{ flex: 1, backgroundColor: majorColor }} />
         <View style={{ flex: 1, backgroundColor: allColor }} />
       </View>
 
-      <View style={{ padding: 20, gap: 12 }}>
-        {/* 头部行：标题 + 隐藏按钮 */}
+      <View style={{ padding: 20, gap: 2 }}>
         <View
           style={{
             flexDirection: "row",
@@ -234,8 +331,14 @@ function GpaCard({
           <Text style={{ fontSize: 14, fontWeight: "500", color: colors.muted }}>
             绩点概览
           </Text>
+          {stale && (
+            <ActivityIndicator size="small" color={colors.muted} style={{ opacity: 0.5 }} />
+          )}
           <TouchableOpacity
-            onPress={onToggleHide}
+            onPress={(e) => {
+              e.stopPropagation();
+              onToggleHide();
+            }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             style={{ padding: 4, borderRadius: 6 }}
           >
@@ -247,15 +350,13 @@ function GpaCard({
           </TouchableOpacity>
         </View>
 
-        {/* 左右两列 */}
         <View
           style={{
             flexDirection: "row",
             flexWrap: "wrap",
-            gap: 6,
+            gap: 3,
           }}
         >
-          {/* 主修绩点 */}
           <View style={{ flex: 1, minWidth: 150 }}>
             {renderGpaColumn(
               "主修绩点",
@@ -268,8 +369,7 @@ function GpaCard({
             )}
           </View>
 
-          {/* 全部绩点 */}
-          {/* <View style={{ flex: 1, minWidth: 150 }}>
+          <View style={{ flex: 1, minWidth: 150 }}>
             {renderGpaColumn(
               "全部绩点",
               allGpa,
@@ -279,33 +379,13 @@ function GpaCard({
               onRetryAll,
               allColor,
             )}
-          </View> */}
-        </View>
-            
-        {/* 底部比例尺（可选，保留原进度条的参考刻度） */}
-        {!hidden && !majorLoading && !allLoading && !majorError && !allError && (
-          <View style={{ marginTop: 8 }}>
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                paddingHorizontal: 8,
-              }}
-            >
-              {["0", "1", "2", "3", "4", "5"].map(label => (
-                <Text key={label} style={{ fontSize: 9, color: colors.muted }}>
-                  {label}
-                </Text>
-              ))}
-            </View>
           </View>
-        )}
+        </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
-/** Countdown badge shown on exam cards */
 function CountdownBadge({ days }: { days: number }) {
   const colors = useColors();
 
@@ -354,65 +434,68 @@ function CountdownBadge({ days }: { days: number }) {
   );
 }
 
-/** Individual exam card */
-function ExamCard({ exam, isPast = false }: { exam: ExamInfo; isPast?: boolean }) {
+/** 考试卡片，支持灰色调小模式 */
+function ExamCard({ exam, isPast = false, compact = false }: { exam: ExamInfo; isPast?: boolean; compact?: boolean }) {
   const colors = useColors();
   const accentColor = isPast ? PAST_COLOR : EXAM_COLOR;
   const date  = parseExamDate(exam.examTime);
   const days  = date ? getDaysUntil(date) : -999;
 
+  const cardStyle = {
+    borderRadius: 13,
+    backgroundColor: colors.background,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: isPast ? 0.04 : 0.07,
+    shadowRadius: 5,
+    elevation: isPast ? 1 : 2,
+    opacity: isPast ? 0.72 : 1,
+    // 紧凑模式缩小内边距
+    paddingLeft: compact ? 12 : 17,
+    paddingRight: compact ? 12 : 14,
+    paddingVertical: compact ? 10 : 13,
+  } as const;
+
+  const textStyle = compact ? {
+    fontSize: 13,
+    lineHeight: 18,
+  } : {
+    fontSize: 15,
+    lineHeight: 20,
+  };
+
   return (
-    <View style={{
-      borderRadius: 13,
-      backgroundColor: colors.background,
-      overflow: "hidden",
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: isPast ? 0.04 : 0.07,
-      shadowRadius: 5,
-      elevation: isPast ? 1 : 2,
-      opacity: isPast ? 0.72 : 1,
-    }}>
-      {/* Left accent bar */}
-      <View style={{
-        position: "absolute", left: 0, top: 0, bottom: 0,
-        width: 4, backgroundColor: accentColor,
-      }} />
-      <View style={{ paddingLeft: 17, paddingRight: 14, paddingVertical: 13, gap: 7 }}>
-        {/* Course name + countdown */}
+    <View style={cardStyle}>
+      <View style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, backgroundColor: accentColor }} />
+      <View style={{ gap: compact ? 5 : 7 }}>
         <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
-          <Text style={{
-            flex: 1, fontSize: 15, fontWeight: "500",
-            color: colors.foreground, lineHeight: 20,
-          }} numberOfLines={2}>
+          <Text style={[textStyle, { flex: 1, fontWeight: "500", color: colors.foreground }]} numberOfLines={2}>
             {exam.courseName}
           </Text>
           {date && <CountdownBadge days={days} />}
         </View>
-
-        {/* Time */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-          <IconSymbol name="clock.fill" size={12} color={accentColor} />
-          <Text style={{ fontSize: 13, fontWeight: "500", color: colors.foreground }}>
+          <IconSymbol name="clock.fill" size={compact ? 10 : 12} color={accentColor} />
+          <Text style={[textStyle, { fontWeight: "500", color: colors.foreground }]}>
             {formatExamTimeDisplay(exam.examTime)}
           </Text>
         </View>
-
-        {/* Location + seat */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, flex: 1 }}>
-            <IconSymbol name="location.fill" size={12} color={colors.muted} />
-            <Text style={{ fontSize: 13, color: colors.muted }} numberOfLines={1}>
+            <IconSymbol name="location.fill" size={compact ? 10 : 12} color={colors.muted} />
+            <Text style={[textStyle, { color: colors.muted }]} numberOfLines={1}>
               {exam.examLocation || "地点待定"}
             </Text>
           </View>
           {exam.seat && (
             <View style={{
               flexDirection: "row", alignItems: "center", gap: 4,
-              paddingHorizontal: 8, paddingVertical: 2, borderRadius: 5,
+              paddingHorizontal: compact ? 6 : 8, paddingVertical: compact ? 2 : 2,
+              borderRadius: 5,
               backgroundColor: hexToRgba(accentColor, 0.1),
             }}>
-              <Text style={{ fontSize: 11, fontWeight: "600", color: accentColor }}>
+              <Text style={{ fontSize: compact ? 10 : 11, fontWeight: "600", color: accentColor }}>
                 座位 {exam.seat}
               </Text>
             </View>
@@ -423,15 +506,16 @@ function ExamCard({ exam, isPast = false }: { exam: ExamInfo; isPast?: boolean }
   );
 }
 
-/** Section header with optional right-side action */
 function SectionHeader({
   title,
   count,
   action,
+  stale,
 }: {
   title: string;
   count?: number;
   action?: { label: string; onPress: () => void };
+  stale?: boolean;
 }) {
   const colors = useColors();
   return (
@@ -449,6 +533,9 @@ function SectionHeader({
             <Text style={{ fontSize: 11, color: colors.muted, fontWeight: "500" }}>{count}</Text>
           </View>
         )}
+        {stale && (
+          <ActivityIndicator size="small" color={colors.muted} style={{ opacity: 0.5 }} />
+        )}
       </View>
       {action && (
         <TouchableOpacity onPress={action.onPress}>
@@ -459,7 +546,6 @@ function SectionHeader({
   );
 }
 
-/** Empty state placeholder */
 function EmptyCard({ message }: { message: string }) {
   const colors = useColors();
   return (
@@ -473,7 +559,6 @@ function EmptyCard({ message }: { message: string }) {
   );
 }
 
-/** Error card with retry */
 function ErrorCard({ message, onRetry }: { message: string; onRetry: () => void }) {
   const colors = useColors();
   return (
@@ -497,7 +582,7 @@ function ErrorCard({ message, onRetry }: { message: string; onRetry: () => void 
   );
 }
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
+// Main Screen
 
 const GPA_HIDDEN_KEY = "pref_gpa_hidden";
 
@@ -505,33 +590,61 @@ export default function AcademicScreen() {
   const { state: authState } = useAuth();
   const colors = useColors();
 
-  const [gpa,          setGpa]          = useState(0);
-  const [totalCredits, setTotalCredits] = useState(0);
-  const [grades,       setGrades]       = useState<Grade[]>([]);
-  const [exams,        setExams]        = useState<ExamInfo[]>([]);
-
-  const [gpaLoading,   setGpaLoading]   = useState(true);
-  const [examLoading,  setExamLoading]  = useState(true);
-  const [gpaError,     setGpaError]     = useState<string | null>(null);
-  const [examError,    setExamError]    = useState<string | null>(null);
-
-  const [gpaHidden,    setGpaHidden]    = useState(false);
-  const [showPast,     setShowPast]     = useState(false);
-
   const [majorGpa, setMajorGpa] = useState(0);
   const [majorTotalCredits, setMajorTotalCredits] = useState(0);
   const [majorGrades, setMajorGrades] = useState<Grade[]>([]);
   const [majorLoading, setMajorLoading] = useState(true);
   const [majorError, setMajorError] = useState<string | null>(null);
+  const [majorStale, setMajorStale] = useState(false);
 
   const [allGpa, setAllGpa] = useState(0);
   const [allTotalCredits, setAllTotalCredits] = useState(0);
   const [allGrades, setAllGrades] = useState<Grade[]>([]);
   const [allLoading, setAllLoading] = useState(true);
   const [allError, setAllError] = useState<string | null>(null);
+  const [allStale, setAllStale] = useState(false);
 
-  // 加载主修绩点
-  const loadMajorGpa = useCallback(async () => {
+  const [exams, setExams] = useState<ExamInfo[]>([]);
+  const [examLoading, setExamLoading] = useState(true);
+  const [examError, setExamError] = useState<string | null>(null);
+  const [examStale, setExamStale] = useState(false);
+
+  const [gpaHidden, setGpaHidden] = useState(false);
+  const [showPastSemesters, setShowPastSemesters] = useState(false); // 控制是否显示已结束学期的分组
+
+  const router = useRouter();
+
+  // 加载主修绩点（缓存优先）
+  const loadMajorGpa = useCallback(async (forceRefresh = false) => {
+    const username = await AsyncStorage.getItem("username");
+    if (!username) { setMajorError("请先登录"); setMajorLoading(false); return; }
+    const key = academicCacheKey("major_grade", username);
+
+    if (!forceRefresh) {
+      const cached = await readCache<{ gpa: number; totalCredits: number; grades: Grade[] }>(key);
+      if (cached) {
+        setMajorGpa(cached.gpa);
+        setMajorTotalCredits(cached.totalCredits);
+        setMajorGrades(cached.grades);
+        setMajorLoading(false);
+        setMajorError(null);
+        setMajorStale(true);
+        try {
+          const session = await loadSession();
+          if (session) {
+            const result = await fetchMajorGrade(session);
+            setMajorGpa(result.gpa);
+            setMajorTotalCredits(result.totalCredits);
+            setMajorGrades(result.grades);
+            await writeCache(key, result);
+          }
+        } catch { /* 静默失败 */ } finally {
+          setMajorStale(false);
+        }
+        return;
+      }
+    }
+
     setMajorLoading(true);
     setMajorError(null);
     try {
@@ -541,6 +654,7 @@ export default function AcademicScreen() {
       setMajorGpa(result.gpa);
       setMajorTotalCredits(result.totalCredits);
       setMajorGrades(result.grades);
+      await writeCache(key, result);
     } catch (e) {
       setMajorError(e instanceof Error ? e.message : "获取主修绩点失败");
     } finally {
@@ -548,8 +662,37 @@ export default function AcademicScreen() {
     }
   }, []);
 
-  // 加载全部绩点
-  const loadAllGpa = useCallback(async () => {
+  // 加载全部绩点（缓存优先）
+  const loadAllGpa = useCallback(async (forceRefresh = false) => {
+    const username = await AsyncStorage.getItem("username");
+    if (!username) { setAllError("请先登录"); setAllLoading(false); return; }
+    const key = academicCacheKey("all_grade", username);
+
+    if (!forceRefresh) {
+      const cached = await readCache<{ gpa: number; totalCredits: number; grades: Grade[] }>(key);
+      if (cached) {
+        setAllGpa(cached.gpa);
+        setAllTotalCredits(cached.totalCredits);
+        setAllGrades(cached.grades);
+        setAllLoading(false);
+        setAllError(null);
+        setAllStale(true);
+        try {
+          const session = await loadSession();
+          if (session) {
+            const result = await fetchGrade(session);
+            setAllGpa(result.gpa);
+            setAllTotalCredits(result.totalCredits);
+            setAllGrades(result.grades);
+            await writeCache(key, result);
+          }
+        } catch { /* 静默失败 */ } finally {
+          setAllStale(false);
+        }
+        return;
+      }
+    }
+
     setAllLoading(true);
     setAllError(null);
     try {
@@ -559,18 +702,68 @@ export default function AcademicScreen() {
       setAllGpa(result.gpa);
       setAllTotalCredits(result.totalCredits);
       setAllGrades(result.grades);
-      console.log(result.grades.length);
+      await writeCache(key, result);
     } catch (e) {
       setAllError(e instanceof Error ? e.message : "获取全部绩点失败");
     } finally {
       setAllLoading(false);
     }
-    
   }, []);
 
+  // 加载考试（缓存优先）
+  const loadExams = useCallback(async (forceRefresh = false) => {
+    const username = await AsyncStorage.getItem("username");
+    if (!username) { setExamError("请先登录"); setExamLoading(false); return; }
+    const key = academicCacheKey("exams", username);
 
+    if (!forceRefresh) {
+      const cached = await readCache<ExamInfo[]>(key);
+      if (cached) {
+        setExams(cached);
+        setExamLoading(false);
+        setExamError(null);
+        setExamStale(true);
+        try {
+          const session = await loadSession();
+          if (session) {
+            const result = await fetchExams(session);
+            setExams(result);
+            //console.log('[DEBUG] fetchExams result length:', result.length);
+      //console.log('[DEBUG] first exam:', result[0]);
+            await writeCache(key, result);
+          }
+        } catch { /* 静默失败 */ } finally {
+          setExamStale(false);
+        }
+        return;
+      }
+    }
 
-  // Restore GPA hidden preference
+    setExamLoading(true);
+    setExamError(null);
+    try {
+      const session = await loadSession();
+      if (!session) { setExamError("请先登录"); return; }
+      const result = await fetchExams(session);
+      setExams(result);
+      //console.log('[DEBUG] fetchExams result length:', result.length);
+      //console.log('[DEBUG] first exam:', result[0]);
+      await writeCache(key, result);
+    } catch (e) {
+      setExamError(e instanceof Error ? e.message : "获取考试信息失败");
+    } finally {
+      setExamLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authState.userToken) {
+      loadMajorGpa();
+      loadAllGpa();
+      loadExams();
+    }
+  }, [authState.userToken, loadMajorGpa, loadAllGpa, loadExams]);
+
   useEffect(() => {
     AsyncStorage.getItem(GPA_HIDDEN_KEY)
       .then(v => { if (v === "1") setGpaHidden(true); })
@@ -583,47 +776,9 @@ export default function AcademicScreen() {
     await AsyncStorage.setItem(GPA_HIDDEN_KEY, next ? "1" : "0").catch(() => {});
   }, [gpaHidden]);
 
-  // Load GPA
-  const loadGpa = useCallback(async () => {
-    setGpaLoading(true);
-    setGpaError(null);
-    try {
-      const session = await loadSession();
-      if (!session) { setGpaError("请先登录"); return; }
-      const result = await fetchGrade(session);
-      setGpa(result.gpa);
-      setTotalCredits(result.totalCredits);
-      setGrades(result.grades);
-    } catch (e) {
-      setGpaError(e instanceof Error ? e.message : "获取绩点失败");
-    } finally {
-      setGpaLoading(false);
-    }
-  }, []);
-
-  // Load Exams
-  const loadExams = useCallback(async () => {
-    setExamLoading(true);
-    setExamError(null);
-    try {
-      const session = await loadSession();
-      if (!session) { setExamError("请先登录"); return; }
-      const result = await fetchExams(session);
-      setExams(result);
-    } catch (e) {
-      setExamError(e instanceof Error ? e.message : "获取考试信息失败");
-    } finally {
-      setExamLoading(false);
-    }
-  }, []);
-
-    useEffect(() => {
-    if (authState.userToken) {
-      loadMajorGpa();
-      loadAllGpa();
-      loadExams();
-    }
-  }, [authState.userToken, loadMajorGpa, loadAllGpa, loadExams]);
+  const handleCardPress = () => {
+    router.push('/grade-detail');
+  };
 
   if (!authState.userToken) {
     return (
@@ -637,12 +792,25 @@ export default function AcademicScreen() {
     );
   }
 
-  const { upcoming, past } = sortExams(exams);
+  // 分组考试
+  const examGroups = groupExamsBySemester(exams);
+  const currentGroups: { key: string; displayName: string; endDate: Date; exams: ExamInfo[] }[] = [];
+  const pastGroups: { key: string; displayName: string; endDate: Date; exams: ExamInfo[] }[] = [];
 
-  // Next exam for the top hint
-  const nextExam   = upcoming[0];
-  const nextDate   = nextExam ? parseExamDate(nextExam.examTime) : null;
-  const nextDays   = nextDate ? getDaysUntil(nextDate) : null;
+  for (const group of examGroups.values()) {
+    if (isSemesterPast(group.endDate)) {
+      pastGroups.push(group);
+    } else {
+      currentGroups.push(group);
+    }
+  }
+
+  // 按学年倒序排序（最新的在前）
+  currentGroups.sort((a, b) => b.displayName.localeCompare(a.displayName));
+  pastGroups.sort((a, b) => b.displayName.localeCompare(a.displayName));
+
+  const currentTotalExams = currentGroups.reduce((acc, g) => acc + g.exams.length, 0);
+  const pastTotalExams = pastGroups.reduce((acc, g) => acc + g.exams.length, 0);
 
   return (
     <ScreenContainer className="flex-1 bg-surface">
@@ -651,167 +819,90 @@ export default function AcademicScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={{ flex: 1, gap: 22, padding: 24 }}>
-
-          {/* ── Page title */}
+          {/* 页面标题 */}
           <View style={{ alignItems: "center", gap: 5 }}>
             <Text style={{ fontSize: 28, fontWeight: "700", color: colors.foreground }}>
               学业
             </Text>
-            {nextDays !== null && !examLoading && (
+            {currentTotalExams > 0 && (
               <Text style={{ fontSize: 13, color: colors.primary, fontWeight: "600" }}>
-                {nextDays === 0
-                  ? "今天有考试，加油！"
-                  : nextDays === 1
-                  ? "明天有考试，做好准备"
-                  : `距下次考试还有 ${nextDays} 天`}
+                共 {currentTotalExams} 场考试
               </Text>
-            )}
-            {nextDays === null && !examLoading && upcoming.length === 0 && (
-              <Text style={{ fontSize: 13, color: colors.muted }}>暂无考试安排</Text>
             )}
           </View>
 
-          {/* ── GPA Card */}
-          {gpaError ? (
-            <ErrorCard message={gpaError} onRetry={loadGpa} />
-          ) : (
-            <GpaCard
+          {/* 绩点卡片 */}
+          <GpaCard
             majorGpa={majorGpa}
             majorTotalCredits={majorTotalCredits}
             majorLoading={majorLoading}
             majorError={majorError}
-            onRetryMajor={loadMajorGpa}
+            onRetryMajor={() => loadMajorGpa(true)}
             allGpa={allGpa}
             allTotalCredits={allTotalCredits}
             allLoading={allLoading}
             allError={allError}
-            onRetryAll={loadAllGpa}
+            onRetryAll={() => loadAllGpa(true)}
             hidden={gpaHidden}
             onToggleHide={toggleGpaHidden}
-            />
-          )}
+            onPress={handleCardPress}
+            stale={majorStale || allStale}
+          />
 
-          {/* ── Upcoming exams */}
-          <View style={{ gap: 10 }}>
-            <SectionHeader
-              title="即将考试"
-              count={upcoming.length}
-            />
-
-            {examLoading ? (
-              <View style={{
-                backgroundColor: colors.background, borderRadius: 12,
-                padding: 20, alignItems: "center",
-              }}>
-                <ActivityIndicator size="small" color={colors.primary} />
-              </View>
-            ) : examError ? (
-              <ErrorCard message={examError} onRetry={loadExams} />
-            ) : upcoming.length === 0 ? (
-              <EmptyCard message="暂无即将到来的考试" />
-            ) : (
-              upcoming.map((exam, i) => (
-                <ExamCard key={`up-${i}`} exam={exam} isPast={false} />
-              ))
-            )}
-          </View>
-
-          {/* ── Past exams (collapsible) */}
-          {!examLoading && !examError && past.length > 0 && (
-            <View style={{ gap: 10 }}>
-              <SectionHeader
-                title="已结束考试"
-                count={past.length}
-                action={{
-                  label: showPast ? "收起" : "展开",
-                  onPress: () => setShowPast(v => !v),
-                }}
-              />
-
-              {showPast && past.map((exam, i) => (
-                <ExamCard key={`past-${i}`} exam={exam} isPast />
-              ))}
+          {/* 考试区域 - 按学期分组 */}
+          {examLoading ? (
+            <View style={{ backgroundColor: colors.background, borderRadius: 12, padding: 20, alignItems: "center" }}>
+              <ActivityIndicator size="small" color={colors.primary} />
             </View>
-          )}
-
-          {/* ── Grade summary (lightweight, no full list) */}
-          {/* {!allLoading && !allError && allGrades.length > 0 && !gpaHidden&& (
-            <View style={{ gap: 10 }}>
-              <SectionHeader title="成绩概览" />
-
-              {/* Score distribution chips *
-              <View style={{
-                backgroundColor: colors.background, borderRadius: 14,
-                padding: 16, gap: 14,
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.05, shadowRadius: 5, elevation: 2,
-              }}>
-                {/* Distribution buckets *
-                {(() => {
-                  const buckets = [
-                    { label: "90分以上", min: 90, max: 101, color: colors.success },
-                    { label: "80–89分", min: 80, max: 90,  color: colors.primary },
-                    { label: "70–79分", min: 70, max: 80,  color: colors.warning },
-                    { label: "60–69分", min: 60, max: 70,  color: "#f97316" },
-                    { label: "60分以下", min: 0,  max: 60,  color: colors.error },
-                  ];
-                  const total = allGrades.filter(g => g.score !== null).length;
-                  return buckets.map(b => {
-                    const count = allGrades.filter(g => {
-                        if (g.score == null) return false;
-
-                        let scoreNum: number;
-                        if (typeof g.score === 'number') {
-                            scoreNum = g.score;
-                        } else {
-                            // 字符串：必须为纯数字格式（允许整数或小数，不含字母等）
-                            const trimmed = g.score.trim();
-                            if (!/^-?\d+(\.\d+)?$/.test(trimmed)) return false;
-                            scoreNum = parseFloat(trimmed);
-                        }
-
-                        return scoreNum >= b.min && scoreNum < b.max;
-                        }).length;
-                    if (count === 0 && b.min < 60) return null;
-                    const pct   = total > 0 ? count / total : 0;
-                    return (
-                      <View key={b.label} style={{ gap: 5 }}>
-                        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                          <Text style={{ fontSize: 12, color: colors.muted }}>{b.label}</Text>
-                          <Text style={{ fontSize: 12, fontWeight: "600", color: b.color }}>
-                            {count} 门
-                          </Text>
-                        </View>
-                        <View style={{
-                          height: 5, borderRadius: 2.5,
-                          backgroundColor: hexToRgba(b.color, 0.15),
-                          overflow: "hidden",
-                        }}>
-                          <View style={{
-                            height: "100%",
-                            width: `${pct * 100}%` as any,
-                            borderRadius: 2.5,
-                            backgroundColor: b.color,
-                          }} />
-                        </View>
-                      </View>
-                    );
-                  });
-                })()}
-
-                <View style={{
-                  flexDirection: "row", justifyContent: "flex-end",
-                  borderTopWidth: 0.5, borderTopColor: colors.border,
-                  paddingTop: 10,
-                }}>
-                  <Text style={{ fontSize: 11, color: colors.muted }}>
-                    共 {grades.filter(g => g.score !== null).length} 门已出分
-                  </Text>
+          ) : examError ? (
+            <ErrorCard message={examError} onRetry={() => loadExams(true)} />
+          ) : exams.length === 0 ? (
+            <EmptyCard message="暂无考试安排" />
+          ) : (
+            <>
+              {/* 当前学期考试 */}
+              {currentGroups.length > 0 && (
+                <View style={{ gap: 20 }}>
+                  {currentGroups.map(group => (
+                    <View key={group.key} style={{ gap: 10 }}>
+                      <SectionHeader title={group.displayName} count={group.exams.length} />
+                      {group.exams.map((exam, idx) => (
+                        <ExamCard key={`current-${group.key}-${idx}`} exam={exam} isPast={false} compact={false} />
+                      ))}
+                    </View>
+                  ))}
                 </View>
-              </View>
-            </View>
-          )} */}
+              )}
+
+              {/* 已结束学期考试（可折叠） */}
+              {pastGroups.length > 0 && (
+                <View style={{ gap: 10 }}>
+                  <SectionHeader
+                    title="已结束学期"
+                    count={pastTotalExams}
+                    action={{
+                      label: showPastSemesters ? "收起" : "展开",
+                      onPress: () => setShowPastSemesters(v => !v),
+                    }}
+                  />
+                  {showPastSemesters && (
+                    <View style={{ gap: 16 }}>
+                      {pastGroups.map(group => (
+                        <View key={group.key} style={{ gap: 10, opacity: 0.75 }}>
+                          <Text style={{ fontSize: 14, fontWeight: "500", color: PAST_COLOR }}>
+                            {group.displayName}
+                          </Text>
+                          {group.exams.map((exam, idx) => (
+                            <ExamCard key={`past-${group.key}-${idx}`} exam={exam} isPast compact />
+                          ))}
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
+            </>
+          )}
 
           <View style={{ height: 8 }} />
         </View>

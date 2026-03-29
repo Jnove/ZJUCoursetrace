@@ -1,6 +1,4 @@
 /**
- * app/about.tsx
- *
  * About screen — version, repository, license, and auto-update.
  * Reachable from Settings → 关于.
  */
@@ -26,7 +24,7 @@ import {
   DownloadProgress,
 } from "@/lib/updater";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Helpers
 
 function rgba(hex: string, a: number) {
   const c = hex.replace("#", "").slice(0, 6);
@@ -35,7 +33,7 @@ function rgba(hex: string, a: number) {
 
 const APP_VERSION = Constants.expoConfig?.version ?? "1.1.0";
 
-// ─── Shared row ───────────────────────────────────────────────────────────────
+// Shared row
 
 function InfoRow({
   label, value, onPress, last = false, valueColor,
@@ -75,7 +73,7 @@ function InfoRow({
   );
 }
 
-// ─── Section ─────────────────────────────────────────────────────────────────
+//Section
 
 function Section({ title, children }: { title?: string; children: React.ReactNode }) {
   const colors = useColors();
@@ -104,8 +102,7 @@ function Section({ title, children }: { title?: string; children: React.ReactNod
   );
 }
 
-// ─── Update card ─────────────────────────────────────────────────────────────
-
+// Update card
 type UpdatePhase =
   | { phase: "idle" }
   | { phase: "checking" }
@@ -166,7 +163,6 @@ function UpdateCard() {
     }
   }, [u]);
 
-  // Border / accent colour varies by phase
   const accent =
     u.phase === "available"  ? primaryColor :
     u.phase === "error"      ? colors.error :
@@ -343,8 +339,6 @@ function UpdateCard() {
   );
 }
 
-// ─── Screen ───────────────────────────────────────────────────────────────────
-
 export default function AboutScreen() {
   const router  = useRouter();
   const colors  = useColors();
@@ -352,7 +346,6 @@ export default function AboutScreen() {
 
   return (
     <ScreenContainer className="flex-1 bg-surface">
-      {/* Nav */}
       <View style={{
         flexDirection: "row", alignItems: "center",
         paddingHorizontal: 16, paddingVertical: 14,
@@ -370,7 +363,6 @@ export default function AboutScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 20, gap: 24, paddingBottom: 52 }} showsVerticalScrollIndicator={false}>
 
-        {/* Identity */}
         <View style={{ alignItems: "center", gap: 10, paddingVertical: 8 }}>
           <View style={{
             width: 80, height: 80, borderRadius: 20,
@@ -387,7 +379,7 @@ export default function AboutScreen() {
           </View>
         </View>
 
-        {/* Update */}
+        {/* 更新 */}
         <View style={{ gap: 6 }}>
           <Text style={{
             fontSize: 11, fontWeight: "600", color: colors.muted,
@@ -398,7 +390,7 @@ export default function AboutScreen() {
           <UpdateCard />
         </View>
 
-        {/* Version details */}
+        {/* 版本*/}
         <Section title="版本信息">
           <InfoRow label="版本号" value={`v${APP_VERSION}`} />
           <InfoRow
@@ -414,7 +406,7 @@ export default function AboutScreen() {
           />
         </Section>
 
-        {/* Project */}
+        {/* 项目 */}
         <Section title="项目">
           <InfoRow
             label="源代码"
@@ -428,8 +420,8 @@ export default function AboutScreen() {
         {/* Acknowledgements */}
         <Section title="致谢">
           <InfoRow
-            label="API 参考"
-            value="celechron (GPL-3.0) ↗"
+            label="API逆向参考"
+            value="celechron (GPL-v3) ↗"
             valueColor={primaryColor}
             onPress={() => openReleasePage("https://github.com/zjuers/celechron")}
           />
@@ -446,15 +438,22 @@ export default function AboutScreen() {
             onPress={() => openReleasePage("https://www.jinrishici.com")}
           />
           <InfoRow
-            label="IP 定位"
-            value="iping.cc ↗"
+            label="IP 获取"
+            value="httpbin.org/ip ↗"
             valueColor={primaryColor}
-            onPress={() => openReleasePage("https://iping.cc")}
+            onPress={() => openReleasePage("https://httpbin.org/ip")}
+            last
+          />
+          <InfoRow
+            label="IP 定位"
+            value="api.iping.cc ↗"
+            valueColor={primaryColor}
+            onPress={() => openReleasePage("https://api.iping.cc")}
             last
           />
         </Section>
 
-        {/* Footer */}
+        {/* 底部*/}
         <Text style={{ fontSize: 12, color: colors.muted, textAlign: "center", lineHeight: 18 }}>
           本应用使用浙大统一身份认证，数据直连教务系统。{"\n"}
           与浙江大学官方无关。

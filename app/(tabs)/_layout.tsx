@@ -17,7 +17,7 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colors.primary, // 使用主题主色
+        tabBarActiveTintColor: primaryColor, // 使用主题主色
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarStyle: {
@@ -34,28 +34,28 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "首页",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={primaryColor} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="schedule"
         options={{
           title: "课表",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={primaryColor} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="Academic"
         options={{
           title: "学业",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="graduationcap.fill" color={primaryColor} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="graduationcap.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: "设置",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="gearshape.2.fill" color={primaryColor} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="gearshape.2.fill" color={color} />,
         }}
       />
     </Tabs>

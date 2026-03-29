@@ -14,7 +14,7 @@ import { Course } from "@/lib/schedule-context";
 import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import * as MediaLibrary from "expo-media-library";
-import { getSemesterOptions as zjuGetSemesterOptions, ZjuSession, checkSemesterHasCourses, invalidateSession, } from "@/lib/zju-client";
+import { getSemesterOptions as zjuGetSemesterOptions, ZjuSession, checkSemesterHasCourses} from "@/lib/zju-client";
 import { useTheme } from "@/lib/theme-provider";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -76,94 +76,79 @@ export default function ScheduleScreen() {
       let restoredKey: string | null = null;
       try {
         const cachedSems = await AsyncStorage.getItem(`activeSemesters_${username}`);
-        if (cachedSems) setSemesters(JSON.parse(cachedSems));
+        if (cachedSems) {
+          const parsed: SemesterOption[] = JSON.parse(cachedSems);
+          if (parsed.length > 0) setSemesters(parsed);
+        }
         const lastKey = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
         if (lastKey) { setSelectedSemester(lastKey); restoredKey = lastKey; }
       } catch {}
 
       // 2. Load schedule for restored selection from local cache
       if (restoredKey && typeof restoredKey === "string" && restoredKey.includes("|")) {
-        const [yearValue, termValue] = parseKey(restoredKey);  //  split on first | only
+        const [yearValue, termValue] = parseKey(restoredKey);
         await fetchScheduleBySemester(yearValue, termValue, true);
       }
 
-      // 3. Refresh semester options from network
+      // 3. Refresh semester list from network.
+
       setLoadingSemesters(true);
       try {
         const session: ZjuSession = { username, jsessionId: "native", routeCookie: null };
         const opts = await zjuGetSemesterOptions(session);
 
-        // 构建所有学年-学期组合（笛卡尔积）
-        const allCombos: { yearValue: string; termValue: string; yearText: string; termText: string }[] = [];
+        // Build the full Cartesian product of year × term options
+        const allSemesters: SemesterOption[] = [];
         for (const yo of opts.yearOptions) {
           for (const to of opts.termOptions) {
-            allCombos.push({
-              yearValue: yo.value,
-              termValue: to.value,
-              yearText: yo.text,
-              termText: to.text,
-            });
+            if(await checkSemesterHasCourses(session,yo.value,to.value)){
+              allSemesters.push({
+                yearValue: yo.value,
+                termValue: to.value,
+                yearText:  yo.text,
+                termText:  to.text,
+                label:     `${yo.text}学年 ${to.text}学期`,
+              });
+            }
           }
         }
 
-        // 并发检测哪些组合有课程（限制并发数，避免过多请求）
-        const concurrency = 3;
-        const results: { combo: typeof allCombos[0]; hasCourses: boolean }[] = [];
-        for (let i = 0; i < allCombos.length; i += concurrency) {
-          const chunk = allCombos.slice(i, i + concurrency);
-          const chunkResults = await Promise.all(
-            chunk.map(combo =>
-              checkSemesterHasCourses(session, combo.yearValue, combo.termValue)
-                .then(has => ({ combo, hasCourses: has }))
-            )
+        // Only update state + cache when we actually got results.
+        // If the network call somehow produced nothing, keep whatever was
+        // already restored from cache rather than clobbering it with [].
+        if (allSemesters.length > 0) {
+          setSemesters(allSemesters);
+          await AsyncStorage.setItem(
+            `activeSemesters_${username}`,
+            JSON.stringify(allSemesters),
           );
-          results.push(...chunkResults);
         }
 
-        // 过滤出有课程的学期
-        const allSemesters: SemesterOption[] = results
-          .filter(r => r.hasCourses)
-          .map(r => ({
-            yearValue: r.combo.yearValue,
-            termValue: r.combo.termValue,
-            yearText: r.combo.yearText,
-            termText: r.combo.termText,
-            label: `${r.combo.yearText}学年 ${r.combo.termText}学期`,
-          }));
-
-        // 如果没有检测到有课程的学期（可能全部请求失败），回退到所有组合
-        if (allSemesters.length === 0) {
-          console.warn("未检测到有课程的学期，回退到全部学期组合");
-          allSemesters.push(...allCombos.map(c => ({
-            yearValue: c.yearValue,
-            termValue: c.termValue,
-            yearText: c.yearText,
-            termText: c.termText,
-            label: `${c.yearText}学年 ${c.termText}学期`,
-          })));
-        }
-
-        setSemesters(allSemesters);
-        await AsyncStorage.setItem(`activeSemesters_${username}`, JSON.stringify(allSemesters));
-
-        // 如果没有恢复上次选择的学期，默认选择第一个有课程的学期（或当前学期）
-        if (!restoredKey) {
-          // 尝试从 opts 中获取当前选中的学期，但仅当该学期在有课程列表中时使用
-          const defaultYearValue = opts.yearOptions.find(o => o.selected)?.value ?? opts.yearOptions[0]?.value;
-          const defaultTermValue = opts.termOptions.find(o => o.selected)?.value ?? opts.termOptions[0]?.value;
-          const defaultSemester = allSemesters.find(
-            s => s.yearValue === defaultYearValue && s.termValue === defaultTermValue
-          ) ?? allSemesters[0];
+        // If no semester was restored from cache, pick the server's default
+        if (!restoredKey && allSemesters.length > 0) {
+          const defaultYearValue =
+            opts.yearOptions.find(o => o.selected)?.value ?? opts.yearOptions[0]?.value;
+          const defaultTermValue =
+            opts.termOptions.find(o => o.selected)?.value ?? opts.termOptions[0]?.value;
+          const defaultSemester =
+            allSemesters.find(
+              s => s.yearValue === defaultYearValue && s.termValue === defaultTermValue,
+            ) ?? allSemesters[0];
 
           if (defaultSemester) {
             const key = semesterKey(defaultSemester.yearValue, defaultSemester.termValue);
             setSelectedSemester(key);
             await AsyncStorage.setItem(`lastSelectedSemester_${username}`, key);
-            await fetchScheduleBySemester(defaultSemester.yearValue, defaultSemester.termValue, true);
+            await fetchScheduleBySemester(
+              defaultSemester.yearValue,
+              defaultSemester.termValue,
+              true,
+            );
           }
         }
       } catch (e) {
         console.error("Failed to load semester options:", e);
+        // Network failed — cached semesters (restored in step 1) are still shown.
       } finally {
         setLoadingSemesters(false);
       }
@@ -173,7 +158,7 @@ export default function ScheduleScreen() {
 
   // ── Semester change ────────────────────────────────────────────────────────
   const handleSemesterChange = async (yearValue: string, termValue: string) => {
-    console.log("semester change:",yearValue,termValue);
+    console.log("semester change:", yearValue, termValue);
     const key = semesterKey(yearValue, termValue);
     setSelectedSemester(key);
     setShowSemesterPicker(false);
@@ -188,11 +173,9 @@ export default function ScheduleScreen() {
     if (!selectedSemester) return;
     setIsRefreshing(true);
 
-    // ← fixed: split on first | only so termValue like "2|春" is preserved
     const [yearValue, termValue] = parseKey(selectedSemester);
 
     try {
-      // 获取所有可用学期（从 semesters state 中提取）
       const allSemesters = semesters.map(s => ({
         yearValue: s.yearValue,
         termValue: s.termValue,
@@ -215,7 +198,6 @@ export default function ScheduleScreen() {
     } finally {
       setIsRefreshing(false);
     }
-    console.log(selectedCourse);
     await handleSemesterChange(yearValue, termValue);
   };
 
@@ -356,31 +338,39 @@ export default function ScheduleScreen() {
                 backgroundColor: colors.background, borderRadius: 10,
                 overflow: "hidden", borderWidth: 0.5, borderColor: colors.border,
               }}>
-                {semesters.map((s, i) => {
-                  const key = semesterKey(s.yearValue, s.termValue);
-                  const isActive = selectedSemester === key;
-                  return (
-                    <TouchableOpacity
-                      key={i}
-                      onPress={() => handleSemesterChange(s.yearValue, s.termValue)}
-                      style={{
-                        flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-                        paddingHorizontal: 14, paddingVertical: 12,
-                        borderTopWidth: i === 0 ? 0 : 0.5, borderTopColor: colors.border,
-                        backgroundColor: isActive ? `${colors.primary}15` : "transparent",
-                      }}
-                    >
-                      <Text style={{
-                        fontSize: 14,
-                        fontWeight: isActive ? "600" : "400",
-                        color: isActive ? primaryColor: colors.foreground,
-                      }}>
-                        {s.label}
-                      </Text>
-                      {isActive && <Text style={{ fontSize: 14, color: primaryColor}}>✓</Text>}
-                    </TouchableOpacity>
-                  );
-                })}
+                {semesters.length === 0 ? (
+                  <View style={{ padding: 16, alignItems: "center" }}>
+                    <Text style={{ fontSize: 13, color: colors.muted }}>
+                      {loadingSemesters ? "正在加载学期列表..." : "暂无学期数据"}
+                    </Text>
+                  </View>
+                ) : (
+                  semesters.map((s, i) => {
+                    const key = semesterKey(s.yearValue, s.termValue);
+                    const isActive = selectedSemester === key;
+                    return (
+                      <TouchableOpacity
+                        key={i}
+                        onPress={() => handleSemesterChange(s.yearValue, s.termValue)}
+                        style={{
+                          flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+                          paddingHorizontal: 14, paddingVertical: 12,
+                          borderTopWidth: i === 0 ? 0 : 0.5, borderTopColor: colors.border,
+                          backgroundColor: isActive ? `${colors.primary}15` : "transparent",
+                        }}
+                      >
+                        <Text style={{
+                          fontSize: 14,
+                          fontWeight: isActive ? "600" : "400",
+                          color: isActive ? primaryColor : colors.foreground,
+                        }}>
+                          {s.label}
+                        </Text>
+                        {isActive && <Text style={{ fontSize: 14, color: primaryColor }}>✓</Text>}
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
               </View>
             )}
 
@@ -398,7 +388,7 @@ export default function ScheduleScreen() {
                     onPress={() => setViewMode(m)}
                     style={{
                       paddingHorizontal: 10, paddingVertical: 8,
-                      backgroundColor: viewMode === m ? primaryColor: "transparent",
+                      backgroundColor: viewMode === m ? primaryColor : "transparent",
                     }}
                   >
                     <IconSymbol
@@ -420,7 +410,7 @@ export default function ScheduleScreen() {
                       onPress={() => setFilterType(f)}
                       style={{
                         flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center",
-                        backgroundColor: isActive ? primaryColor: colors.background,
+                        backgroundColor: isActive ? primaryColor : colors.background,
                         borderWidth: isActive ? 0 : 0.5, borderColor: colors.border,
                       }}
                     >
@@ -439,7 +429,7 @@ export default function ScheduleScreen() {
           </View>
 
           {/* ── Content (capturable area) */}
-          {state.isLoading || !selectedSemester  ? (
+          {state.isLoading || !selectedSemester ? (
             <View style={{ flex: 1, justifyContent: "center", alignItems: "center", gap: 12 }}>
               <ActivityIndicator size="large" color={colors.primary} />
               <Text style={{ fontSize: 14, color: colors.muted }}>加载课表中...</Text>

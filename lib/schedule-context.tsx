@@ -78,7 +78,7 @@ function scheduleReducer(state: ScheduleState, action: ScheduleAction): Schedule
 interface ScheduleContextType {
   state: ScheduleState;
   fetchSchedule: () => Promise<void>;
-  fetchScheduleBySemester: (yearValue: string, termValue: string, useCache?: boolean) => Promise<void>;
+  fetchScheduleBySemester: (yearValue: string, termValue: string, useCache?: boolean) => Promise<Course[]|undefined>;
   setCurrentWeek: (week: number) => void;
   setWeekType: (type: "all" | "single" | "double") => void;
   getCoursesForWeek: (week: number) => Course[];
@@ -212,7 +212,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         const session = await buildSession();
         const result = await fetchTimetable(session, yearValue, termValue);
         const converted = assignColors(result.rawCourses as Course[]);
-
+        
         // 只有最新请求才更新UI和缓存
         if (requestId === latestRequestIdRef.current) {
           await AsyncStorage.setItem(cacheKey, JSON.stringify(converted));
@@ -221,6 +221,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         } else {
           console.log(`丢弃过时请求 (${requestId})，当前最新为 ${latestRequestIdRef.current}`);
         }
+        return result.rawCourses as Course[];
       } catch (error) {
         if (requestId === latestRequestIdRef.current) {
           dispatch({ type: "SET_ERROR", payload: error instanceof Error ? error.message : "获取学期课表失败" });
@@ -230,6 +231,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
           dispatch({ type: "SET_LOADING", payload: false });
         }
       }
+      
     },
 
     setCurrentWeek: (week) => dispatch({ type: "SET_CURRENT_WEEK", payload: week }),

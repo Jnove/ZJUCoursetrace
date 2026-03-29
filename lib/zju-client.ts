@@ -1,7 +1,6 @@
 /**
- * lib/zju-client.ts  —  pure mobile, no backend
  *
- * Auth flow (based on working debug script):
+ * Auth flow :
  *
  *   1. XHR  GET  /cas/login?service=ZDBK_SSO     → parse ALL form fields
  *   2. XHR  GET  /cas/v2/getPubKey               → RSA modulus + exponent
@@ -14,7 +13,7 @@
  *   7. Verify: final URL on zdbk domain → native jar has JSESSIONID
  *
  * Key differences from previous attempts:
- *   - RSA pad length = mod.length (not hardcoded 256)
+ *   - RSA pad length = mod.length (not hardcoded)
  *   - GET login page WITH ?service= param
  *   - fetch + redirect:'manual' + credentials:'include'
  *   - _eventId and service fields added if missing from form
@@ -88,6 +87,8 @@ export interface ExamInfo {
   examLocation:  string;
   seat?:         string;
   credit?:       number;
+  semester?:     string;
+  year?:         string;
 }
 
 export interface SemesterOption {
@@ -639,43 +640,49 @@ function parseKbList(kbList: any[], yearText: string, termText: string): RawCour
 }
 
 // ─── Grades ───────────────────────────────────────────────────────────────────
+const EXCLUDED_SCORE_STRINGS = ['缓考', '补考', '缺考', '免修', '未修'];
+function computeGPA(grades: Grade[]): { gpa: number; totalCredits: number } {
+  let weightedSum = 0;
+  let totalCredits = 0;
+
+  for (const g of grades) {
+    if (g.credit <= 0) continue;
+
+    // 跳过特定成绩字符串的课程
+    const scoreStr = g.score?.toString().trim();
+    if (scoreStr && EXCLUDED_SCORE_STRINGS.includes(scoreStr)) {
+      continue;
+    }
+
+    // 使用系统返回的绩点
+    if (g.gpaPoints !== null && typeof g.gpaPoints === 'number') {
+      weightedSum += g.gpaPoints * g.credit;
+      totalCredits += g.credit;
+    }
+  }
+
+  const gpa = totalCredits > 0 ? Math.round(weightedSum / totalCredits * 100) / 100 : 0;
+  return { gpa, totalCredits };
+}
 
 export async function fetchMajorGrade(session: ZjuSession): Promise<{ grades: Grade[]; gpa: number; totalCredits: number }> {
   const text = await withRelogin(session, () =>
     zPost(`${ZDBK_BASE}/jwglxt/zycjtj/xszgkc_cxXsZgkcIndex.html?doType=query&queryModel.showCount=5000`, ""));
   const grades = parseGrades(text, true);
-  let ws = 0, tc = 0;
-  for (const g of grades) {
-    // 检查是否满足绩点、学分有效，且成绩字符串是数字格式
-    const isValidScore = /^\d+(\.\d+)?$/.test(g.score?.trim() ?? '');
-    if (g.gpaPoints != null && g.credit > 0 && isValidScore) {
-      ws += g.gpaPoints * g.credit;
-      tc += g.credit;
-    }
-  }
-  return { grades, gpa: tc > 0 ? Math.round(ws / tc * 1000) / 1000 : 0, totalCredits: tc };
+  return { grades, ...computeGPA(grades) };
 }
 
 export async function fetchGrade(session: ZjuSession): Promise<{ grades: Grade[]; gpa: number; totalCredits: number }> {
   const text = await withRelogin(session, () =>
     zPost(`${ZDBK_BASE}/jwglxt/cxdy/xscjcx_cxXscjIndex.html?doType=query&queryModel.showCount=5000`, ""));
-  console.log("[DEBUG] fetchGrade raw response length:", text.length, "preview:", text.slice(0, 500));
+  //console.log("[DEBUG] fetchGrade raw response length:", text.length, "preview:", text.slice(0, 500));
   const grades = parseGrades(text, true);
-  let ws = 0, tc = 0;
-  for (const g of grades) {
-    // 检查是否满足绩点、学分有效，且成绩字符串是数字格式
-    const isValidScore = /^\d+(\.\d+)?$/.test(g.score?.trim() ?? '');
-    if (g.gpaPoints != null && g.credit > 0 && isValidScore) {
-      ws += g.gpaPoints * g.credit;
-      tc += g.credit;
-    }
-  }
-  return { grades, gpa: tc > 0 ? Math.round(ws / tc * 1000) / 1000 : 0, totalCredits: tc };
+  return { grades, ...computeGPA(grades) };
 }
 
 function parseGrades(text: string, isMajor: boolean): Grade[] {
   const m = text.match(/(?<="items":)(\[[\s\S]*?\])(?=,"limit")/);
-  console.log("[DEBUG] parseGrades regex match:", m ? "success" : "fail", m ? m[1].slice(0, 200) : "");
+  //console.log("[DEBUG] parseGrades regex match:", m ? "success" : "fail", m ? m[1].slice(0, 200) : "");
   if (!m) return [];
   let items: any[]; try { items = JSON.parse(m[1]); } catch { return []; }
   return items.filter(e => e.xkkh != null).map(e => ({
@@ -686,25 +693,55 @@ function parseGrades(text: string, isMajor: boolean): Grade[] {
   }));
 }
 
-// ─── Exams ────────────────────────────────────────────────────────────────────
+// ─── Exams 
+function extractYearFromXkkh(xkkh: string): string | null {
+  const match = xkkh.match(/^\((\d{4}-\d{4})-\d+\)/);
+  return match ? match[1] : null;
+}
 
 export async function fetchExams(session: ZjuSession): Promise<ExamInfo[]> {
   const text = await withRelogin(session, () =>
     zPost(`${ZDBK_BASE}/jwglxt/xskscx/kscx_cxXsgrksIndex.html?doType=query&queryModel.showCount=5000`, ""));
   const m = text.match(/(?<="items":)(\[[\s\S]*?\])(?=,"limit")/);
   if (!m) return [];
-  let items: any[]; try { items = JSON.parse(m[1]); } catch { return []; }
-  return items.filter(e => e.xkkh != null).map(e => {
-    let examTime = "";
-    if (e.ksrq && e.kssj) { examTime = `${e.ksrq} ${e.kssj}`; if (e.jssj) examTime += `—${e.jssj}`; }
-    else if (e.kssj) examTime = String(e.kssj);
-    return {
-      courseCode: String(e.kch ?? ""), courseName: String(e.kcmc ?? ""),
-      examTime, examLocation: String(e.cdmc ?? e.ksdd ?? ""),
-      seat: e.zwh != null ? String(e.zwh) : undefined,
-      credit: e.xf != null ? parseFloat(String(e.xf)) : undefined,
-    };
-  });
+  let items: any[];
+  try {
+    items = JSON.parse(m[1]);
+  } catch {
+    return [];
+  }
+  return items
+    .filter(e => e.xkkh != null)   // 保留有课程代码的项
+    .map(e => {
+      const examTime = e.kssj ?? "";
+      // 考试地点字段是 jsmc
+      const examLocation = e.jsmc ?? "";
+      // 座位号：zwxh
+      const seat = e.zwxh != null ? String(e.zwxh) : undefined;
+      // 学年可以从 xkkh 中提取（如 (2025-2026-1)...）
+      let year: string | undefined;
+      if (e.xkkh) {
+        const match = e.xkkh.match(/\((\d{4}-\d{4})-\d+\)/);
+        if (match) year = match[1];
+      }
+      // 学期：xxq 字段（例如 "秋冬"、"春夏"、"夏"、"春"）
+      const semester = e.xxq ?? undefined;
+      // 学分：xf
+      const credit = e.xf != null ? parseFloat(String(e.xf)) : undefined;
+
+      return {
+        courseCode: String(e.kch ?? ""),
+        courseName: String(e.kcmc ?? ""),
+        examTime,
+        examLocation,
+        seat,
+        credit,
+        year,
+        semester,
+      };
+    })
+    // 过滤掉既没有考试时间也没有考试地点的无效条目
+    .filter(exam => exam.examTime || exam.examLocation);
 }
 
 export async function checkSemesterHasCourses(
@@ -716,14 +753,13 @@ export async function checkSemesterHasCourses(
     const result = await fetchTimetable(session, yearValue, termValue, "");
     return (result.rawCourses?.length ?? 0) > 0;
   } catch (e) {
-    // 如果请求失败（如验证码），保守认为有课，避免误过滤
+    // 如果请求失败，保守认为有课
     console.warn(`检查学期 ${yearValue} ${termValue} 失败:`, e);
     return true;
   }
 }
-// lib/zju-client.ts 末尾添加
+
 export async function invalidateSession() {
-  // 仅清除 session 存储，不清除凭据
   await AsyncStorage.removeItem(SESSION_KEY);
 }
 export { parseKbList, yToXnm, tToXqm, parsePeriod, parseWeeks };

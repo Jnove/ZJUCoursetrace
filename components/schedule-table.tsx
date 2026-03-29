@@ -60,7 +60,7 @@ export function ScheduleTable({
 }: ScheduleTableProps) {
   const colors = useColors();
   const [selectedDay, setSelectedDay] = useState(1);
-  const primaryColor = useTheme();
+  const { primaryColor } = useTheme();
   const CELL_H = availableHeight > 200
     ? Math.max(44, Math.floor((availableHeight - HEADER_H) / PERIODS.length))
     : 52;
@@ -263,7 +263,7 @@ export function ScheduleTable({
               onPress={() => { setSelectedDay(dayNum); onDayChange?.(dayNum); }}
               style={{
                 paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20,
-                backgroundColor: isSelected ? colors.background : colors.surface,
+                backgroundColor: isSelected ? primaryColor : colors.background,
                 borderWidth: isSelected ? 0 : 0.5, borderColor: colors.border,
               }}
             >

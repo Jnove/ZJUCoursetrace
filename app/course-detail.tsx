@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, TouchableOpacity, ScrollView } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import CourseDetailContent from "@/app/courseDetailContent"; // 导入共享组件
+import CourseDetailContent from "@/app/courseDetailContent"; 
 
 export default function CourseDetailScreen() {
   const router = useRouter();

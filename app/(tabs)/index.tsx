@@ -21,7 +21,7 @@ import { setupNotificationChannel, updateCourseNotification, clearCourseNotifica
 
 
 
-// ─── Period table ─────────────────────────────────────────────────────────────
+// Period table 
 const PERIODS = [
   { number: 1,  startTime: "08:00", endTime: "08:45" },
   { number: 2,  startTime: "08:50", endTime: "09:35" },
@@ -38,17 +38,16 @@ const PERIODS = [
   { number: 13, startTime: "20:30", endTime: "21:15" },
 ];
 
-// ─── Cache key helper ─────────────────────────────────────────────────────────
-// Maps semester-utils format → new schedule-context cache key format.
+
 // semester-utils: { schoolYear: "2025-2026", semester: "秋" | "冬" | "春" | "夏" }
-// schedule-context stores as: schedule_2025-2026学年_第一学期
+// 保存格式: schedule_2025-2026学年_第一学期
 function scheduleStorageKey(schoolYear: string, semester: string): string {
   const yearText = `${schoolYear}学年`;
   const termText = (semester === "秋" || semester === "冬") ? "第一学期" : "第二学期";
   return `schedule_${yearText}_${termText}`;
 }
 
-// ─── Time utils ───────────────────────────────────────────────────────────────
+// Time utils
 function parseTimeStr(t: string): number {
   const [h, m] = t.split(":").map(Number);
   return h * 3600 + m * 60;
@@ -101,7 +100,7 @@ function filterCourses(
     .sort((a, b) => a.startPeriod - b.startPeriod);
 }
 
-// ─── Weather ──────────────────────────────────────────────────────────────────
+// Weather
 type WeatherData = {
   label: string;
   desc: string;
@@ -203,7 +202,7 @@ const fetchWeather = async () => {
   };
 };
 
-// ─── Period badge ─────────────────────────────────────────────────────────────
+// Period badge 
 function PeriodBadge({ course }: { course: Course }) {
   const colors = useColors();
   const label = course.startPeriod === course.endPeriod

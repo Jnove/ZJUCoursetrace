@@ -17,12 +17,11 @@
 
 import { Platform, Linking } from "react-native";
 import * as FileSystem from "expo-file-system";
-//import * as IntentLauncher from "expo-intent-launcher";
+import * as IntentLauncher from "expo-intent-launcher";
 import Constants from "expo-constants";
 
-// ─── ↓ YOUR DETAILS HERE ─────────────────────────────────────────────────────
 export const GITHUB_OWNER = "Jnove";
-export const GITHUB_REPO  = "zju-schedule-app";
+export const GITHUB_REPO  = "ZJUCoursetrace";
 
 /**
  * The asset name pattern to look for in a release's assets list.
@@ -165,14 +164,14 @@ export async function downloadAndInstallApk(
 
   // Get the content URI so Android's package installer can open it
   const contentUri = await FileSystem.getContentUriAsync(result.uri);
-  // await IntentLauncher.startActivityAsync(
-  //   "android.intent.action.VIEW",
-  //   {
-  //     data:  contentUri,
-  //     flags: 1,          // FLAG_GRANT_READ_URI_PERMISSION
-  //     type:  "application/vnd.android.package-archive",
-  //   },
-  // );
+  await IntentLauncher.startActivityAsync(
+    "android.intent.action.VIEW",
+    {
+      data:  contentUri,
+      flags: 1,          // FLAG_GRANT_READ_URI_PERMISSION
+      type:  "application/vnd.android.package-archive",
+    },
+  );
 }
 
 /**
