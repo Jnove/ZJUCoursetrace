@@ -1,6 +1,13 @@
-[**🌐 切换至中文**](./README.md)
+# ZJU课迹 （ZJUCousrsetrace）
 
-# ZJU 课表
+<p align="center">
+  <br><a href="README.md">中文</a> | English
+</p>
+[![License](https://img.shields.io/github/license/Jnove/ZJUCoursetrace?style=flat-square)](./LICENSE)
+[![Release](https://img.shields.io/github/v/release/Jnove/ZJUCoursetrace?style=flat-square&label=release)](https://github.com/Jnove/ZJUCoursetrace/releases/latest)
+[![Download APK](https://img.shields.io/github/downloads/Jnove/ZJUCoursetrace/total?style=flat-square&label=APK%20downloads&color=brightgreen&logo=android)](https://github.com/Jnove/ZJUCoursetrace/releases/latest)
+
+
 
 A Zhejiang University course schedule app for iOS, Android, and Web.
 
@@ -27,7 +34,7 @@ During the development process, Manus was used to generate the project architect
 
 - [Open-Meteo](https://open-meteo.com) — open-source weather forecast; returns daily temperature range and precipitation probability by coordinates
 - [今日诗词 (jinrishici)](https://www.jinrishici.com) — random classical Chinese poetry
-- [ipify](https://www.ipify.org) + [iping.cc](https://iping.cc) — IP-based geolocation fallback when no GPS cache is available
+- [httpbin.org](https://httpbin.org/ip) + [api.iping.cc](https://api.iping.cc) — IP-based geolocation fallback when no GPS cache is available
 
 ## Features
 
