@@ -8,6 +8,7 @@ import { SchemeColors } from "@/constants/theme";
 
 export default function TabLayout() {
   const { resolvedTheme } = useTheme();
+  const { primaryColor } = useTheme();
   const colors = SchemeColors[resolvedTheme];
   const insets = useSafeAreaInsets();
   const bottomPadding = Platform.OS === "web" ? 12 : Math.max(insets.bottom, 8);
@@ -16,7 +17,7 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colors.primary, // 使用主题主色
+        tabBarActiveTintColor: primaryColor, // 使用主题主色
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarStyle: {
@@ -41,6 +42,13 @@ export default function TabLayout() {
         options={{
           title: "课表",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="Academic"
+        options={{
+          title: "学业",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="graduationcap.fill" color={color} />,
         }}
       />
       <Tabs.Screen

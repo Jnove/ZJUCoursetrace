@@ -4,39 +4,86 @@ import { colorScheme as nativewindColorScheme, vars } from "nativewind";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { SchemeColors, type ColorScheme } from "@/constants/theme";
+import { COURSE_PALETTES, DEFAULT_PALETTE_KEY, PaletteKey } from "@/lib/course-palette";
+import { updateActivePalette } from "@/lib/course-palette";
+import { 
+  loadCoursePalette, 
+  saveCoursePalette,
+  getActivePaletteKey 
+} from "@/lib/course-palette";
 
+// 圆角半径预设
+export const CARD_RADIUS_VALUES = {
+  small: 8,
+  medium: 12,
+  large: 16,
+} as const;
+
+export const DEFAULT_PRIMARY = SchemeColors.light.primary; // 默认使用亮色主题的主色
+
+type CardRadius = keyof typeof CARD_RADIUS_VALUES;
 type ThemePreference = 'light' | 'dark' | 'system';
+
 type ThemeContextValue = {
   themePreference: ThemePreference;
   setThemePreference: (pref: ThemePreference) => void;
   resolvedTheme: 'light' | 'dark';
+  primaryColor: string;
+  setPrimaryColor: (color: string | null) => Promise<void>;
+  cardRadius: CardRadius;
+  setCardRadius: (radius: CardRadius) => Promise<void>;
+  coursePaletteKey: PaletteKey;
+  setCoursePaletteKey: (key: PaletteKey) => Promise<void>;
 };
+
+
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useSystemColorScheme() ?? "light";
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>('system');
+  const [customPrimaryColor, setCustomPrimaryColor] = useState<string | null>(null);
+  const [cardRadius, setCardRadiusState] = useState<CardRadius>('medium');
+  const [coursePaletteKey, setCoursePaletteKeyState] = useState<PaletteKey>(DEFAULT_PALETTE_KEY);
 
   // 加载保存的偏好
   useEffect(() => {
-    const loadPreference = async () => {
-      const saved = await AsyncStorage.getItem('theme-preference');
-      if (saved === 'light' || saved === 'dark' || saved === 'system') {
-        setThemePreferenceState(saved);
+    const loadPreferences = async () => {
+      // 1. 先加载模块级调色板（从 AsyncStorage 同步到内存）
+      await loadCoursePalette();
+      
+      const savedTheme = await AsyncStorage.getItem('theme-preference');
+      if (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system') {
+        setThemePreferenceState(savedTheme);
+      }
+      const savedRadius = await AsyncStorage.getItem('card-radius');
+      if (savedRadius === 'small' || savedRadius === 'medium' || savedRadius === 'large') {
+        setCardRadiusState(savedRadius);
+      }
+      const savedPrimary = await AsyncStorage.getItem('primary-color');
+      if (savedPrimary && typeof savedPrimary === 'string') {
+        setCustomPrimaryColor(savedPrimary);
+      }
+      const savedPalette = await AsyncStorage.getItem('course-palette');
+      if (savedPalette && COURSE_PALETTES[savedPalette as PaletteKey]) {
+        setCoursePaletteKeyState(savedPalette as PaletteKey);
+        // 确保模块变量与 state 一致（loadCoursePalette 已做，但若存储与之前不一致，再次同步）
+        await saveCoursePalette(savedPalette as PaletteKey);
       }
     };
-    loadPreference();
+    loadPreferences();
   }, []);
 
   // 计算实际主题
   const resolvedTheme: 'light' | 'dark' =
     themePreference === 'system' ? systemScheme : themePreference;
 
+  // 主色逻辑：有自定义用自定义，否则使用当前主题的默认主色
+  const primaryColor = customPrimaryColor ?? SchemeColors[resolvedTheme].primary;
+
   // 应用主题到 NativeWind 和系统 Appearance
   useEffect(() => {
-    // --- 设置 NativeWind 主题 ---
-    // 兼容不同版本：优先使用 .set()，降级使用 .setColorScheme()
     if (nativewindColorScheme) {
       if (typeof nativewindColorScheme.set === 'function') {
         nativewindColorScheme.set(resolvedTheme);
@@ -56,7 +103,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // --- Web 端 CSS 变量设置 ---
     if (typeof document !== 'undefined') {
       const root = document.documentElement;
       root.dataset.theme = resolvedTheme;
@@ -66,15 +112,34 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         root.style.setProperty(`--color-${token}`, value);
       });
     }
-  }, [resolvedTheme, themePreference]); // 注意依赖项包含 themePreference
+  }, [resolvedTheme, themePreference]);
 
   const setThemePreference = async (pref: ThemePreference) => {
     setThemePreferenceState(pref);
     await AsyncStorage.setItem('theme-preference', pref);
   };
 
+  const setPrimaryColor = async (color: string | null) => {
+    setCustomPrimaryColor(color);
+    if (color === null) {
+      await AsyncStorage.removeItem('primary-color');
+    } else {
+      await AsyncStorage.setItem('primary-color', color);
+    }
+  };
+
+  const setCardRadius = async (radius: CardRadius) => {
+    setCardRadiusState(radius);
+    await AsyncStorage.setItem('card-radius', radius);
+  };
+
+  const setCoursePaletteKey = async (key: PaletteKey) => {
+    setCoursePaletteKeyState(key);
+    await saveCoursePalette(key);  // 更新模块变量并存储
+  };
+
   const themeVariables = vars({
-    "color-primary": SchemeColors[resolvedTheme].primary,
+    "color-primary": primaryColor,
     "color-background": SchemeColors[resolvedTheme].background,
     "color-surface": SchemeColors[resolvedTheme].surface,
     "color-foreground": SchemeColors[resolvedTheme].foreground,
@@ -86,7 +151,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    <ThemeContext.Provider value={{ themePreference, setThemePreference, resolvedTheme }}>
+    <ThemeContext.Provider
+      value={{
+        themePreference,
+        setThemePreference,
+        resolvedTheme,
+        primaryColor,
+        setPrimaryColor,
+        cardRadius,
+        setCardRadius,
+        coursePaletteKey,
+        setCoursePaletteKey,
+      }}
+    >
       <View style={[{ flex: 1 }, themeVariables]}>{children}</View>
     </ThemeContext.Provider>
   );
