@@ -16,12 +16,12 @@
  */
 
 import { Platform, Linking } from "react-native";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as IntentLauncher from "expo-intent-launcher";
 import Constants from "expo-constants";
 
 export const GITHUB_OWNER = "Jnove";
-export const GITHUB_REPO  = "ZJUCoursetrace";
+export const GITHUB_REPO = "ZJUCoursetrace";
 
 /**
  * The asset name pattern to look for in a release's assets list.
@@ -31,7 +31,7 @@ export const GITHUB_REPO  = "ZJUCoursetrace";
 const APK_ASSET_PATTERN = /\.apk$/i;
 // ─── ↑ YOUR DETAILS HERE ─────────────────────────────────────────────────────
 
-export const REPO_URL    = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}`;
+export const REPO_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}`;
 export const RELEASES_URL = `${REPO_URL}/releases`;
 
 const API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
@@ -64,13 +64,13 @@ export function isNewer(remote: string, local: string): boolean {
 export type UpdateCheckResult =
   | { hasUpdate: false; currentVersion: string; latestVersion: string }
   | {
-      hasUpdate:      true;
-      currentVersion: string;
-      latestVersion:  string;
-      releaseUrl:     string;      // GitHub release page URL
-      downloadUrl:    string | null; // Direct APK download URL (Android only)
-      releaseNotes:   string | null;
-    };
+    hasUpdate: true;
+    currentVersion: string;
+    latestVersion: string;
+    releaseUrl: string;      // GitHub release page URL
+    downloadUrl: string | null; // Direct APK download URL (Android only)
+    releaseNotes: string | null;
+  };
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -91,8 +91,8 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
 
   const data = await res.json();
   const latestVersion: string = data.tag_name ?? "0.0.0";
-  const releaseUrl:    string = data.html_url  ?? RELEASES_URL;
-  const releaseNotes:  string | null = data.body ?? null;
+  const releaseUrl: string = data.html_url ?? RELEASES_URL;
+  const releaseNotes: string | null = data.body ?? null;
 
   if (!isNewer(latestVersion, currentVersion)) {
     return { hasUpdate: false, currentVersion, latestVersion };
@@ -117,8 +117,8 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
 
 export type DownloadProgress = {
   bytesDownloaded: number;
-  bytesTotal:      number;
-  fraction:        number;   // 0..1
+  bytesTotal: number;
+  fraction: number;   // 0..1
 };
 
 /**
@@ -150,8 +150,8 @@ export async function downloadAndInstallApk(
       if (onProgress) {
         onProgress({
           bytesDownloaded: totalBytesWritten,
-          bytesTotal:      totalBytesExpectedToWrite,
-          fraction:        totalBytesExpectedToWrite > 0
+          bytesTotal: totalBytesExpectedToWrite,
+          fraction: totalBytesExpectedToWrite > 0
             ? totalBytesWritten / totalBytesExpectedToWrite
             : 0,
         });
@@ -167,9 +167,9 @@ export async function downloadAndInstallApk(
   await IntentLauncher.startActivityAsync(
     "android.intent.action.VIEW",
     {
-      data:  contentUri,
+      data: contentUri,
       flags: 1,          // FLAG_GRANT_READ_URI_PERMISSION
-      type:  "application/vnd.android.package-archive",
+      type: "application/vnd.android.package-archive",
     },
   );
 }

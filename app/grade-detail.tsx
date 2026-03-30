@@ -445,58 +445,47 @@ function GradeItem({ grade }: { grade: Grade }) {
         borderColor: colors.border,
       }}
     >
-      {/* 第一行：课程名 + 绩点 */}
+      {/* 第一行：课程名 + 学分（紧挨） + 绩点（最右） */}
       <View
         style={{
           flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "center",
-          gap: 8,
         }}
       >
-        <Text
+        {/* 左侧：课程名 + 学分，紧挨着 */}
+        <View
           style={{
-            flex: 1,
-            fontSize: 16,
-            fontWeight: "500",
-            color: colors.foreground,
-            lineHeight: 22,
+            flexDirection: "row",
+            alignItems: "center",
+            flexShrink: 1,          // 防止内容过多时溢出
+            gap: 4,                 // 可根据需要调整间隙（紧挨时可设为 0 或 4）
           }}
-          numberOfLines={2}
         >
-          {grade.courseName}
-        </Text>
+          <Text
+            style={{
+              fontSize: 16,
+              fontWeight: "500",
+              color: colors.foreground,
+              lineHeight: 22,
+              flexShrink: 1,        // 允许课程名压缩，保证整体不溢出
+            }}
+            numberOfLines={2}
+          >
+            {grade.courseName}
+          </Text>
+          <Text style={{ fontSize: 13, color: colors.muted }}>
+            / {creditDisplay}学分
+          </Text>
+        </View>
+
+        {/* 右侧：绩点 */}
         <Text style={{ fontSize: 16, fontWeight: "600", color: gpaColor }}>
-          {gpaDisplay}
+          { grade.score} / {gpaDisplay}
         </Text>
       </View>
 
-      {/* 第二行：学分 + 考试类型 */}
-      <View
-        style={{
-          flexDirection: "row",
-          justifyContent: "space-between",
-          marginTop: 8,
-        }}
-      >
-        <Text style={{ fontSize: 13, color: colors.muted }}>
-          学分 {creditDisplay}
-        </Text>
-        {grade.courseType && (
-          <Text
-            style={{
-              fontSize: 11,
-              color: colors.muted,
-              backgroundColor: colors.surface,
-              paddingHorizontal: 6,
-              paddingVertical: 2,
-              borderRadius: 4,
-            }}
-          >
-            {grade.courseType}
-          </Text>
-        )}
-      </View>
+      
 
       {/* 底部绩点进度条 */}
       {showProgressBar && (

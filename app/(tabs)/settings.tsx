@@ -18,7 +18,7 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import type { SFSymbols7_0 } from "sf-symbols-typescript";
 import Constants from "expo-constants";
-
+import AsyncStorage from "@react-native-async-storage/async-storage";
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
 function SettingsRow({
@@ -221,23 +221,35 @@ export default function SettingsScreen() {
   };
 
   const handleClearCache = () => {
-    Alert.alert("清除缓存", "将删除本地缓存的课表数据，下次打开会重新加载。", [
-      { text: "取消", style: "cancel" },
-      {
-        text: "清除", style: "destructive",
-        onPress: async () => {
-          const { default: AS } = await import("@react-native-async-storage/async-storage");
-          const keys = await AS.getAllKeys();
-          const cacheKeys = keys.filter(k =>
-            k.startsWith("schedule_") ||
-            k.startsWith("raw_schedule_") ||
-            k.startsWith("activeSemesters_")
-          );
-          if (cacheKeys.length > 0) await AS.multiRemove(cacheKeys);
-          Alert.alert("完成", `已清除 ${cacheKeys.length} 项缓存`);
+    Alert.alert(
+      "清除所有缓存", 
+      "将删除本地缓存的课表、成绩、考试等所有业务数据。个性化设置（如主题颜色）将被保留。", 
+      [
+        { text: "取消", style: "cancel" },
+        {
+          text: "确定清除", style: "destructive",
+          onPress: async () => {
+            try {
+              const keys = await AsyncStorage.getAllKeys();
+              // 过滤掉个性化设置 (以 pref_ 开头)
+              // 保留当前登录用户名 (username)，除非是退出登录触发的清理
+              const toRemove = keys.filter(k => 
+                !k.startsWith("pref_") && 
+                k !== "username" &&
+                k !== "zju_session_v3" // 保留会话，只清数据
+              );
+              
+              if (toRemove.length > 0) {
+                await AsyncStorage.multiRemove(toRemove);
+              }
+              Alert.alert("完成", `已清除 ${toRemove.length} 项缓存数据`);
+            } catch (e) {
+              Alert.alert("错误", "清除缓存失败");
+            }
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
   return (
@@ -279,7 +291,7 @@ export default function SettingsScreen() {
         </SettingsSection>
 
         {/* General */}
-        {/*<SettingsSection title="通用">
+        <SettingsSection title="通用">
           <SettingsRow
             icon="square.and.arrow.down"
             iconBg="#64748b"
@@ -287,7 +299,7 @@ export default function SettingsScreen() {
             onPress={handleClearCache}
             last
           />
-        </SettingsSection>*/}
+        </SettingsSection>
 
         {/* About — now a single navigation row */}
         <SettingsSection title="关于">
@@ -297,6 +309,18 @@ export default function SettingsScreen() {
             label="关于 ZJU 课迹"
             value={`v${version}`}
             onPress={() => router.push("/about")}
+            last
+          />
+        </SettingsSection>
+        
+          {/* 诊断工具 */}
+        <SettingsSection title="诊断">
+          <SettingsRow
+            icon="list.bullet"
+            iconBg="#64748b"
+            label="诊断日志"
+            value="调试用"
+            onPress={() => router.push("/diagnostic-logs")}
             last
           />
         </SettingsSection>

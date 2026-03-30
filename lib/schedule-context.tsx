@@ -18,8 +18,9 @@ import {
 } from "@/lib/zju-client";
 import { assignColors, ColorableItem, COURSE_PALETTES } from "@/lib/course-palette";
 import { useTheme } from "@/lib/theme-provider";
+import { writeLog } from "@/lib/diagnostic-log";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Types 
 
 export interface Course {
   id: string;
@@ -53,7 +54,8 @@ type ScheduleAction =
   | { type: "SET_ERROR"; payload: string | null }
   | { type: "SET_CURRENT_WEEK"; payload: number }
   | { type: "SET_WEEK_TYPE"; payload: "all" | "single" | "double" }
-  | { type: "CLEAR_ERROR" };
+  | { type: "CLEAR_ERROR" }
+  | { type: "RESET_LOADING" }; 
 
 const initialState: ScheduleState = {
   courses: [],
@@ -70,7 +72,9 @@ function scheduleReducer(state: ScheduleState, action: ScheduleAction): Schedule
     case "SET_ERROR":      return { ...state, error: action.payload };
     case "SET_CURRENT_WEEK": return { ...state, currentWeek: action.payload };
     case "SET_WEEK_TYPE":  return { ...state, weekType: action.payload };
-    case "CLEAR_ERROR":    return { ...state, error: null };
+    case "CLEAR_ERROR": return { ...state, error: null };
+    case "RESET_LOADING":
+      return { ...state, isLoading: false, error: null };
     default:               return state;
   }
 }
@@ -84,6 +88,7 @@ interface ScheduleContextType {
   getCoursesForWeek: (week: number) => Course[];
   clearError: () => void;
   refreshAllSemesters: (semesters: { yearValue: string; termValue: string }[]) => Promise<{ success: boolean; failedCount: number }>;
+  resetScheduleLoading: () => void;
 }
 
 const ScheduleContext = createContext<ScheduleContextType | undefined>(undefined);
@@ -187,52 +192,65 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
     // Fetch a specific semester; yearValue and termValue are raw values (e.g., "2025-2026", "2|春")
     fetchScheduleBySemester: async (yearValue: string, termValue: string, useCache = true) => {
-      const cacheKey = `schedule_${yearValue}_${termValue}`;
+    const cacheKey = `schedule_${yearValue}_${termValue}`;
 
-      if (useCache) {
-        try {
-          const raw = await AsyncStorage.getItem(cacheKey);
-          if (raw) {
-            dispatch({ type: "SET_COURSES", payload: JSON.parse(raw) });
-            return;
-          }
-        } catch (e) {
-          console.warn("读取课表缓存失败", e);
-        }
-      }
-
-      // 清空旧数据，显示加载状态
-      dispatch({ type: "SET_COURSES", payload: [] });
-      dispatch({ type: "SET_LOADING", payload: true });
-
-      // 生成新请求ID
-      const requestId = ++latestRequestIdRef.current;
-
+    if (useCache) {
       try {
-        const session = await buildSession();
-        const result = await fetchTimetable(session, yearValue, termValue);
-        const converted = assignColors(result.rawCourses as Course[]);
-        
-        // 只有最新请求才更新UI和缓存
-        if (requestId === latestRequestIdRef.current) {
-          await AsyncStorage.setItem(cacheKey, JSON.stringify(converted));
-          dispatch({ type: "SET_COURSES", payload: converted });
-          dispatch({ type: "SET_ERROR", payload: null });
-        } else {
-          console.log(`丢弃过时请求 (${requestId})，当前最新为 ${latestRequestIdRef.current}`);
+        const raw = await AsyncStorage.getItem(cacheKey);
+        if (raw) {
+          const courses: Course[] = JSON.parse(raw);
+          dispatch({ type: "SET_COURSES", payload: courses });
+          writeLog("CONTEXT", `从缓存加载课表: ${yearValue}/${termValue}, ${courses.length} 门`, "info");
+          return;
         }
-        return result.rawCourses as Course[];
-      } catch (error) {
-        if (requestId === latestRequestIdRef.current) {
-          dispatch({ type: "SET_ERROR", payload: error instanceof Error ? error.message : "获取学期课表失败" });
-        }
-      } finally {
-        if (requestId === latestRequestIdRef.current) {
-          dispatch({ type: "SET_LOADING", payload: false });
-        }
+      } catch (e) {
+        writeLog("CONTEXT", `读取课表缓存异常: ${String(e)}`, "warn");
       }
-      
-    },
+    }
+
+    dispatch({ type: "SET_COURSES", payload: [] });
+    dispatch({ type: "SET_LOADING", payload: true });
+
+    const requestId = ++latestRequestIdRef.current;
+    writeLog("CONTEXT", `发起网络请求课表: ${yearValue}/${termValue} (reqId=${requestId})`, "info");
+
+    try {
+      const session = await buildSession();
+      const result = await fetchTimetable(session, yearValue, termValue);
+      const converted = assignColors(result.rawCourses as Course[]);
+
+      if (requestId === latestRequestIdRef.current) {
+        if (converted.length === 0) {
+          writeLog("CONTEXT",
+            `课表为空: ${yearValue}/${termValue}，原始条目数=${result.rawCourses.length}`,
+            "warn",
+            { rawCount: result.rawCourses.length, semester: `${yearValue}/${termValue}` },
+          );
+        } else {
+          writeLog("CONTEXT",
+            `课表加载成功: ${yearValue}/${termValue}, ${converted.length} 门`,
+            "info",
+          );
+        }
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(converted));
+        dispatch({ type: "SET_COURSES", payload: converted });
+        dispatch({ type: "SET_ERROR", payload: null });
+      } else {
+        writeLog("CONTEXT", `丢弃过时请求 reqId=${requestId}，当前最新=${latestRequestIdRef.current}`, "info");
+      }
+      return result.rawCourses as Course[];
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      writeLog("CONTEXT", `课表请求失败: ${yearValue}/${termValue} — ${msg}`, "error");
+      if (requestId === latestRequestIdRef.current) {
+        dispatch({ type: "SET_ERROR", payload: msg || "获取学期课表失败" });
+      }
+    } finally {
+      if (requestId === latestRequestIdRef.current) {
+        dispatch({ type: "SET_LOADING", payload: false });
+      }
+    }
+  },
 
     setCurrentWeek: (week) => dispatch({ type: "SET_CURRENT_WEEK", payload: week }),
     setWeekType: (type) => dispatch({ type: "SET_WEEK_TYPE", payload: type }),
@@ -269,7 +287,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       }
 
       return { success: failedCount === 0, failedCount };
-    }
+    },
+    resetScheduleLoading: () => dispatch({ type: "RESET_LOADING" }),
   };
 
   return <ScheduleContext.Provider value={scheduleContext}>{children}</ScheduleContext.Provider>;
