@@ -12,7 +12,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useTheme, CARD_RADIUS_VALUES } from "@/lib/theme-provider";
 import { useRouter } from "expo-router";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Constants from "expo-constants";
 import {
   checkForUpdate,
@@ -23,6 +23,8 @@ import {
   UpdateCheckResult,
   DownloadProgress,
 } from "@/lib/updater";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Switch } from 'react-native';
 
 // Helpers
 
@@ -152,6 +154,7 @@ function UpdateCard() {
                     });
                 setU({ phase: "idle" });
               } catch (e) {
+                console.error("安装更新失败", e);
                 setU({ phase: "error", message: e instanceof Error ? e.message : "安装失败" });
               }
             },
@@ -342,8 +345,28 @@ function UpdateCard() {
 export default function AboutScreen() {
   const router  = useRouter();
   const colors  = useColors();
-  const { primaryColor } = useTheme();
+  const { primaryColor, cardRadius } = useTheme();
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
 
+  useEffect(() => {
+    const loadAutoUpdateSetting = async () => {
+      try {
+        const value = await AsyncStorage.getItem('autoUpdateEnabled');
+        if (value !== null) {
+          setAutoUpdateEnabled(value === 'true');
+        }
+      } catch (e) {
+        console.error('读取自动更新设置失败', e);
+      }
+    };
+    loadAutoUpdateSetting();
+  }, []);
+
+const toggleAutoUpdate = async (value: boolean) => {
+  setAutoUpdateEnabled(value);
+  await AsyncStorage.setItem('autoUpdateEnabled', value.toString());
+  };
+  
   return (
     <ScreenContainer className="flex-1 bg-surface">
       <View style={{
@@ -387,6 +410,31 @@ export default function AboutScreen() {
           }}>
             更新
           </Text>
+
+          {/* 自动检查更新开关 */}
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: 16,
+            paddingVertical: 13,
+            backgroundColor: colors.background,
+            borderRadius: CARD_RADIUS_VALUES[cardRadius],
+            borderWidth: 0.5,
+            borderColor: colors.border,
+            marginBottom: 8,
+          }}>
+            <Text style={{ fontSize: 15, color: colors.foreground }}>
+              自动检查更新
+            </Text>
+            <Switch
+              value={autoUpdateEnabled}
+              onValueChange={toggleAutoUpdate}
+              trackColor={{ false: colors.muted, true: primaryColor }}
+              thumbColor={Platform.OS === 'ios' ? undefined : '#fff'}
+            />
+          </View>
+
           <UpdateCard />
         </View>
 

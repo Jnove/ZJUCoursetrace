@@ -6,28 +6,23 @@
  *   2. XHR  GET  /cas/v2/getPubKey               → RSA modulus + exponent
  *   3. RSA encrypt password, pad to mod.length    (NOT hardcoded 256)
  *   4. Re-GET login page for fresh execution token
- *   5. fetch POST /cas/login  redirect:'manual'  credentials:'include'
- *      → 302 + Location header (readable because credentials:include changes
- *        how RN handles manual redirects vs plain opaque)
- *   6. fetch GET  Location URL  credentials:'include'  → follow to zdbk
- *   7. Verify: final URL on zdbk domain → native jar has JSESSIONID
+ *   5. XHR POST /cas/login  (redirect followed natively)
+ *      → final URL on zdbk or back to zjuam (failure)
+ *   6. Verify: final URL on zdbk domain → native jar has JSESSIONID
  *
- * Key differences from previous attempts:
- *   - RSA pad length = mod.length (not hardcoded)
- *   - GET login page WITH ?service= param
- *   - fetch + redirect:'manual' + credentials:'include'
- *   - _eventId and service fields added if missing from form
- *   - Manual single-hop redirect follow with credentials:'include'
+ * Key changes for Android:
+ *   - All fetch replaced with XHR to avoid status=0 on cross-origin redirects
+ *   - xhrGet/xhrPost return final url via responseURL
  */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 
-const SESSION_KEY     = "zju_session_v3";
+const SESSION_KEY = "zju_session_v3";
 const CREDENTIALS_KEY = "zju_credentials_v1";
 
-const CAS_BASE    = "https://zjuam.zju.edu.cn";
-const ZDBK_BASE   = "https://zdbk.zju.edu.cn";
+const CAS_BASE = "https://zjuam.zju.edu.cn";
+const ZDBK_BASE = "https://zdbk.zju.edu.cn";
 const SERVICE_URL = `${ZDBK_BASE}/jwglxt/xtgl/login_ssologin.html`;
 
 // UA 池：每次登录随机选一个，避免固定 UA 触发 CAS 频率限制
@@ -45,55 +40,55 @@ function randomUA(): string {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ZjuSession {
-  username:    string;
-  jsessionId:  "native";
+  username: string;
+  jsessionId: "native";
   routeCookie: null;
 }
 
 export interface RawCourse {
-  id:            string;
-  name:          string;
-  teacher:       string;
-  classroom:     string;
-  dayOfWeek:     number;
-  startPeriod:   number;
-  endPeriod:     number;
-  weekStart:     number;
-  weekEnd:       number;
+  id: string;
+  name: string;
+  teacher: string;
+  classroom: string;
+  dayOfWeek: number;
+  startPeriod: number;
+  endPeriod: number;
+  weekStart: number;
+  weekEnd: number;
   isSingleWeek?: "single" | "double" | "both";
-  periodTime?:   string;
-  courseCode?:   string;
-  semester?:     string;
-  examInfo?:     string;
+  periodTime?: string;
+  courseCode?: string;
+  semester?: string;
+  examInfo?: string;
 }
 
 export type Course = RawCourse & { color: string };
 
 export interface Grade {
-  courseCode:  string;
-  courseName:  string;
-  credit:      number;
-  score:       string | null;
-  gpaPoints:   number | null;
+  courseCode: string;
+  courseName: string;
+  credit: number;
+  score: string | null;
+  gpaPoints: number | null;
   courseType?: string;
-  semester?:   string;
-  isMajor:     boolean;
+  semester?: string;
+  isMajor: boolean;
 }
 
 export interface ExamInfo {
-  courseCode:    string;
-  courseName:    string;
-  examTime:      string;
-  examLocation:  string;
-  seat?:         string;
-  credit?:       number;
-  semester?:     string;
-  year?:         string;
+  courseCode: string;
+  courseName: string;
+  examTime: string;
+  examLocation: string;
+  seat?: string;
+  credit?: number;
+  semester?: string;
+  year?: string;
 }
 
 export interface SemesterOption {
-  value:    string;
-  text:     string;
+  value: string;
+  text: string;
   selected: boolean;
 }
 
@@ -106,8 +101,8 @@ function rsaEncrypt(password: string, modulusHex: string, exponentHex: string): 
     while (exp > 0n) { if (exp & 1n) r = r * base % mod; exp >>= 1n; base = base * base % mod; }
     return r;
   }
-  const m   = BigInt("0x" + modulusHex);
-  const e   = BigInt("0x" + exponentHex);
+  const m = BigInt("0x" + modulusHex);
+  const e = BigInt("0x" + exponentHex);
   const hex = Array.from(new TextEncoder().encode(password))
     .map(b => b.toString(16).padStart(2, "0")).join("");
   return modPow(BigInt("0x" + hex), e, m)
@@ -132,10 +127,10 @@ function parseCasForm(html: string): FormField[] {
   }
   let m: RegExpExecArray | null;
   while ((m = tagPat.exec(html))) {
-    const a     = m[1];
-    const name  = getAttr(a, "name");
+    const a = m[1];
+    const name = getAttr(a, "name");
     const value = getAttr(a, "value") ?? "";
-    const type  = (getAttr(a, "type") ?? "text").toLowerCase();
+    const type = (getAttr(a, "type") ?? "text").toLowerCase();
     if (name && !["submit", "button", "image"].includes(type))
       fields.push({ name, value, type });
   }
@@ -143,9 +138,9 @@ function parseCasForm(html: string): FormField[] {
 }
 
 function buildFormBody(
-  fields:   FormField[],
+  fields: FormField[],
   username: string,
-  pwdEnc:   string,
+  pwdEnc: string,
 ): URLSearchParams {
   const params = new URLSearchParams();
 
@@ -175,36 +170,75 @@ function buildFormBody(
   return params;
 }
 
-// ─── XHR helper (for GET requests — native jar, no manual cookie header) ──────
+// ─── XHR helpers (native cookie jar, no manual cookie header) ─────────────────
 
-function xhrGet(url: string, ua: string): Promise<{ status: number; body: string }> {
+interface XhrResponse {
+  status: number;
+  body: string;
+  url: string;   // final URL after redirects
+}
+
+function xhrGet(url: string, ua: string, timeoutMs: number = 20000): Promise<XhrResponse> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("GET", url, true);
-    xhr.timeout = 20_000;
-    xhr.setRequestHeader("User-Agent",      ua);
-    xhr.setRequestHeader("Accept",          "text/html,application/xhtml+xml,*/*;q=0.8");
+    xhr.timeout = timeoutMs;
+    xhr.setRequestHeader("User-Agent", ua);
+    xhr.setRequestHeader("Accept", "text/html,application/xhtml+xml,*/*;q=0.8");
     xhr.setRequestHeader("Accept-Language", "zh-CN,zh;q=0.9");
     xhr.onreadystatechange = () => {
       if (xhr.readyState !== 4) return;
-      resolve({ status: xhr.status, body: xhr.responseText ?? "" });
+      resolve({
+        status: xhr.status,
+        body: xhr.responseText ?? "",
+        url: xhr.responseURL ?? url,
+      });
     };
-    xhr.onerror   = () => reject(new Error("网络请求失败"));
+    xhr.onerror = () => reject(new Error("网络请求失败"));
     xhr.ontimeout = () => reject(new Error("请求超时，请重试"));
     xhr.send(null);
+  });
+}
+
+function xhrPost(
+  url: string,
+  body: string,
+  headers: Record<string, string>,
+  ua: string,
+  timeoutMs: number = 20000
+): Promise<XhrResponse> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url, true);
+    xhr.timeout = timeoutMs;
+    xhr.setRequestHeader("User-Agent", ua);
+    for (const [key, value] of Object.entries(headers)) {
+      xhr.setRequestHeader(key, value);
+    }
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState !== 4) return;
+      resolve({
+        status: xhr.status,
+        body: xhr.responseText ?? "",
+        url: xhr.responseURL ?? url,
+      });
+    };
+    xhr.onerror = () => reject(new Error("网络请求失败"));
+    xhr.ontimeout = () => reject(new Error("请求超时，请重试"));
+    xhr.send(body);
   });
 }
 
 // ─── Credential storage ───────────────────────────────────────────────────────
 
 async function saveCredentials(u: string, p: string) {
-  try { await SecureStore.setItemAsync(CREDENTIALS_KEY, JSON.stringify({ username: u, password: p })); } catch {}
+  try { await SecureStore.setItemAsync(CREDENTIALS_KEY, JSON.stringify({ username: u, password: p })); } catch { }
 }
 async function loadCredentials(): Promise<{ username: string; password: string } | null> {
   try { const r = await SecureStore.getItemAsync(CREDENTIALS_KEY); return r ? JSON.parse(r) : null; } catch { return null; }
 }
 async function clearCredentials() {
-  try { await SecureStore.deleteItemAsync(CREDENTIALS_KEY); } catch {}
+  try { await SecureStore.deleteItemAsync(CREDENTIALS_KEY); } catch { }
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
@@ -220,12 +254,12 @@ export async function clearSession() {
 
 async function checkSessionAlive(): Promise<boolean> {
   try {
-    const res = await fetch(`${ZDBK_BASE}/jwglxt/xtgl/login_ssologin.html`, {
-      credentials: "include",
-      redirect:    "follow",
-    });
-    return !res.url.includes("zjuam.zju.edu.cn");
-  } catch { return false; }
+    const ua = randomUA(); // use any UA
+    const { url } = await xhrGet(`${ZDBK_BASE}/jwglxt/xtgl/login_ssologin.html`, ua, 10000);
+    return !url.includes("zjuam.zju.edu.cn");
+  } catch {
+    return false;
+  }
 }
 
 export async function loadSession(): Promise<ZjuSession | null> {
@@ -237,7 +271,7 @@ export async function loadSession(): Promise<ZjuSession | null> {
     // Silently re-login
     const creds = await loadCredentials();
     if (creds) {
-      try { return await loginCore(creds.username, creds.password); } catch {}
+      try { return await loginCore(creds.username, creds.password); } catch { }
     }
     return null;
   } catch { return null; }
@@ -256,9 +290,9 @@ async function loginCore(username: string, password: string): Promise<ZjuSession
   if (!pageRes1.body) throw new Error("无法访问浙大统一认证页面，请检查网络");
 
   // ── Step 2: GET RSA 公钥 ─────────────────────────────────────────────────
-  const pkRes  = await xhrGet(`${CAS_BASE}/cas/v2/getPubKey`, ua);
+  const pkRes = await xhrGet(`${CAS_BASE}/cas/v2/getPubKey`, ua);
   const pkJson = JSON.parse(pkRes.body);
-  const modulus  = pkJson.modulus  as string | undefined;
+  const modulus = pkJson.modulus as string | undefined;
   const exponent = pkJson.exponent as string | undefined;
   if (!modulus || !exponent) throw new Error("RSA 公钥获取失败");
 
@@ -267,54 +301,40 @@ async function loginCore(username: string, password: string): Promise<ZjuSession
   // ── Step 3: 重新 GET 登录页拿新的 execution token ──────────────────────
   // execution token 是一次性的，必须重新 GET 而不是复用 Step1 的 HTML
   const pageRes2 = await xhrGet(loginWithService, ua);
-  const fields   = parseCasForm(pageRes2.body);
+  const fields = parseCasForm(pageRes2.body);
   if (fields.length === 0) throw new Error("CAS 登录表单解析失败，页面结构可能已变更");
 
   console.log("[zju-client] form fields:", fields.map(f => `${f.name}(${f.type})`).join(", "));
 
   const formBody = buildFormBody(fields, username, pwdEnc);
 
-  // ── Step 4: POST 登录 ────────────────────────────────────────────────────
-  //
-  // 关键发现（来自 login-debug 实验）：
-  //   iOS NSURLSession 会静默忽略 redirect:"manual"，自动跟完整条 302 链，
-  //   并把 iPlanetDirectoryPro 等 Set-Cookie 存入 native cookie store。
-  //   JS 层只看到最终 200，status 永远不会是 302。
-  //
-  // 因此：
-  //   1. 用 redirect:"follow"（iOS 本来就会 follow，显式声明更清晰）
-  //   2. 不检查 status===302，改为检查最终 URL 是否落在 zdbk
-  //   3. 不需要手动读 Location 头再发第二次请求
-  //   4. service 放在 POST URL 的 query string，不放 body（与浏览器抓包一致）
-  //   5. native cookie store 在后续所有 fetch/XHR 请求中自动携带，无需手动注入
-  //
-  const postResp = await fetch(`${CAS_BASE}/cas/login?service=${encodeURIComponent(SERVICE_URL)}`, {
-    method:  "POST",
-    headers: {
-      "Content-Type":             "application/x-www-form-urlencoded",
-      "Referer":                   loginWithService,
-      "User-Agent":                ua,
-      "sec-fetch-dest":            "document",
-      "sec-fetch-mode":            "navigate",
-      "sec-fetch-site":            "same-origin",
-      "sec-fetch-user":            "?1",
+  // ── Step 4: POST 登录（使用 XHR 避免跨域重定向导致 status=0）────────────
+  const postResp = await xhrPost(
+    `${CAS_BASE}/cas/login?service=${encodeURIComponent(SERVICE_URL)}`,
+    formBody.toString(),
+    {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Referer": loginWithService,
+      "sec-fetch-dest": "document",
+      "sec-fetch-mode": "navigate",
+      "sec-fetch-site": "same-origin",
+      "sec-fetch-user": "?1",
       "upgrade-insecure-requests": "1",
     },
-    body:        formBody.toString(),
-    credentials: "include",  // 让 iOS 把 native store 的 cookie 带上
-    redirect:    "follow",   // iOS 会 follow，最终落在 zdbk 或回到 zjuam（失败）
-  });
+    ua,
+    20000
+  );
 
   const finalUrl = postResp.url;
 
   // 登录失败：最终落点仍在 zjuam（密码错、execution 不匹配、账号被锁）
   if (finalUrl.includes("zjuam.zju.edu.cn")) {
-    const errBody = await postResp.text().catch(() => "");
+    const errBody = postResp.body;
     const errPatterns = [
       /class="[^"]*text-danger/i, /class="[^"]*alert-danger/i,
-      /class="[^"]*is-invalid/i,  /id="errormsg"/i,
-      /authenticationFailure/i,   /登录失败/,
-      /密码不正确|密码错误/,       /账号不存在/,
+      /class="[^"]*is-invalid/i, /id="errormsg"/i,
+      /authenticationFailure/i, /登录失败/,
+      /密码不正确|密码错误/, /账号不存在/,
     ];
     if (errPatterns.some(p => p.test(errBody))) {
       throw new Error("学号或密码错误，请检查后重试");
@@ -348,27 +368,28 @@ export async function login(username: string, password: string): Promise<ZjuSess
 
 // 数据请求用固定 UA（登录已完成，native store 有 JSESSIONID，UA 不影响认证）
 const DATA_HDR = {
-  "User-Agent":      USER_AGENTS[0],
-  "Accept":          "*/*",
+  "User-Agent": USER_AGENTS[0],
+  "Accept": "*/*",
   "Accept-Language": "zh-CN,zh;q=0.9",
 };
 
 async function zGet(url: string): Promise<string> {
-  const res = await fetch(url, { headers: DATA_HDR, credentials: "include", redirect: "follow" });
-  if (res.url.includes("zjuam.zju.edu.cn")) throw new Error("__SESSION_EXPIRED__");
-  return res.text().catch(() => "");
+  const ua = DATA_HDR["User-Agent"];
+  const { body, url: finalUrl } = await xhrGet(url, ua, 15000);
+  if (finalUrl.includes("zjuam.zju.edu.cn")) throw new Error("__SESSION_EXPIRED__");
+  return body;
 }
 
 async function zPost(url: string, body: string): Promise<string> {
-  const res = await fetch(url, {
-    method:  "POST",
-    headers: { ...DATA_HDR, "Content-Type": "application/x-www-form-urlencoded", "X-Requested-With": "XMLHttpRequest" },
-    body,
-    credentials: "include",
-    redirect:    "follow",
-  });
-  if (res.url.includes("zjuam.zju.edu.cn")) throw new Error("__SESSION_EXPIRED__");
-  return res.text().catch(() => "");
+  const ua = DATA_HDR["User-Agent"];
+  const headers = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "X-Requested-With": "XMLHttpRequest",
+    ...DATA_HDR,
+  };
+  const { body: respBody, url: finalUrl } = await xhrPost(url, body, headers, ua, 15000);
+  if (finalUrl.includes("zjuam.zju.edu.cn")) throw new Error("__SESSION_EXPIRED__");
+  return respBody;
 }
 
 async function withRelogin<T>(session: ZjuSession, fn: () => Promise<T>): Promise<T> {
@@ -385,10 +406,10 @@ async function withRelogin<T>(session: ZjuSession, fn: () => Promise<T>): Promis
 // ─── Period times ─────────────────────────────────────────────────────────────
 
 const PT: Record<number, [string, string]> = {
-  1:["08:00","08:45"],2:["08:50","09:35"],3:["10:00","10:45"],
-  4:["10:50","11:35"],5:["11:40","12:25"],6:["13:25","14:10"],
-  7:["14:15","15:00"],8:["15:05","15:50"],9:["16:15","17:00"],
-  10:["17:05","17:50"],11:["18:50","19:35"],12:["19:40","20:25"],13:["20:30","21:15"],
+  1: ["08:00", "08:45"], 2: ["08:50", "09:35"], 3: ["10:00", "10:45"],
+  4: ["10:50", "11:35"], 5: ["11:40", "12:25"], 6: ["13:25", "14:10"],
+  7: ["14:15", "15:00"], 8: ["15:05", "15:50"], 9: ["16:15", "17:00"],
+  10: ["17:05", "17:50"], 11: ["18:50", "19:35"], 12: ["19:40", "20:25"], 13: ["20:30", "21:15"],
 };
 
 function parsePeriod(jcs: string) {
@@ -438,7 +459,7 @@ export async function getSemesterOptions(session: ZjuSession) {
 
 function yToXnm(t: string) { return t.match(/(\d{4})/)?.[1] ?? t; }
 function tToXqm(t: string) {
-  if (t.includes("一") || t === "3")  return "3";
+  if (t.includes("一") || t === "3") return "3";
   if (t.includes("二") || t === "12") return "12";
   return "3";
 }
@@ -750,7 +771,12 @@ export async function checkSemesterHasCourses(
   termValue: string,
 ): Promise<boolean> {
   try {
-    const result = await fetchTimetable(session, yearValue, termValue, "");
+    const result = await Promise.race([
+      fetchTimetable(session, yearValue, termValue, ""),
+      new Promise<never>((_, rej) =>
+        setTimeout(() => rej(new Error("check timeout")), 8000)
+      ),
+    ]);
     return (result.rawCourses?.length ?? 0) > 0;
   } catch (e) {
     // 如果请求失败，保守认为有课

@@ -18,7 +18,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { Platform } from 'react-native';
 import { setupNotificationChannel, updateCourseNotification, clearCourseNotification } from '@/lib/course-notification';
-
+import { loadActiveSemesters, SemesterOption } from "@/lib/semester-loader";
 
 
 // Period table 
@@ -604,7 +604,8 @@ export default function HomeScreen() {
       await signIn(username, password);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setUsername(""); setPassword("");
-      router.push("/(tabs)/schedule");
+      loadActiveSemesters(username).catch(err => console.warn("加载学期列表失败", err));
+      //router.push("/(tabs)/schedule");
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(err instanceof Error ? err.message : "登录失败，请检查学号和密码");

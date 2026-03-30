@@ -16,8 +16,10 @@ import * as Sharing from "expo-sharing";
 import * as MediaLibrary from "expo-media-library";
 import { getSemesterOptions as zjuGetSemesterOptions, ZjuSession, checkSemesterHasCourses} from "@/lib/zju-client";
 import { useTheme } from "@/lib/theme-provider";
+import { writeLog } from "@/lib/diagnostic-log";
+import { loadActiveSemesters} from "@/lib/semester-loader";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Types 
 
 interface SemesterOption {
   yearValue: string;   // e.g. "2025-2026"
@@ -44,7 +46,7 @@ function parseKey(key: string): [string, string] {
 }
 
 export default function ScheduleScreen() {
-  const { state, fetchScheduleBySemester, refreshAllSemesters } = useSchedule();
+  const { state, fetchScheduleBySemester, refreshAllSemesters, resetScheduleLoading } = useSchedule();
   const colors = useColors();
   const { primaryColor } = useTheme();
   const [semesters, setSemesters] = useState<SemesterOption[]>([]);
@@ -66,95 +68,75 @@ export default function ScheduleScreen() {
   // Ref for screenshot capture
   const captureViewRef = useRef<View>(null);
 
-  // ── Init: restore cache, then refresh from API ─────────────────────────────
   useEffect(() => {
+    let cancelled = false;
+
     const init = async () => {
       const username = await AsyncStorage.getItem("username");
-      if (!username) return;
+      if (!username || cancelled) return;
 
-      // 1. Restore cached semester list and last selection instantly
+      // 1. 恢复上次选中的学期（仅用于 UI 记忆）
       let restoredKey: string | null = null;
       try {
-        const cachedSems = await AsyncStorage.getItem(`activeSemesters_${username}`);
-        if (cachedSems) {
-          const parsed: SemesterOption[] = JSON.parse(cachedSems);
-          if (parsed.length > 0) setSemesters(parsed);
-        }
         const lastKey = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
-        if (lastKey) { setSelectedSemester(lastKey); restoredKey = lastKey; }
-      } catch {}
-
-      // 2. Load schedule for restored selection from local cache
-      if (restoredKey && typeof restoredKey === "string" && restoredKey.includes("|")) {
-        const [yearValue, termValue] = parseKey(restoredKey);
-        await fetchScheduleBySemester(yearValue, termValue, true);
+        if (lastKey) {
+          restoredKey = lastKey;
+          if (!cancelled) setSelectedSemester(lastKey);
+          writeLog("SCHEDULE", `恢复上次选中学期: ${lastKey}`, "info");
+        } else {
+          writeLog("SCHEDULE", "无上次选中学期记录", "info");
+        }
+      } catch (e) {
+        writeLog("SCHEDULE", `读取上次选中学期异常: ${String(e)}`, "error");
       }
 
-      // 3. Refresh semester list from network.
-
-      setLoadingSemesters(true);
+      // 2. 加载学期列表（复用公共函数，内部已做并发控制和缓存）
+      if (!cancelled) setLoadingSemesters(true);
       try {
-        const session: ZjuSession = { username, jsessionId: "native", routeCookie: null };
-        const opts = await zjuGetSemesterOptions(session);
+        const allSemesters = await loadActiveSemesters(username);
+        if (cancelled) return;
 
-        // Build the full Cartesian product of year × term options
-        const allSemesters: SemesterOption[] = [];
-        for (const yo of opts.yearOptions) {
-          for (const to of opts.termOptions) {
-            if(await checkSemesterHasCourses(session,yo.value,to.value)){
-              allSemesters.push({
-                yearValue: yo.value,
-                termValue: to.value,
-                yearText:  yo.text,
-                termText:  to.text,
-                label:     `${yo.text}学年 ${to.text}学期`,
-              });
-            }
-          }
-        }
-
-        // Only update state + cache when we actually got results.
-        // If the network call somehow produced nothing, keep whatever was
-        // already restored from cache rather than clobbering it with [].
-        if (allSemesters.length > 0) {
+        if (allSemesters && allSemesters.length > 0) {
           setSemesters(allSemesters);
-          await AsyncStorage.setItem(
-            `activeSemesters_${username}`,
-            JSON.stringify(allSemesters),
-          );
-        }
 
-        // If no semester was restored from cache, pick the server's default
-        if (!restoredKey && allSemesters.length > 0) {
-          const defaultYearValue =
-            opts.yearOptions.find(o => o.selected)?.value ?? opts.yearOptions[0]?.value;
-          const defaultTermValue =
-            opts.termOptions.find(o => o.selected)?.value ?? opts.termOptions[0]?.value;
-          const defaultSemester =
-            allSemesters.find(
-              s => s.yearValue === defaultYearValue && s.termValue === defaultTermValue,
-            ) ?? allSemesters[0];
+          // 决定默认选中的学期
+          let defaultSemester: SemesterOption | undefined;
+          if (restoredKey) {
+            defaultSemester = allSemesters.find(
+              s => semesterKey(s.yearValue, s.termValue) === restoredKey
+            );
+          }
+          if (!defaultSemester) {
+            defaultSemester = allSemesters[0];
+          }
 
           if (defaultSemester) {
             const key = semesterKey(defaultSemester.yearValue, defaultSemester.termValue);
-            setSelectedSemester(key);
+            if (!cancelled) setSelectedSemester(key);
             await AsyncStorage.setItem(`lastSelectedSemester_${username}`, key);
-            await fetchScheduleBySemester(
-              defaultSemester.yearValue,
-              defaultSemester.termValue,
-              true,
-            );
+            await fetchScheduleBySemester(defaultSemester.yearValue, defaultSemester.termValue, true);
+            writeLog("SCHEDULE", `默认学期已选中: ${key}`, "info");
           }
+        } else {
+          // 无有效学期：清空课表并结束加载状态
+          resetScheduleLoading();
+          writeLog("SCHEDULE", "加载到的学期列表为空", "error");
+          setSemesters([]);
+          setSelectedSemester(null);
         }
       } catch (e) {
-        console.error("Failed to load semester options:", e);
-        // Network failed — cached semesters (restored in step 1) are still shown.
+        writeLog("SCHEDULE", `加载学期列表失败: ${e instanceof Error ? e.message : String(e)}`, "error");
+        setSemesters([]);
+        setSelectedSemester(null);
+        // 同样需要重置 loading 状态
       } finally {
-        setLoadingSemesters(false);
+        if (!cancelled) setLoadingSemesters(false);
       }
     };
+
     init();
-  }, []); // run once on mount
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Semester change ────────────────────────────────────────────────────────
   const handleSemesterChange = async (yearValue: string, termValue: string) => {

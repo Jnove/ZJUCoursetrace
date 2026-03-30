@@ -93,18 +93,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     signOut: async () => {
       try {
-        // Clear native session & SecureStore credentials
         await clearSession();
-        // Clear all local schedule caches
+
+        //  清除 AsyncStorage 中除个性化设置外的所有数据
         const keys = await AsyncStorage.getAllKeys();
-        const toRemove = keys.filter(k =>
-          k.startsWith("schedule_") ||
-          k.startsWith("activeSemesters_") ||
-          k.startsWith("lastSelectedSemester_") ||
-          k === "courses" ||
-          k === "username"
+        const toRemove = keys.filter(k => 
+          !k.startsWith("pref_") // 保留以 pref_ 开头的个性化配置
         );
-        if (toRemove.length > 0) await AsyncStorage.multiRemove(toRemove);
+        if (toRemove.length > 0) {
+          await AsyncStorage.multiRemove(toRemove);
+        }
+
         dispatch({ type: "SIGN_OUT" });
       } catch (error) {
         console.error("Sign out error:", error);

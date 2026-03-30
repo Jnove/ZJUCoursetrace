@@ -124,7 +124,7 @@ const config: ExpoConfig = {
       },
     ],
     ["expo-location", {
-      locationWhenInUsePermission: "Allow ZJU 课表 to access your location for weather."
+      locationWhenInUsePermission: "Allow ZJU 课迹 to access your location for weather."
     }],
     ["expo-notifications", {
       "androidMode": "default"
@@ -134,8 +134,8 @@ const config: ExpoConfig = {
     typedRoutes: true,
     reactCompiler: true,
   },
-    "extra": {
-    }
+  "extra": {
+  }
 };
 
 export default config;

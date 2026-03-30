@@ -10,6 +10,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { loadSession, fetchGrade, fetchMajorGrade, fetchExams, Grade, ExamInfo } from "@/lib/zju-client";
 import { useRouter } from 'expo-router';
+import { writeLog } from "@/lib/diagnostic-log";
+import { Background } from "@react-navigation/elements";
 
 // Cache helpers
 function academicCacheKey(type: "major_grade" | "all_grade" | "exams", username: string) {
@@ -41,11 +43,18 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-/** Parse exam date from strings like "2025-01-10 09:00-11:00" or "2025-01-10 09:00" */
 function parseExamDate(examTime: string): Date | null {
-  const m = examTime.match(/(\d{4}-\d{2}-\d{2})/);
-  if (!m) return null;
-  return new Date(m[1] + "T00:00:00");
+  let match = examTime.match(/(\d{4})年(\d{2})月(\d{2})日/);
+  if (match) {
+    const [, year, month, day] = match;
+    return new Date(`${year}-${month}-${day}T00:00:00`);
+  }
+  match = examTime.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const [, year, month, day] = match;
+    return new Date(`${year}-${month}-${day}T00:00:00`);
+  }
+  return null;
 }
 
 function getDaysUntil(date: Date): number {
@@ -116,6 +125,104 @@ function extractSemesterInfo(exam: ExamInfo): { year: string; semesterType: stri
   const displayName = `${year} ${semesterType}`;
   const endDate = getSemesterEndDate(year, semesterType);
   return { year, semesterType, displayName, endDate };
+}
+
+// 新增的辅助函数和子组件，放在 AcademicScreen 组件定义之前
+function getNearestFutureDate(exams: ExamInfo[]): Date | null {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let nearest: Date | null = null;
+  for (const exam of exams) {
+    const date = parseExamDate(exam.examTime);
+    if (!date) continue;
+    if (date >= today) {
+      if (!nearest || date < nearest) {
+        nearest = date;
+      }
+    }
+  }
+  return nearest;
+}
+
+function SemesterExamGroup({
+  group,
+  isPast = false,
+}: {
+  group: { key: string; displayName: string; endDate: Date; exams: ExamInfo[] };
+  isPast?: boolean;
+}) {
+  const colors = useColors();
+  const [expanded, setExpanded] = useState(false);
+
+  // 对于非 past 的组，才需要折叠逻辑
+  const nearestDate = !isPast ? getNearestFutureDate(group.exams) : null;
+  const hasFutureExams = nearestDate !== null;
+
+  let recentExams: ExamInfo[] = [];
+  let otherExams: ExamInfo[] = [];
+  if (!isPast && hasFutureExams) {
+    recentExams = group.exams.filter((exam) => {
+      const d = parseExamDate(exam.examTime);
+      return d && d.toDateString() === nearestDate!.toDateString();
+    });
+    otherExams = group.exams.filter((exam) => {
+      const d = parseExamDate(exam.examTime);
+      return !d || d.toDateString() !== nearestDate!.toDateString();
+    });
+  } else {
+    // 已结束学期，或没有未来考试，直接显示所有
+    recentExams = group.exams;
+    otherExams = [];
+  }
+
+  const showExpandButton = !isPast && hasFutureExams && otherExams.length > 0;
+
+  return (
+    <View style={{ gap: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <SectionHeader title={group.displayName} count={group.exams.length} />
+      {showExpandButton && !expanded && (
+        <TouchableOpacity
+          onPress={() => setExpanded(true)}
+          style={{
+            alignSelf: 'flex-start',
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            borderRadius: 8,
+            backgroundColor: hexToRgba(colors.primary, 0.1),
+            marginTop: 4,
+          }}
+        >
+          <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '500' }}>
+            展开剩余 {otherExams.length} 场考试
+          </Text>
+        </TouchableOpacity>
+      )}
+      {expanded && (
+        <TouchableOpacity
+          onPress={() => setExpanded(false)}
+          style={{
+            alignSelf: 'flex-start',
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            borderRadius: 8,
+            backgroundColor: hexToRgba(colors.muted, 0.1),
+            marginTop: 4,
+          }}
+        >
+          <Text style={{ fontSize: 12, color: colors.muted, fontWeight: '500' }}>收起</Text>
+        </TouchableOpacity>
+      )}
+      </View>
+
+      {recentExams.map((exam, idx) => (
+        <ExamCard key={`recent-${group.key}-${idx}`} exam={exam} isPast={isPast} compact={false} />
+      ))}
+      {expanded && otherExams.map((exam, idx) => (
+        <ExamCard key={`other-${group.key}-${idx}`} exam={exam} isPast={isPast} compact />
+      ))}
+    </View>
+  );
 }
 
 // 按学期分组考试
@@ -195,7 +302,8 @@ function GpaCard({
   
   const majorColor = getGpaColor(majorGpa, colors);
   const allColor = getGpaColor(allGpa, colors);
-
+  const majorBg = hexToRgba("#1adfd2ec", 0.2);
+  const allBg = hexToRgba("#70d809", 0.1);
   const opacity = useRef(new Animated.Value(hidden ? 0 : 1)).current;
   useEffect(() => {
     Animated.timing(opacity, {
@@ -213,12 +321,15 @@ function GpaCard({
     error: string | null,
     onRetry: () => void,
     color: string,
+    backgroundColor?: string,
   ) => (
+    
     <View style={{ 
       flex: 1, 
       gap: 0,
       borderWidth: 0,
       borderColor: colors.border,
+      backgroundColor: backgroundColor ,
       borderRadius: 12,
       padding: 12,  
     }}>
@@ -354,10 +465,10 @@ function GpaCard({
           style={{
             flexDirection: "row",
             flexWrap: "wrap",
-            gap: 3,
+            gap: 6,
           }}
         >
-          <View style={{ flex: 1, minWidth: 150 }}>
+          <View style={{ flex: 1, minWidth: 100 }}>
             {renderGpaColumn(
               "主修绩点",
               majorGpa,
@@ -366,10 +477,11 @@ function GpaCard({
               majorError,
               onRetryMajor,
               majorColor,
+              majorBg,
             )}
           </View>
 
-          <View style={{ flex: 1, minWidth: 150 }}>
+          <View style={{ flex: 1, minWidth: 100 }}>
             {renderGpaColumn(
               "全部绩点",
               allGpa,
@@ -378,6 +490,7 @@ function GpaCard({
               allError,
               onRetryAll,
               allColor,
+              allBg,
             )}
           </View>
         </View>
@@ -459,16 +572,16 @@ function ExamCard({ exam, isPast = false, compact = false }: { exam: ExamInfo; i
 
   const textStyle = compact ? {
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 15,
   } : {
     fontSize: 15,
-    lineHeight: 20,
+    lineHeight: 17,
   };
 
   return (
     <View style={cardStyle}>
       <View style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, backgroundColor: accentColor }} />
-      <View style={{ gap: compact ? 5 : 7 }}>
+      <View style={{ gap: compact ? 4 : 6 }}>
         <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
           <Text style={[textStyle, { flex: 1, fontWeight: "500", color: colors.foreground }]} numberOfLines={2}>
             {exam.courseName}
@@ -476,14 +589,14 @@ function ExamCard({ exam, isPast = false, compact = false }: { exam: ExamInfo; i
           {date && <CountdownBadge days={days} />}
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-          <IconSymbol name="clock.fill" size={compact ? 10 : 12} color={accentColor} />
+          <IconSymbol name="clock.fill" size={compact ? 8 : 10} color={accentColor} />
           <Text style={[textStyle, { fontWeight: "500", color: colors.foreground }]}>
             {formatExamTimeDisplay(exam.examTime)}
           </Text>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, flex: 1 }}>
-            <IconSymbol name="location.fill" size={compact ? 10 : 12} color={colors.muted} />
+            <IconSymbol name="location.fill" size={compact ? 7 : 9} color={colors.muted} />
             <Text style={[textStyle, { color: colors.muted }]} numberOfLines={1}>
               {exam.examLocation || "地点待定"}
             </Text>
@@ -654,8 +767,16 @@ export default function AcademicScreen() {
       setMajorGpa(result.gpa);
       setMajorTotalCredits(result.totalCredits);
       setMajorGrades(result.grades);
+      if (result.grades.length === 0) {
+        writeLog("ACADEMIC", "主修成绩列表为空（网络返回）", "warn",
+          { gpa: result.gpa, credits: result.totalCredits });
+      } else {
+        writeLog("ACADEMIC",
+          `主修成绩加载成功: ${result.grades.length} 门, GPA=${result.gpa}`, "info");
+      }
       await writeCache(key, result);
     } catch (e) {
+      writeLog("ACADEMIC", `主修成绩加载失败: ${e instanceof Error ? e.message : String(e)}`, "error");
       setMajorError(e instanceof Error ? e.message : "获取主修绩点失败");
     } finally {
       setMajorLoading(false);
@@ -702,8 +823,16 @@ export default function AcademicScreen() {
       setAllGpa(result.gpa);
       setAllTotalCredits(result.totalCredits);
       setAllGrades(result.grades);
+      if (result.grades.length === 0) {
+        writeLog("ACADEMIC", "全部成绩列表为空（网络返回）", "warn",
+          { gpa: result.gpa, credits: result.totalCredits });
+      } else {
+        writeLog("ACADEMIC",
+          `全部成绩加载成功: ${result.grades.length} 门, GPA=${result.gpa}`, "info");
+      }
       await writeCache(key, result);
     } catch (e) {
+      writeLog("ACADEMIC", `全部成绩加载失败: ${e instanceof Error ? e.message : String(e)}`, "error");
       setAllError(e instanceof Error ? e.message : "获取全部绩点失败");
     } finally {
       setAllLoading(false);
@@ -745,11 +874,17 @@ export default function AcademicScreen() {
       const session = await loadSession();
       if (!session) { setExamError("请先登录"); return; }
       const result = await fetchExams(session);
+      writeLog("ACADEMIC",
+        `考试列表加载完成: ${result.length} 场`,
+        result.length === 0 ? "warn" : "info",
+        result.length === 0 ? { note: "可能正常（无考试安排）" } : undefined,
+      );
       setExams(result);
       //console.log('[DEBUG] fetchExams result length:', result.length);
       //console.log('[DEBUG] first exam:', result[0]);
       await writeCache(key, result);
     } catch (e) {
+      writeLog("ACADEMIC", `考试列表加载失败: ${e instanceof Error ? e.message : String(e)}`, "error");
       setExamError(e instanceof Error ? e.message : "获取考试信息失败");
     } finally {
       setExamLoading(false);
@@ -864,12 +999,7 @@ export default function AcademicScreen() {
               {currentGroups.length > 0 && (
                 <View style={{ gap: 20 }}>
                   {currentGroups.map(group => (
-                    <View key={group.key} style={{ gap: 10 }}>
-                      <SectionHeader title={group.displayName} count={group.exams.length} />
-                      {group.exams.map((exam, idx) => (
-                        <ExamCard key={`current-${group.key}-${idx}`} exam={exam} isPast={false} compact={false} />
-                      ))}
-                    </View>
+                    <SemesterExamGroup key={group.key} group={group} isPast={false} />
                   ))}
                 </View>
               )}
