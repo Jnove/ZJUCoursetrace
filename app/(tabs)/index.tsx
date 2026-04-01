@@ -6,8 +6,8 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/lib/auth-context";
 import { useSchedule } from "@/lib/schedule-context";
 import { useRouter } from "expo-router";
-import { useTheme } from "@/lib/theme-provider";
-import { useState, useEffect, useCallback } from "react";
+import { useTheme, CARD_RADIUS_VALUES } from "@/lib/theme-provider";
+import { useState, useEffect, useCallback, useRef } from "react";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 import { getCurrentSemester, SemesterInfo } from "@/lib/semester-utils";
@@ -19,6 +19,7 @@ import { useColors } from "@/hooks/use-colors";
 import { Platform } from 'react-native';
 import { setupNotificationChannel, updateCourseNotification, clearCourseNotification } from '@/lib/course-notification';
 import { loadActiveSemesters, SemesterOption } from "@/lib/semester-loader";
+
 
 
 // Period table 
@@ -37,15 +38,6 @@ const PERIODS = [
   { number: 12, startTime: "19:40", endTime: "20:25" },
   { number: 13, startTime: "20:30", endTime: "21:15" },
 ];
-
-
-// semester-utils: { schoolYear: "2025-2026", semester: "秋" | "冬" | "春" | "夏" }
-// 保存格式: schedule_2025-2026学年_第一学期
-function scheduleStorageKey(schoolYear: string, semester: string): string {
-  const yearText = `${schoolYear}学年`;
-  const termText = (semester === "秋" || semester === "冬") ? "第一学期" : "第二学期";
-  return `schedule_${yearText}_${termText}`;
-}
 
 // Time utils
 function parseTimeStr(t: string): number {
@@ -221,12 +213,12 @@ function PeriodBadge({ course }: { course: Course }) {
 }
 
 // ─── Weather card ─────────────────────────────────────────────────────────────
-function WeatherCard({ data }: { data: WeatherData }) {
+function WeatherCard({ data, radius }: { data: WeatherData; radius: number }) {
   const colors = useColors();
   const tip = getWeatherTip(data);
   return (
     <View style={{
-      borderRadius: 12,
+      borderRadius: radius,
       backgroundColor: colors.background,
       overflow: "hidden",
       shadowColor: "#000",
@@ -271,8 +263,8 @@ function WeatherCard({ data }: { data: WeatherData }) {
 }
 
 // ─── Ongoing card ─────────────────────────────────────────────────────────────
-function OngoingCard({ course, countdown, nowSec }: {
-  course: Course; countdown: number; nowSec: number;
+function OngoingCard({ course, countdown, nowSec, radius }: {
+  course: Course; countdown: number; nowSec: number; radius: number;
 }) {
   const colors = useColors();
   const t = getCourseSeconds(course);
@@ -282,7 +274,7 @@ function OngoingCard({ course, countdown, nowSec }: {
 
   return (
     <View style={{
-      borderRadius: 14, backgroundColor: colors.background, overflow: "hidden",
+      borderRadius: radius, backgroundColor: colors.background, overflow: "hidden",
       shadowColor: course.color,
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.22, shadowRadius: 12, elevation: 5,
@@ -337,11 +329,11 @@ function OngoingCard({ course, countdown, nowSec }: {
 }
 
 // ─── Next card ────────────────────────────────────────────────────────────────
-function NextCard({ course, countdown }: { course: Course; countdown: number }) {
+function NextCard({ course, countdown, radius }: { course: Course; countdown: number; radius: number; }) {
   const colors = useColors();
   return (
     <View style={{
-      borderRadius: 14, backgroundColor: colors.background, overflow: "hidden",
+      borderRadius: radius, backgroundColor: colors.background, overflow: "hidden",
       shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.08, shadowRadius: 8, elevation: 3,
     }}>
@@ -388,11 +380,11 @@ function NextCard({ course, countdown }: { course: Course; countdown: number }) 
 }
 
 // ─── Plain course card ────────────────────────────────────────────────────────
-function CourseCard({ course }: { course: Course }) {
+function CourseCard({ course, radius }: { course: Course; radius: number }) {
   const colors = useColors();
   return (
     <View style={{
-      borderRadius: 13, backgroundColor: colors.background, overflow: "hidden",
+      borderRadius: radius, backgroundColor: colors.background, overflow: "hidden",
       shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
       shadowOpacity: 0.06, shadowRadius: 5, elevation: 2,
     }}>
@@ -450,6 +442,14 @@ export default function HomeScreen() {
   const [poem, setPoem] = useState<{ content: string; origin: string; author: string } | null>(null);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [weatherError, setWeatherError] = useState<string | null>(null);
+  const { cardRadius } = useTheme();
+  const r = CARD_RADIUS_VALUES[cardRadius];
+
+  // ── 重试相关 ────────────────────────────────────────────────────────────────
+  const MAX_FETCH_ATTEMPTS = 4;
+  const RETRY_INTERVAL_MS  = 800;
+  const fetchAttemptsRef   = useRef(0);
+  const retryTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Tick every second
   useEffect(() => {
@@ -472,42 +472,67 @@ export default function HomeScreen() {
       .catch(e => setWeatherError(e instanceof Error ? e.message : '天气获取失败'));
   }, []);
 
-
-  const fetchDayCourses = useCallback(async () => {
-    try {
-      const now = new Date();
-      const info = getCurrentSemester(now);
-      setSemesterInfo(info);
-      if (!info) { setTodaysCourses([]); return; }
-
-      const username = await AsyncStorage.getItem("username");
-
-      /**
-       * semester-utils gives us:  info.schoolYear = "2025-2026"  info.semester = "春"
-       * SemesterOption stores:    yearValue = "2025-2026"  termValue = "2|春"
-       *
-       * Match on yearValue (exact) + termValue contains the season char after "|".
-       * Do NOT compare against yearText ("2025-2026学年") or termText ("第二学期") —
-       * those are display strings and don't match semester-utils output.
-       */
-      let cacheKey = `schedule_${info.schoolYear}_${info.semester}`; // fallback (unlikely to hit)
-
-      if (username) {
-        const cachedSemesters = await AsyncStorage.getItem(`activeSemesters_${username}`);
-        if (cachedSemesters) {
-          const allSemesters: { yearValue: string; termValue: string }[] = JSON.parse(cachedSemesters);
-          const match = allSemesters.find(
-            s => s.yearValue === info.schoolYear &&
-                 s.termValue.split("|").pop() === info.semester   // "2|春".split("|").pop() === "春"
-          );
-          if (match) {
-            cacheKey = `schedule_${match.yearValue}_${match.termValue}`;
-          }
-        }
+  /**
+   * 按优先级依次尝试找到课表 cacheKey：
+   *   1. activeSemesters 列表精确匹配（termValue 如 "2|春"）
+   *   2. lastSelectedSemester（格式与存储完全一致，最可靠的回落）
+   *   3. 纯名称拼接兜底（命中率低，但总比崩溃好）
+   */
+  const resolveCacheKey = useCallback(async (
+    schoolYear: string,
+    semester: string,
+    username: string | null,
+  ): Promise<string> => {
+    if (username) {
+      // ① activeSemesters 精确匹配
+      const cachedSemesters = await AsyncStorage.getItem(`activeSemesters_${username}`);
+      if (cachedSemesters) {
+        const allSemesters: { yearValue: string; termValue: string }[] = JSON.parse(cachedSemesters);
+        const match = allSemesters.find(
+          s => s.yearValue === schoolYear &&
+               s.termValue.split("|").pop() === semester,
+        );
+        if (match) return `schedule_${match.yearValue}_${match.termValue}`;
       }
 
-      const raw = await AsyncStorage.getItem(cacheKey);
-      if (!raw) { setTodaysCourses([]); return; }
+      // ② lastSelectedSemester（key 格式与 AsyncStorage 存储完全一致）
+      const lastKey = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
+      if (lastKey) {
+        // lastKey 形如 "2025-2026|2|春"，校验学年和学期末尾是否匹配
+        const parts = lastKey.split("|");
+        const lastYear     = parts[0];
+        const lastSemester = parts[parts.length - 1];
+        if (lastYear === schoolYear && lastSemester === semester) {
+          return `schedule_${lastKey}`;
+        }
+      }
+    }
+
+    // ③ 兜底
+    return `schedule_${schoolYear}_${semester}`;
+  }, []);
+
+  /**
+   * 拉取今日 / 明日课程。
+   * 返回 true  → 成功读到缓存数据
+   * 返回 false → 缓存未命中，调用方可安排重试
+   */
+  const fetchDayCourses = useCallback(async (): Promise<boolean> => {
+    try {
+      const now  = new Date();
+      const info = getCurrentSemester(now);
+      setSemesterInfo(info);
+      if (!info) { setTodaysCourses([]); return true; }  // 学期间隙，不重试
+
+      const uname   = await AsyncStorage.getItem("username");
+      const cacheKey = await resolveCacheKey(info.schoolYear, info.semester, uname);
+      console.log("今日课程尝试读取课程缓存，key =", cacheKey);
+      const raw      = await AsyncStorage.getItem(cacheKey);
+
+      if (!raw) {
+        // 缓存未命中，保持现有显示，告知上层重试
+        return false;
+      }
 
       const all: Course[] = JSON.parse(raw);
       const todayDow = now.getDay() === 0 ? 7 : now.getDay();
@@ -518,41 +543,60 @@ export default function HomeScreen() {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tInfo = getCurrentSemester(tomorrow);
       if (tInfo) {
-        let tCacheKey = `schedule_${tInfo.schoolYear}_${tInfo.semester}`; // fallback
-
-        if (username) {
-          const cachedSemesters = await AsyncStorage.getItem(`activeSemesters_${username}`);
-          if (cachedSemesters) {
-            const allSemesters: { yearValue: string; termValue: string }[] = JSON.parse(cachedSemesters);
-            const match = allSemesters.find(
-              s => s.yearValue === tInfo.schoolYear &&
-                   s.termValue.split("|").pop() === tInfo.semester
-            );
-            if (match) {
-              tCacheKey = `schedule_${match.yearValue}_${match.termValue}`;
-            }
-          }
-        }
-
-        const tRaw = await AsyncStorage.getItem(tCacheKey) ?? raw;
+        const tCacheKey = await resolveCacheKey(tInfo.schoolYear, tInfo.semester, uname);
+        const tRaw      = await AsyncStorage.getItem(tCacheKey) ?? raw;
         const tAll: Course[] = JSON.parse(tRaw);
         const tomorrowDow = tomorrow.getDay() === 0 ? 7 : tomorrow.getDay();
         setTomorrowCourses(filterCourses(tAll, tomorrowDow, tInfo.week, tInfo.week % 2 === 1));
       }
+
+      return true;
     } catch (e) {
       console.error("获取课程失败:", e);
+      return false;
     }
-  }, []);
+  }, [resolveCacheKey]);
 
+  // ── 登录后 / 课表更新后触发首次拉取 + 有限重试 ─────────────────────────────
   useEffect(() => {
-    if (authState.userToken) fetchDayCourses();
+    if (!authState.userToken) return;
+
+    // 清除上一轮遗留的重试定时器
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    fetchAttemptsRef.current = 0;
+
+    const attemptFetch = async () => {
+      fetchAttemptsRef.current += 1;
+      const found = await fetchDayCourses();
+
+      if (!found && fetchAttemptsRef.current < MAX_FETCH_ATTEMPTS) {
+        // 缓存还没准备好，稍后重试
+        retryTimerRef.current = setTimeout(attemptFetch, RETRY_INTERVAL_MS);
+      }
+    };
+
+    attemptFetch();
+
+    return () => {
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    };
   }, [authState.userToken, scheduleState.courses, fetchDayCourses]);
 
+  // 午夜自动刷新（切换到新的一天）
   useEffect(() => {
     const now = new Date();
     const msToMidnight =
       new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime();
-    const t = setTimeout(fetchDayCourses, msToMidnight);
+    const t = setTimeout(() => {
+      fetchAttemptsRef.current = 0;
+      fetchDayCourses();
+    }, msToMidnight);
     return () => clearTimeout(t);
   }, [fetchDayCourses]);
 
@@ -605,7 +649,6 @@ export default function HomeScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setUsername(""); setPassword("");
       loadActiveSemesters(username).catch(err => console.warn("加载学期列表失败", err));
-      //router.push("/(tabs)/schedule");
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(err instanceof Error ? err.message : "登录失败，请检查学号和密码");
@@ -637,13 +680,13 @@ export default function HomeScreen() {
             {/* Poem */}
             {poem && (
               <View style={{
-                borderRadius: 12,
+                borderRadius: r,
                 backgroundColor: colors.background,
                 borderLeftWidth: 3, borderLeftColor: colors.primary,
                 paddingHorizontal: 16, paddingVertical: 14, gap: 6,
                 shadowColor: "#000",
                 shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.05, shadowRadius: 4, elevation: 1,
+                shadowOpacity: 0.05, shadowRadius: 5, elevation: 1,
               }}>
                 <Text style={{ fontSize: 14, color: colors.foreground, lineHeight: 22, letterSpacing: 0.3 }}>
                   {poem.content}
@@ -655,7 +698,7 @@ export default function HomeScreen() {
             )}
 
             {/* Weather */}
-            {weather && <WeatherCard data={weather} />}
+            {weather && <WeatherCard data={weather} radius={r} />}
 
             {/* Course section */}
             <View style={{ gap: 10 }}>
@@ -666,7 +709,7 @@ export default function HomeScreen() {
               {showTomorrow ? (
                 <View style={{ gap: 8 }}>
                   <View style={{
-                    backgroundColor: colors.background, borderRadius: 10,
+                    backgroundColor: colors.background, borderRadius: r,
                     borderWidth: 0.5, borderColor: colors.border,
                     paddingHorizontal: 16, paddingVertical: 10, alignItems: "center",
                   }}>
@@ -675,10 +718,10 @@ export default function HomeScreen() {
                     </Text>
                   </View>
                   {tomorrowCourses.length > 0
-                    ? tomorrowCourses.map((c, i) => <CourseCard key={i} course={c} />)
+                    ? tomorrowCourses.map((c, i) => <CourseCard key={i} course={c} radius={r}/>)
                     : (
                       <View style={{
-                        backgroundColor: colors.background, borderRadius: 10,
+                        backgroundColor: colors.background, borderRadius: r,
                         borderWidth: 0.5, borderColor: colors.border,
                         padding: 16, alignItems: "center",
                       }}>
@@ -692,16 +735,17 @@ export default function HomeScreen() {
                     <OngoingCard
                       course={ongoingCourse}
                       countdown={ongoingCountdown}
-                      nowSec={nowSeconds}
+                        nowSec={nowSeconds}
+                        radius={r}
                     />
                   )}
                   {nextCourse && (
-                    <NextCard course={nextCourse} countdown={nextCountdown} />
+                    <NextCard course={nextCourse} countdown={nextCountdown} radius={r} />
                   )}
-                  {laterCourses.map((c, i) => <CourseCard key={i} course={c} />)}
+                  {laterCourses.map((c, i) => <CourseCard key={i} course={c} radius={r}/>)}
                   {todaysCourses.length === 0 && (
                     <View style={{
-                      backgroundColor: colors.background, borderRadius: 10,
+                      backgroundColor: colors.background, borderRadius: r,
                       borderWidth: 0.5, borderColor: colors.border,
                       padding: 16, alignItems: "center",
                     }}>
@@ -715,7 +759,7 @@ export default function HomeScreen() {
             {/* View schedule button */}
             <TouchableOpacity
               onPress={() => router.push("/(tabs)/schedule")}
-              style={{ backgroundColor:primaryColor, borderRadius:10, paddingVertical:14, alignItems:"center",flexDirection:"row", justifyContent:"center", gap:8 }}
+              style={{ backgroundColor:primaryColor, borderRadius:r, paddingVertical:14, alignItems:"center",flexDirection:"row", justifyContent:"center", gap:8 }}
               activeOpacity={0.8}
             >
               <Text style={{ color: "#fff", fontWeight: "600", fontSize: 15 }}>查看课表</Text>
@@ -751,7 +795,7 @@ export default function HomeScreen() {
                 editable={!loading}
                 style={{
                   backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
-                  borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
+                  borderRadius: r, paddingHorizontal: 14, paddingVertical: 12,
                   color: colors.foreground, fontSize: 15,
                 }}
               />
@@ -768,7 +812,7 @@ export default function HomeScreen() {
               <View style={{
                 backgroundColor: hexToRgba(colors.error, 0.1),
                 borderWidth: 1, borderColor: colors.error,
-                borderRadius: 10, padding: 12,
+                borderRadius: r, padding: 12,
               }}>
                 <Text style={{ color: colors.error, fontSize: 13 }}>{error}</Text>
               </View>
@@ -778,7 +822,7 @@ export default function HomeScreen() {
               onPress={handleLogin}
               disabled={loading}
               style={{
-                backgroundColor: primaryColor, borderRadius: 12,
+                backgroundColor: primaryColor, borderRadius: r,
                 paddingVertical: 14, alignItems: "center",
                 opacity: loading ? 0.5 : 1,
               }}

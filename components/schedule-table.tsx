@@ -4,6 +4,7 @@ import { Course } from "@/lib/schedule-context";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useTheme } from "@/lib/theme-provider";
+import { RefreshControl } from "react-native-gesture-handler";
 
 const HEADER_H = 38;
 const TIME_COL_W = 34;
@@ -48,6 +49,8 @@ interface ScheduleTableProps {
   mode?: "grid" | "list";
   onDayChange?: (day: number) => void;
   availableHeight?: number;
+  refreshControl?: React.ReactElement<React.ComponentProps<typeof RefreshControl>>;
+  radius?: number;
 }
 
 export function ScheduleTable({
@@ -57,8 +60,11 @@ export function ScheduleTable({
   mode = "grid",
   onDayChange,
   availableHeight = 0,
+  refreshControl,
+  radius=5,
 }: ScheduleTableProps) {
   const colors = useColors();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedDay, setSelectedDay] = useState(1);
   const { primaryColor } = useTheme();
   const CELL_H = availableHeight > 200
@@ -176,7 +182,7 @@ export function ScheduleTable({
                           <View style={{
                             position: "absolute", top: 2, right: 2,
                             backgroundColor: cs[0].color,
-                            borderRadius: 3, paddingHorizontal: 2.5, paddingVertical: 1,
+                            borderRadius: radius, paddingHorizontal: 2.5, paddingVertical: 1,
                           }}>
                             <Text style={{ fontSize: 8, color: "#fff", fontWeight: "800" }}>
                               {getWeekLabel(cs[0].isSingleWeek)}
@@ -282,6 +288,7 @@ export function ScheduleTable({
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, gap: 10 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl}
       >
         {dayCourses.length === 0 ? (
           <View style={{ paddingVertical: 60, alignItems: "center" }}>
@@ -292,7 +299,7 @@ export function ScheduleTable({
             <Pressable key={course.id} onPress={() => onCoursePress?.(course)}>
               {({ pressed }) => (
                 <View style={{
-                  borderRadius: 13, backgroundColor: colors.background,
+                  borderRadius: radius, backgroundColor: colors.background,
                   overflow: "hidden", opacity: pressed ? 0.85 : 1,
                   shadowColor: "#000",
                   shadowOffset: { width: 0, height: 1 },
@@ -313,7 +320,7 @@ export function ScheduleTable({
                       {getWeekLabel(course.isSingleWeek) ? (
                         <View style={{
                           backgroundColor: addAlpha(course.color, 0.18),
-                          paddingHorizontal: 8, paddingVertical: 2, borderRadius: 5,
+                          paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius,
                         }}>
                           <Text style={{ fontSize: 11, fontWeight: "600", color: course.color }}>
                             {getWeekLabel(course.isSingleWeek)}周

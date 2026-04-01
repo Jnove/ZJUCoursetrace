@@ -14,9 +14,10 @@ import {
 
 // 圆角半径预设
 export const CARD_RADIUS_VALUES = {
-  small: 8,
-  medium: 12,
-  large: 16,
+  small: 6,
+  medium: 14,
+  large: 22,
+  very_large: 32,
 } as const;
 
 export const DEFAULT_PRIMARY = SchemeColors.light.primary; // 默认使用亮色主题的主色

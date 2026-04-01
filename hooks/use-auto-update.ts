@@ -6,6 +6,7 @@ import {
     downloadAndInstallApk,
     openReleasePage,
 } from '@/lib/updater';
+import { useRouter } from 'expo-router';
 
 interface UpdateModalState {
     visible: boolean;
@@ -26,6 +27,7 @@ export function useAutoUpdate() {
         buttons: [],
     });
     const hasChecked = useRef(false);
+    const router = useRouter();
 
     useEffect(() => {
         if (hasChecked.current) return;
@@ -64,19 +66,8 @@ export function useAutoUpdate() {
                     buttons.push({
                         text: '下载安装',
                         onPress: async () => {
+                            router.push("/about");
                             setModalState(prev => ({ ...prev, visible: false }));
-                            try {
-                                await downloadAndInstallApk(downloadUrl, (progress) => {
-                                    console.log(`下载进度: ${Math.round(progress.fraction * 100)}%`);
-                                });
-                            } catch (error) {
-                                setModalState({
-                                    visible: true,
-                                    title: '下载失败',
-                                    message: error instanceof Error ? error.message : '请稍后重试',
-                                    buttons: [{ text: '关闭', onPress: () => setModalState(prev => ({ ...prev, visible: false })) }],
-                                });
-                            }
                         },
                         type: 'primary',
                     });

@@ -32,7 +32,6 @@ async function _read(): Promise<LogEntry[]> {
     }
 }
 
-// ─── 公开 API ──────────────────────────────────────────────────────────────────
 
 /**
  * 写入一条日志。
@@ -44,6 +43,7 @@ export async function writeLog(
     level: LogLevel = "info",
     data?: Record<string, unknown>,
 ): Promise<void> {
+    if (!process.env.EXPO_PUBLIC_ENABLE_DIAG_LOG) return;
     try {
         const entries = await _read();
         const entry: LogEntry = {

@@ -1,8 +1,7 @@
 /**
  * app/(tabs)/settings.tsx
  *
- * iOS-style grouped settings. The old inline "关于" rows are replaced
- * with a single navigation entry that opens app/about.tsx.
+ * has a navigation entry that opens app/about.tsx.
  */
 
 import {
@@ -19,8 +18,9 @@ import { useState } from "react";
 import type { SFSymbols7_0 } from "sf-symbols-typescript";
 import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-// ─── Primitives ───────────────────────────────────────────────────────────────
+const isDiagEnabled = !!process.env.EXPO_PUBLIC_ENABLE_DIAG_LOG;
 
+// ─── Primitives ───────────────────────────────────────────────────────────────
 function SettingsRow({
   icon, iconBg, label, value, onPress, chevron = true, danger = false, last = false,
 }: {
@@ -89,8 +89,9 @@ function SettingsSection({ title, children }: { title?: string; children: React.
       <View style={{
         borderRadius: r, overflow: "hidden",
         borderWidth: 0.5, borderColor: colors.border,
+        backgroundColor: colors.background,
         shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05, shadowRadius: 4, elevation: 1,
+        shadowOpacity: 0.05, shadowRadius: 1, elevation: 0,
       }}>
         {children}
       </View>
@@ -275,6 +276,7 @@ export default function SettingsScreen() {
             <Text style={{
               fontSize: 12, fontWeight: "500", color: colors.muted,
               paddingHorizontal: 16, marginBottom: 10,
+              borderRadius: 10,
             }}>
               主题模式
             </Text>
@@ -290,18 +292,7 @@ export default function SettingsScreen() {
           />
         </SettingsSection>
 
-        {/* General */}
-        <SettingsSection title="通用">
-          <SettingsRow
-            icon="square.and.arrow.down"
-            iconBg="#64748b"
-            label="清除课表缓存"
-            onPress={handleClearCache}
-            last
-          />
-        </SettingsSection>
-
-        {/* About — now a single navigation row */}
+        {/* About*/}
         <SettingsSection title="关于">
           <SettingsRow
             icon="person.fill"
@@ -312,18 +303,32 @@ export default function SettingsScreen() {
             last
           />
         </SettingsSection>
-        
-          {/* 诊断工具 */}
-        <SettingsSection title="诊断">
+
+        {/* General */}
+        <SettingsSection title="通用">
           <SettingsRow
-            icon="list.bullet"
+            icon="square.and.arrow.down"
             iconBg="#64748b"
-            label="诊断日志"
-            value="调试用"
-            onPress={() => router.push("/diagnostic-logs")}
+            label="清除课表缓存"
+            onPress={handleClearCache}
             last
           />
         </SettingsSection>
+        
+        
+        {/* 诊断工具 */}
+        {isDiagEnabled && (
+          <SettingsSection title="诊断">
+            <SettingsRow
+              icon="list.bullet"
+              iconBg="#64748b"
+              label="诊断日志"
+              value="调试用"
+              onPress={() => router.push("/diagnostic-logs")}
+              last
+            />
+          </SettingsSection>
+        )}
 
         {/* Logout */}
         {authState.userToken && (

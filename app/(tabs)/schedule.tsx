@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView,
-  ActivityIndicator, Alert, Modal, Pressable, Image,
+  ActivityIndicator, Alert, Modal, Pressable, Image,RefreshControl,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
@@ -15,9 +15,9 @@ import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import * as MediaLibrary from "expo-media-library";
 import { getSemesterOptions as zjuGetSemesterOptions, ZjuSession, checkSemesterHasCourses} from "@/lib/zju-client";
-import { useTheme } from "@/lib/theme-provider";
+import { useTheme, CARD_RADIUS_VALUES } from "@/lib/theme-provider";
 import { writeLog } from "@/lib/diagnostic-log";
-import { loadActiveSemesters} from "@/lib/semester-loader";
+import { loadActiveSemesters } from "@/lib/semester-loader";
 
 // ─── Types 
 
@@ -64,6 +64,8 @@ export default function ScheduleScreen() {
   const [detailVisible, setDetailVisible] = useState(false);
   const [overlappingCourses, setOverlappingCourses] = useState<Course[]>([]);
   const [overlapVisible, setOverlapVisible] = useState(false);
+  const { cardRadius } = useTheme();
+  const r = CARD_RADIUS_VALUES[cardRadius];
 
   // Ref for screenshot capture
   const captureViewRef = useRef<View>(null);
@@ -173,7 +175,7 @@ export default function ScheduleScreen() {
       if (failedCount > 0) {
         console.warn(`${failedCount} 个学期刷新失败`);
       }
-
+      writeLog("SCHEDULE", `刷新完成: ${success ? "全部成功" : `${failedCount} 个学期失败`}`, failedCount > 0 ? "error" : "info");
       Alert.alert("完成", success ? "所有学期课表已更新" : `部分学期更新失败（${failedCount} 个）`);
     } catch (error: any) {
       Alert.alert("错误", error.message || "刷新失败，请重试");
@@ -183,35 +185,35 @@ export default function ScheduleScreen() {
     await handleSemesterChange(yearValue, termValue);
   };
 
-  // ── Download (screenshot) ──────────────────────────────────────────────────
+  // Download (screenshot) 
   const handleDownload = async () => {
     if (!captureViewRef.current) return;
     try {
       setIsDownloading(true);
       const uri = await captureRef(captureViewRef, { format: "png", quality: 1.0 });
-      Alert.alert("课表截图", "选择操作", [
-        {
-          text: "保存到相册",
-          onPress: async () => {
-            const { status } = await MediaLibrary.requestPermissionsAsync();
-            if (status !== "granted") { Alert.alert("权限不足", "请允许访问相册"); return; }
-            await MediaLibrary.saveToLibraryAsync(uri);
-            Alert.alert("完成", "已保存到相册");
-          },
-        },
-        {
-          text: "分享",
-          onPress: async () => {
-            const canShare = await Sharing.isAvailableAsync();
-            if (canShare) {
-              await Sharing.shareAsync(uri, { mimeType: "image/png", dialogTitle: "分享课表截图" });
-            } else {
-              Alert.alert("提示", "当前设备不支持分享");
-            }
-          },
-        },
-        { text: "取消", style: "cancel" },
-      ]);
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== "granted") { Alert.alert("权限不足", "请允许访问相册"); return; }
+      await MediaLibrary.saveToLibraryAsync(uri);
+      Alert.alert("完成", "已保存到相册");
+    } catch {
+      Alert.alert("导出失败", "截图失败，请重试");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+  //Share
+  const handleShare = async () => {
+    if (!captureViewRef.current) return;
+    try {
+      setIsDownloading(true);
+      const uri = await captureRef(captureViewRef, { format: "png", quality: 1.0 });
+    
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, { mimeType: "image/png", dialogTitle: "分享课表截图" });
+      } else {
+        Alert.alert("提示", "当前设备不支持分享");
+      }
     } catch {
       Alert.alert("导出失败", "截图失败，请重试");
     } finally {
@@ -219,7 +221,7 @@ export default function ScheduleScreen() {
     }
   };
 
-  // ── Course press ───────────────────────────────────────────────────────────
+  // ── Course press
   const handleCoursePress = (course: Course) => { setSelectedCourse(course); setDetailVisible(true); };
   const handleMultipleCoursesPress = (courses: Course[]) => { setOverlappingCourses(courses); setOverlapVisible(true); };
   const openDetailFromOverlap = (course: Course) => {
@@ -249,7 +251,6 @@ export default function ScheduleScreen() {
       ) : (
         <View style={{ flex: 1 }}>
 
-          {/* ── Fixed header */}
           <View style={{
             paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10,
             gap: 10,
@@ -264,7 +265,7 @@ export default function ScheduleScreen() {
                   flex: 1, flexDirection: "row", alignItems: "center",
                   justifyContent: "space-between",
                   backgroundColor: colors.background,
-                  borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                  borderRadius: r, paddingHorizontal: 14, paddingVertical: 10,
                   borderWidth: 0.5, borderColor: colors.border,
                 }}
               >
@@ -275,13 +276,30 @@ export default function ScheduleScreen() {
                   {showSemesterPicker ? "▲" : "▼"}
                 </Text>
               </TouchableOpacity>
-
+                
               {/* Download button */}
               <TouchableOpacity
                 onPress={handleDownload}
                 disabled={isDownloading}
                 style={{
-                  width: 44, height: 44, borderRadius: 10,
+                  width: 44, height: 44, borderRadius: r,
+                  backgroundColor: colors.background,
+                  alignItems: "center", justifyContent: "center",
+                  borderWidth: 0.5, borderColor: colors.border,
+                }}
+              >
+                {isDownloading
+                  ? <ActivityIndicator size="small" color={colors.muted} />
+                  : <IconSymbol name="square.and.arrow.down" size={18} color={colors.foreground} />
+                }
+                </TouchableOpacity>
+                
+              {/* Share button */}
+              <TouchableOpacity
+                onPress={handleShare}
+                disabled={isDownloading}
+                style={{
+                  width: 44, height: 44, borderRadius: r,
                   backgroundColor: colors.background,
                   alignItems: "center", justifyContent: "center",
                   borderWidth: 0.5, borderColor: colors.border,
@@ -293,7 +311,7 @@ export default function ScheduleScreen() {
                 }
               </TouchableOpacity>
 
-              {/* Refresh button */}
+              {/* Refresh button
               <TouchableOpacity
                 onPress={handleRefresh}
                 disabled={isRefreshing}
@@ -311,13 +329,13 @@ export default function ScheduleScreen() {
                       style={{ width: 18, height: 18, tintColor: "#fff" }}
                     />
                 }
-              </TouchableOpacity>
+              </TouchableOpacity> */}
             </View>
 
             {/* Semester dropdown */}
             {showSemesterPicker && (
               <View style={{
-                backgroundColor: colors.background, borderRadius: 10,
+                backgroundColor: colors.background, borderRadius: r,
                 overflow: "hidden", borderWidth: 0.5, borderColor: colors.border,
               }}>
                 {semesters.length === 0 ? (
@@ -361,7 +379,7 @@ export default function ScheduleScreen() {
               <View style={{
                 flexDirection: "row",
                 backgroundColor: colors.background,
-                borderRadius: 8, borderWidth: 0.5, borderColor: colors.border,
+                borderRadius: r, borderWidth: 0.5, borderColor: colors.border,
                 overflow: "hidden",
               }}>
                 {(["grid", "list"] as const).map(m => (
@@ -391,7 +409,7 @@ export default function ScheduleScreen() {
                       key={f}
                       onPress={() => setFilterType(f)}
                       style={{
-                        flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center",
+                        flex: 1, paddingVertical: 8, borderRadius: r, alignItems: "center",
                         backgroundColor: isActive ? primaryColor : colors.background,
                         borderWidth: isActive ? 0 : 0.5, borderColor: colors.border,
                       }}
@@ -417,9 +435,20 @@ export default function ScheduleScreen() {
               <Text style={{ fontSize: 14, color: colors.muted }}>加载课表中...</Text>
             </View>
           ) : filteredCourses.length === 0 ? (
-            <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+            // ↓ View 改成 ScrollView，这样没课时也能下拉刷新
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ flex: 1, justifyContent: "center", alignItems: "center" }}
+              refreshControl={
+                <RefreshControl
+                  refreshing={isRefreshing}
+                  onRefresh={handleRefresh}
+                  tintColor={colors.primary}
+                />
+              }
+            >
               <Text style={{ fontSize: 14, color: colors.muted }}>当前筛选条件下没有课程</Text>
-            </View>
+            </ScrollView>
           ) : (
             <View
               ref={captureViewRef}
@@ -428,13 +457,24 @@ export default function ScheduleScreen() {
               onLayout={e => setTableAvailableH(e.nativeEvent.layout.height)}
             >
               {viewMode === "grid" ? (
-                <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  style={{ flex: 1 }}
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={isRefreshing}
+                      onRefresh={handleRefresh}
+                      tintColor={colors.primary}
+                    />
+                  }
+                >
                   <ScheduleTable
                     courses={filteredCourses}
                     onCoursePress={handleCoursePress}
                     onMultipleCoursesPress={handleMultipleCoursesPress}
                     mode="grid"
                     availableHeight={tableAvailableH}
+                    radius={r}
                   />
                   <View style={{ paddingVertical: 10, paddingHorizontal: 16, alignItems: "center" }}>
                     <Text style={{ fontSize: 11, color: colors.muted, textAlign: "center", lineHeight: 17 }}>
@@ -450,6 +490,14 @@ export default function ScheduleScreen() {
                   onMultipleCoursesPress={handleMultipleCoursesPress}
                   mode="list"
                   availableHeight={tableAvailableH}
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={isRefreshing}
+                      onRefresh={handleRefresh}
+                      tintColor={colors.primary}
+                    />
+                  }
+                  radius={r}
                 />
               )}
             </View>

@@ -14,7 +14,7 @@ interface CustomModalProps {
   title?: string;
   message?: string;
   buttons?: ButtonConfig[];
-  onClose?: () => void; // 关闭按钮（如果不需要可忽略）
+  onClose?: () => void; // 关闭按钮
   icon?: React.ReactNode; // 可选图标
 }
 

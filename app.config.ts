@@ -35,7 +35,7 @@ const env = {
 const config: ExpoConfig = {
   name: env.appName,
   slug: env.appSlug,
-  version: "2.0.0",
+  version: "2.0.1",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: env.scheme,
@@ -75,6 +75,8 @@ const config: ExpoConfig = {
       "POST_NOTIFICATIONS",
       "ACCESS_COARSE_LOCATION",
       "ACCESS_FINE_LOCATION",
+      "REQUEST_INSTALL_PACKAGES",
+      "VIBRATE",
     ],
   },
   web: {
@@ -135,6 +137,7 @@ const config: ExpoConfig = {
     reactCompiler: true,
   },
   "extra": {
+    
   }
 };
 

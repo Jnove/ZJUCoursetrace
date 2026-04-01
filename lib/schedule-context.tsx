@@ -1,5 +1,4 @@
 /**
- * lib/schedule-context.tsx
  *
  * Uses zju-client directly — no backend server.
  * RawCourse from zju-client already matches our Course shape (minus color),
@@ -192,65 +191,73 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
     // Fetch a specific semester; yearValue and termValue are raw values (e.g., "2025-2026", "2|春")
     fetchScheduleBySemester: async (yearValue: string, termValue: string, useCache = true) => {
-    const cacheKey = `schedule_${yearValue}_${termValue}`;
+      const cacheKey = `schedule_${yearValue}_${termValue}`;
+      console.log(`fetchScheduleBySemester: year=${yearValue}, term=${termValue}, useCache=${useCache}, cacheKey=${cacheKey}`);
+      if (useCache) {
+        try {
+          const raw = await AsyncStorage.getItem(cacheKey);
+          if (raw) {
+            const courses: Course[] = JSON.parse(raw);
+            // for (const course of courses) {
+            //   console.log(`课程${course.name} 时间是${course.periodTime} `);
+            // }
+            if (courses.length === 0) {
+              writeLog("CONTEXT", `缓存课表为空: ${yearValue}/${termValue}，尝试从网络加载`, "warn");
+            } else {
+              dispatch({ type: "SET_COURSES", payload: courses });
+              writeLog("CONTEXT", `从缓存加载课表: ${yearValue}/${termValue}, ${courses.length} 门`, "info");
+              return raw ? (courses as Course[]) : undefined;
+            }
+          }
+        } catch (e) {
+          writeLog("CONTEXT", `读取课表缓存异常: ${String(e)}`, "warn");
+        }
+      }
 
-    if (useCache) {
+      dispatch({ type: "SET_COURSES", payload: [] });
+      dispatch({ type: "SET_LOADING", payload: true });
+
+      const requestId = ++latestRequestIdRef.current;
+      writeLog("CONTEXT", `发起网络请求课表: ${yearValue}/${termValue} (reqId=${requestId})`, "info");
+
       try {
-        const raw = await AsyncStorage.getItem(cacheKey);
-        if (raw) {
-          const courses: Course[] = JSON.parse(raw);
-          dispatch({ type: "SET_COURSES", payload: courses });
-          writeLog("CONTEXT", `从缓存加载课表: ${yearValue}/${termValue}, ${courses.length} 门`, "info");
-          return;
-        }
-      } catch (e) {
-        writeLog("CONTEXT", `读取课表缓存异常: ${String(e)}`, "warn");
-      }
-    }
+        const session = await buildSession();
+        const result = await fetchTimetable(session, yearValue, termValue);
+        const converted = assignColors(result.rawCourses as Course[]);
 
-    dispatch({ type: "SET_COURSES", payload: [] });
-    dispatch({ type: "SET_LOADING", payload: true });
-
-    const requestId = ++latestRequestIdRef.current;
-    writeLog("CONTEXT", `发起网络请求课表: ${yearValue}/${termValue} (reqId=${requestId})`, "info");
-
-    try {
-      const session = await buildSession();
-      const result = await fetchTimetable(session, yearValue, termValue);
-      const converted = assignColors(result.rawCourses as Course[]);
-
-      if (requestId === latestRequestIdRef.current) {
-        if (converted.length === 0) {
-          writeLog("CONTEXT",
-            `课表为空: ${yearValue}/${termValue}，原始条目数=${result.rawCourses.length}`,
-            "warn",
-            { rawCount: result.rawCourses.length, semester: `${yearValue}/${termValue}` },
-          );
+        if (requestId === latestRequestIdRef.current) {
+          if (converted.length === 0) {
+            writeLog("CONTEXT",
+              `课表为空: ${yearValue}/${termValue}，原始条目数=${result.rawCourses.length}`,
+              "warn",
+              { rawCount: result.rawCourses.length, semester: `${yearValue}/${termValue}` },
+            );
+          } else {
+            writeLog("CONTEXT",
+              `课表加载成功: ${yearValue}/${termValue}, ${converted.length} 门`,
+              "info",
+            );
+          }
+          await AsyncStorage.setItem(cacheKey, JSON.stringify(converted));
+          dispatch({ type: "SET_COURSES", payload: converted });
+          dispatch({ type: "SET_ERROR", payload: null });
         } else {
-          writeLog("CONTEXT",
-            `课表加载成功: ${yearValue}/${termValue}, ${converted.length} 门`,
-            "info",
-          );
+          writeLog("CONTEXT", `丢弃过时请求 reqId=${requestId}，当前最新=${latestRequestIdRef.current}`, "info");
         }
-        await AsyncStorage.setItem(cacheKey, JSON.stringify(converted));
-        dispatch({ type: "SET_COURSES", payload: converted });
-        dispatch({ type: "SET_ERROR", payload: null });
-      } else {
-        writeLog("CONTEXT", `丢弃过时请求 reqId=${requestId}，当前最新=${latestRequestIdRef.current}`, "info");
+        // console.log(`fetchScheduleBySemester completed: year=${yearValue}, term=${termValue}, courses=${converted.length}`);
+        return converted as Course[];
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        writeLog("CONTEXT", `课表请求失败: ${yearValue}/${termValue} — ${msg}`, "error");
+        if (requestId === latestRequestIdRef.current) {
+          dispatch({ type: "SET_ERROR", payload: msg || "获取学期课表失败" });
+        }
+      } finally {
+        if (requestId === latestRequestIdRef.current) {
+          dispatch({ type: "SET_LOADING", payload: false });
+        }
       }
-      return result.rawCourses as Course[];
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      writeLog("CONTEXT", `课表请求失败: ${yearValue}/${termValue} — ${msg}`, "error");
-      if (requestId === latestRequestIdRef.current) {
-        dispatch({ type: "SET_ERROR", payload: msg || "获取学期课表失败" });
-      }
-    } finally {
-      if (requestId === latestRequestIdRef.current) {
-        dispatch({ type: "SET_LOADING", payload: false });
-      }
-    }
-  },
+    },
 
     setCurrentWeek: (week) => dispatch({ type: "SET_CURRENT_WEEK", payload: week }),
     setWeekType: (type) => dispatch({ type: "SET_WEEK_TYPE", payload: type }),

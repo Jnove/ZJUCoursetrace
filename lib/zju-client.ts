@@ -8,7 +8,7 @@
  *   4. Re-GET login page for fresh execution token
  *   5. XHR POST /cas/login  (redirect followed natively)
  *      → final URL on zdbk or back to zjuam (failure)
- *   6. Verify: final URL on zdbk domain → native jar has JSESSIONID
+ *   6. Verify: final URL on zdbk domain 
  *
  * Key changes for Android:
  *   - All fetch replaced with XHR to avoid status=0 on cross-origin redirects
@@ -620,23 +620,28 @@ function parseKbList(kbList: any[], yearText: string, termText: string): RawCour
         semester: `${yearText} ${termText}`,
         examInfo: examInfo || undefined,
       });
+      //console.log(`[zju-client] 解析课程条目: ${name} (${xkkh}), 教师: ${teacher}, 教室: ${classroom}, 时间: 周${dayOfWeek} ${startPeriod}-${endPeriod}节, 周次: ${weekStart}-${weekEnd}周${isSingleWeek === "single" ? "单周" : isSingleWeek === "double" ? "双周" : ""}${examInfo ? `, 考试: ${examInfo}` : ""}`);
     } catch (err) {
       console.warn("解析课程条目失败", err, item);
     }
   }
 
   // 第二步：合并相邻连续节次的同一课程
-  // 分组键：课程名 + 教师 + 教室 + 星期 + 周次范围 + 单双周
+  // 分组键：课程名 + 教师 + 星期 + 单双周
   const grouped = new Map<string, RawCourse[]>();
   for (const course of rawCourses) {
     // 标准化教师和教室（已做）
-    const key = `${course.name}|${course.teacher}|${course.classroom}|${course.dayOfWeek}|${course.weekStart}-${course.weekEnd}|${course.isSingleWeek}`;
+    const key = `${course.name}|${course.teacher}|${course.dayOfWeek}|${course.isSingleWeek}`;
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key)!.push(course);
   }
 
   const mergedCourses: RawCourse[] = [];
+  // for (const course of rawCourses) {
+  //   console.log(`课程${course.name} 时间是${course.periodTime} `);
+  // }
   for (const [key, courses] of grouped.entries()) {
+    //console.log(`[zju-client] 处理课程组: ${key}, 包含条目数: ${courses.length}`);
     // 按 startPeriod 排序
     courses.sort((a, b) => a.startPeriod - b.startPeriod);
     let current = courses[0];
@@ -648,7 +653,14 @@ function parseKbList(kbList: any[], yearText: string, termText: string): RawCour
         // 合并：扩展 endPeriod
         current.endPeriod = next.endPeriod;
         // 可选：合并 id（使用第一个的 id 或拼接）
+        current.periodTime = (() => {
+          const start = PT[current.startPeriod]?.[0];
+          const end = PT[next.endPeriod]?.[1];
+          if (start && end) return `${start}—${end}`;
+          return "";
+        })();
         current.id = `${current.id}_${next.id}`;
+        //console.log(`[zju-client] 合并课程: ${current.name} (${current.id}), 新时间: 周${current.dayOfWeek} ${current.startPeriod}-${current.endPeriod}节`);
       } else {
         merged.push(next);
         current = next;
