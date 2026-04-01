@@ -1,6 +1,6 @@
 import {
   ScrollView, Text, View, TouchableOpacity,
-  ActivityIndicator, Animated,
+  ActivityIndicator, Animated,RefreshControl,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -12,6 +12,9 @@ import { loadSession, fetchGrade, fetchMajorGrade, fetchExams, Grade, ExamInfo }
 import { useRouter } from 'expo-router';
 import { writeLog } from "@/lib/diagnostic-log";
 import { Background } from "@react-navigation/elements";
+import { useTheme, CARD_RADIUS_VALUES } from "@/lib/theme-provider";
+import { rmSync } from "fs";
+
 
 // Cache helpers
 function academicCacheKey(type: "major_grade" | "all_grade" | "exams", username: string) {
@@ -147,13 +150,15 @@ function getNearestFutureDate(exams: ExamInfo[]): Date | null {
 function SemesterExamGroup({
   group,
   isPast = false,
+  radius = 12,
 }: {
   group: { key: string; displayName: string; endDate: Date; exams: ExamInfo[] };
   isPast?: boolean;
+  radius?: number;
 }) {
   const colors = useColors();
   const [expanded, setExpanded] = useState(false);
-
+  
   // 对于非 past 的组，才需要折叠逻辑
   const nearestDate = !isPast ? getNearestFutureDate(group.exams) : null;
   const hasFutureExams = nearestDate !== null;
@@ -188,7 +193,7 @@ function SemesterExamGroup({
             alignSelf: 'flex-start',
             paddingHorizontal: 12,
             paddingVertical: 6,
-            borderRadius: 8,
+            borderRadius:radius,
             backgroundColor: hexToRgba(colors.primary, 0.1),
             marginTop: 4,
           }}
@@ -205,7 +210,7 @@ function SemesterExamGroup({
             alignSelf: 'flex-start',
             paddingHorizontal: 12,
             paddingVertical: 6,
-            borderRadius: 8,
+            borderRadius: radius,
             backgroundColor: hexToRgba(colors.muted, 0.1),
             marginTop: 4,
           }}
@@ -216,10 +221,10 @@ function SemesterExamGroup({
       </View>
 
       {recentExams.map((exam, idx) => (
-        <ExamCard key={`recent-${group.key}-${idx}`} exam={exam} isPast={isPast} compact={false} />
+        <ExamCard key={`recent-${group.key}-${idx}`} exam={exam} isPast={isPast} compact={false} radius={radius}/>
       ))}
       {expanded && otherExams.map((exam, idx) => (
-        <ExamCard key={`other-${group.key}-${idx}`} exam={exam} isPast={isPast} compact />
+        <ExamCard key={`other-${group.key}-${idx}`} exam={exam} isPast={isPast} compact radius={radius}/>
       ))}
     </View>
   );
@@ -282,6 +287,7 @@ function GpaCard({
   onToggleHide,
   onPress,
   stale = false,
+  radius = 12,
 }: {
   majorGpa: number;
   majorTotalCredits: number;
@@ -297,6 +303,7 @@ function GpaCard({
   onToggleHide: () => void;
   onPress: () => void;
   stale?: boolean;
+  radius?: number;
 }) {
   const colors = useColors();
   
@@ -334,7 +341,7 @@ function GpaCard({
       padding: 12,  
     }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+        <View style={{ width: 6, height: 6, borderRadius: radius, backgroundColor: color }} />
         <Text style={{ fontSize: 12, fontWeight: "600", color }}>{title}</Text>
         <Text style={{ fontSize: 10, color: colors.muted, textAlign: "center" }}>
             已修 {totalCredits} 学分
@@ -375,7 +382,7 @@ function GpaCard({
           <View
             style={{
               height: 4,
-              borderRadius: 2,
+              borderRadius: radius,
               backgroundColor: hexToRgba(color, 0.15),
               overflow: "hidden",
             }}
@@ -384,7 +391,7 @@ function GpaCard({
               style={{
                 height: "100%",
                 width: `${(gpa / 5.0) * 100}%` as any,
-                borderRadius: 2,
+                borderRadius: radius,
                 backgroundColor: color,
               }}
             />
@@ -416,7 +423,7 @@ function GpaCard({
       activeOpacity={0.7}
       onPress={onPress}
       style={{
-        borderRadius: 16,
+        borderRadius: radius,
         backgroundColor: colors.background,
         overflow: "hidden",
         shadowColor: "#000",
@@ -451,7 +458,7 @@ function GpaCard({
               onToggleHide();
             }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            style={{ padding: 4, borderRadius: 6 }}
+            style={{ padding: 4, borderRadius: radius }}
           >
             <IconSymbol
               name={hidden ? "eye.slash" : "eye"}
@@ -548,14 +555,14 @@ function CountdownBadge({ days }: { days: number }) {
 }
 
 /** 考试卡片，支持灰色调小模式 */
-function ExamCard({ exam, isPast = false, compact = false }: { exam: ExamInfo; isPast?: boolean; compact?: boolean }) {
+function ExamCard({ exam, isPast = false, compact = false, radius = 13 }: { exam: ExamInfo; isPast?: boolean; compact?: boolean; radius?: number }) {
   const colors = useColors();
   const accentColor = isPast ? PAST_COLOR : EXAM_COLOR;
   const date  = parseExamDate(exam.examTime);
   const days  = date ? getDaysUntil(date) : -999;
 
   const cardStyle = {
-    borderRadius: 13,
+    borderRadius: radius,
     backgroundColor: colors.background,
     overflow: "hidden",
     shadowColor: "#000",
@@ -724,9 +731,12 @@ export default function AcademicScreen() {
 
   const [gpaHidden, setGpaHidden] = useState(false);
   const [showPastSemesters, setShowPastSemesters] = useState(false); // 控制是否显示已结束学期的分组
-
+  const [academicRefreshing, setAcademicRefreshing] = useState(false);
+  const { cardRadius } = useTheme();
+  const r = CARD_RADIUS_VALUES[cardRadius];
   const router = useRouter();
 
+  
   // 加载主修绩点（缓存优先）
   const loadMajorGpa = useCallback(async (forceRefresh = false) => {
     const username = await AsyncStorage.getItem("username");
@@ -867,7 +877,8 @@ export default function AcademicScreen() {
         return;
       }
     }
-
+    
+    
     setExamLoading(true);
     setExamError(null);
     try {
@@ -890,6 +901,18 @@ export default function AcademicScreen() {
       setExamLoading(false);
     }
   }, []);
+  const handleAcademicRefresh = useCallback(async () => {
+    setAcademicRefreshing(true);
+    try {
+      await Promise.all([
+        loadMajorGpa(true),
+        loadAllGpa(true),
+        loadExams(true),
+      ]);
+    } finally {
+      setAcademicRefreshing(false);
+    }
+  }, [loadMajorGpa, loadAllGpa, loadExams]);
 
   useEffect(() => {
     if (authState.userToken) {
@@ -952,6 +975,13 @@ export default function AcademicScreen() {
       <ScrollView
         contentContainerStyle={{ flexGrow: 1 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+        <RefreshControl
+          refreshing={academicRefreshing}
+          onRefresh={handleAcademicRefresh}
+          tintColor={colors.primary}
+        />
+  }
       >
         <View style={{ flex: 1, gap: 22, padding: 24 }}>
           {/* 页面标题 */}
@@ -982,11 +1012,12 @@ export default function AcademicScreen() {
             onToggleHide={toggleGpaHidden}
             onPress={handleCardPress}
             stale={majorStale || allStale}
+            radius={r}
           />
 
           {/* 考试区域 - 按学期分组 */}
           {examLoading ? (
-            <View style={{ backgroundColor: colors.background, borderRadius: 12, padding: 20, alignItems: "center" }}>
+            <View style={{ backgroundColor: colors.background, borderRadius: r, padding: 20, alignItems: "center" }}>
               <ActivityIndicator size="small" color={colors.primary} />
             </View>
           ) : examError ? (
@@ -999,7 +1030,7 @@ export default function AcademicScreen() {
               {currentGroups.length > 0 && (
                 <View style={{ gap: 20 }}>
                   {currentGroups.map(group => (
-                    <SemesterExamGroup key={group.key} group={group} isPast={false} />
+                    <SemesterExamGroup key={group.key} group={group} isPast={false} radius={r} />
                   ))}
                 </View>
               )}

@@ -20,6 +20,7 @@ import {
   Grade,
 } from "@/lib/zju-client";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useTheme, CARD_RADIUS_VALUES } from "@/lib/theme-provider";
 
 // 辅助函数
 
@@ -189,12 +190,14 @@ function CompactGpaCard({
   loading,
   error,
   onRetry,
+  radius = 16,
 }: {
   gpa: number;
   totalCredits: number;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
+  radius?: number;
 }) {
   const colors = useColors();
   const gpaColor = getGpaColor(gpa, colors);
@@ -203,7 +206,7 @@ function CompactGpaCard({
     return (
       <View
         style={{
-          borderRadius: 16,
+          borderRadius: radius,
           backgroundColor: colors.background,
           padding: 20,
           alignItems: "center",
@@ -224,7 +227,7 @@ function CompactGpaCard({
     return (
       <View
         style={{
-          borderRadius: 16,
+          borderRadius: radius,
           backgroundColor: colors.background,
           padding: 16,
         }}
@@ -237,7 +240,7 @@ function CompactGpaCard({
   return (
     <View
       style={{
-        borderRadius: 16,
+        borderRadius: radius,
         backgroundColor: colors.background,
         overflow: "hidden",
         shadowColor: "#000",
@@ -301,7 +304,7 @@ function CompactGpaCard({
 }
 
 // 分数分布条组件 
-function ScoreDistribution({ grades }: { grades: Grade[] }) {
+function ScoreDistribution({ grades, radius }: { grades: Grade[]; radius?: number }) {
   const colors = useColors();
   const { width: screenWidth } = useWindowDimensions();
 
@@ -369,7 +372,7 @@ function ScoreDistribution({ grades }: { grades: Grade[] }) {
             <View
               style={{
                 height: 6,
-                borderRadius: 3,
+                borderRadius: radius,
                 backgroundColor: hexToRgba(bucket.color, 0.15),
                 overflow: "hidden",
               }}
@@ -378,7 +381,7 @@ function ScoreDistribution({ grades }: { grades: Grade[] }) {
                 style={{
                   height: "100%",
                   width: `${pct * 100}%` as any,
-                  borderRadius: 3,
+                  borderRadius: radius,
                   backgroundColor: bucket.color,
                 }}
               />
@@ -405,7 +408,7 @@ function ScoreDistribution({ grades }: { grades: Grade[] }) {
 }
 
 //课程块：课程名称、绩点、学分，底部绩点进度条 
-function GradeItem({ grade }: { grade: Grade }) {
+function GradeItem({ grade, radius }: { grade: Grade; radius?: number }) {
   const colors = useColors();
 
   // 绩点颜色（若有）
@@ -432,7 +435,7 @@ function GradeItem({ grade }: { grade: Grade }) {
     <View
       style={{
         backgroundColor: colors.background,
-        borderRadius: 12,
+        borderRadius: radius,
         paddingHorizontal: 16,
         paddingVertical: 14,
         marginBottom: 8,
@@ -518,6 +521,8 @@ function GradeItem({ grade }: { grade: Grade }) {
 export default function GradeDetailScreen() {
   const { state: authState } = useAuth();
   const colors = useColors();
+  const { cardRadius } = useTheme();
+  const r = CARD_RADIUS_VALUES[cardRadius];
 
   // Tab 状态
   const [activeTab, setActiveTab] = useState<"major" | "all">("major");
@@ -756,14 +761,15 @@ export default function GradeDetailScreen() {
               loading={currentLoading}
               error={currentError}
               onRetry={currentRetry}
+              radius={r}
             />
 
-            {/* 分数分布（可选，保留） */}
+            {/* 分数分布*/}
             {!currentLoading && !currentError && currentGrades.length > 0 && (
               <View
                 style={{
                   backgroundColor: colors.background,
-                  borderRadius: 16,
+                  borderRadius: r,
                   padding: 16,
                   shadowColor: "#000",
                   shadowOffset: { width: 0, height: 1 },
@@ -777,7 +783,7 @@ export default function GradeDetailScreen() {
                 <Text style={{ fontSize: 14, fontWeight: "600", color: colors.foreground, marginBottom: 12 }}>
                   分数分布
                 </Text>
-                <ScoreDistribution grades={currentGrades} />
+                <ScoreDistribution grades={currentGrades} radius={r} />
               </View>
             )}
           </View>
@@ -787,7 +793,7 @@ export default function GradeDetailScreen() {
             <EmptyCard message="暂无课程成绩" />
           ) : null
         }
-        renderItem={({ item }) => <GradeItem grade={item} />}
+        renderItem={({ item }) => <GradeItem grade={item} radius={r}/>}
         contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       />

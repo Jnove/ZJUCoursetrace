@@ -144,10 +144,19 @@ export async function updateActivePalette(key: PaletteKey) {
 }
 
 /**
- * Assigns palette colours so no two adjacent course blocks share the same colour.
- * "Adjacent" means same day OR neighbouring days AND periods overlap / touch.
+ * Assigns palette colours so no two adjacent course blocks share the same colour,
+ * while guaranteeing that courses with the same name always share the same colour
+ * and maximising the number of distinct palette colours actually used.
  *
- * Returns a new array with an added `color` field on every item.
+ * Algorithm (name-level graph colouring):
+ *   1. Group items by name – one colour per unique name.
+ *   2. Build a name-level adjacency graph: two names are adjacent if any of their
+ *      course instances are on the same/neighbouring day and their periods touch.
+ *   3. Sort names by degree descending (most-constrained first).
+ *   4. For each name pick the *least-used* available colour, falling back to a
+ *      palette-index tiebreaker so the spread is stable across re-renders.
+ *
+ * Returns a new array (order preserved) with an added `color` field on every item.
  */
 export function assignColors<T extends ColorableItem>(
   items: T[],
@@ -156,37 +165,92 @@ export function assignColors<T extends ColorableItem>(
   const usedPalette = palette ?? getActivePalette();
   if (items.length === 0) return [];
 
-  const colorMap = new Map<string, string>();
+  //1. Group items by course name
+  const nameToItems = new Map<string, T[]>();
+  for (const item of items) {
+    if (!nameToItems.has(item.name)) nameToItems.set(item.name, []);
+    nameToItems.get(item.name)!.push(item);
+  }
+  const uniqueNames = Array.from(nameToItems.keys());
 
-  const sorted = [...items].sort((a, b) =>
-    a.dayOfWeek !== b.dayOfWeek   ? a.dayOfWeek   - b.dayOfWeek
-    : a.startPeriod !== b.startPeriod ? a.startPeriod - b.startPeriod
-    : a.name.localeCompare(b.name)
-  );
+  //2. Build name-level adjacency graph
+  const nameAdj = new Map<string, Set<string>>();
+  for (const name of uniqueNames) nameAdj.set(name, new Set());
 
-  for (const item of sorted) {
-    const used = new Set<string>();
+  for (let i = 0; i < uniqueNames.length; i++) {
+    for (let j = i + 1; j < uniqueNames.length; j++) {
+      const nameA = uniqueNames[i];
+      const nameB = uniqueNames[j];
+      const itemsA = nameToItems.get(nameA)!;
+      const itemsB = nameToItems.get(nameB)!;
 
-    for (const other of sorted) {
-      if (other.id === item.id) continue;
-      const assigned = colorMap.get(other.id);
-      if (!assigned) continue;
-      if (Math.abs(item.dayOfWeek - other.dayOfWeek) > 1) continue;
-      const touches =
-        item.startPeriod <= other.endPeriod   + 1 &&
-        other.startPeriod <= item.endPeriod   + 1;
-      if (touches) used.add(assigned);
+      let adjacent = false;
+      outer: for (const a of itemsA) {
+        for (const b of itemsB) {
+          if (Math.abs(a.dayOfWeek - b.dayOfWeek) > 1) continue;
+          if (
+            a.startPeriod <= b.endPeriod + 1 &&
+            b.startPeriod <= a.endPeriod + 1
+          ) {
+            adjacent = true;
+            break outer;
+          }
+        }
+      }
+
+      if (adjacent) {
+        nameAdj.get(nameA)!.add(nameB);
+        nameAdj.get(nameB)!.add(nameA);
+      }
     }
-
-    const color =
-      usedPalette.find(c => !used.has(c)) ??
-      usedPalette[
-        Math.abs(item.name.split("").reduce((h, ch) => (h << 5) - h + ch.charCodeAt(0), 0)) %
-        usedPalette.length
-      ];
-
-    colorMap.set(item.id, color);
   }
 
-  return sorted.map(item => ({ ...item, color: colorMap.get(item.id)! }));
+  //3. Sort names: most-constrained (highest degree) firs
+  const sortedNames = [...uniqueNames].sort(
+    (a, b) => nameAdj.get(b)!.size - nameAdj.get(a)!.size,
+  );
+
+  // 4. Assign colours greedily, always choosing the least-used available 
+  const nameColorMap = new Map<string, string>();
+  // Track how many times each palette colour has been assigned
+  const colorUsage = new Map<string, number>(usedPalette.map(c => [c, 0]));
+
+  for (const name of sortedNames) {
+    // Collect colours already used by adjacent names
+    const forbidden = new Set<string>();
+    for (const adjName of nameAdj.get(name)!) {
+      const c = nameColorMap.get(adjName);
+      if (c) forbidden.add(c);
+    }
+
+    const available = usedPalette.filter(c => !forbidden.has(c));
+
+    let chosen: string;
+    if (available.length === 0) {
+      // If no valid colour exists (graph needs more colours than palette has)，fall back to a deterministic hash so the same name always gets the same colour.
+      const h = Math.abs(
+        name.split("").reduce((acc, ch) => (acc << 5) - acc + ch.charCodeAt(0), 0),
+      );
+      chosen = usedPalette[h % usedPalette.length];
+    } else {
+      // Pick the least-used available colour.
+      // Use palette index as a stable tiebreaker: prefer the colour that appears later in the palette so we cycle forward through all colours before repeating.
+      chosen = available.reduce((best, c) => {
+        const cu = colorUsage.get(c) ?? 0;
+        const bu = colorUsage.get(best) ?? 0;
+        if (cu !== bu) return cu < bu ? c : best;
+        // prefer the colour with a higher palette index to cycle evenly through the whole palette.
+        return usedPalette.indexOf(c) > usedPalette.indexOf(best) ? c : best;
+      });
+    }
+
+    nameColorMap.set(name, chosen);
+    colorUsage.set(chosen, (colorUsage.get(chosen) ?? 0) + 1);
+  }
+
+  // ── 5. Stamp every item with its name's colour (order preserved) ──────────
+  return items.map(item => ({
+    ...item,
+    color: nameColorMap.get(item.name) ?? usedPalette[0],
+  }));
 }

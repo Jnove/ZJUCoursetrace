@@ -70,3 +70,4 @@ package-lock.json
 .npmrc
 
 *.code-workspace
+release-note.md

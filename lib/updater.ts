@@ -1,5 +1,4 @@
 /**
- * lib/updater.ts
  *
  * GitHub Releases update checker.
  *
@@ -12,7 +11,6 @@
  * On iOS:     opens the GitHub release page in the browser (no sideloading).
  * On Web:     opens the release page URL.
  *
- * ─── FILL IN THESE TWO CONSTANTS ─────────────────────────────────────────────
  */
 
 import { Platform, Linking } from "react-native";
@@ -136,9 +134,18 @@ export async function downloadAndInstallApk(
     throw new Error("APK 安装仅支持 Android 设备");
   }
 
+  // Android 8+ 需要检查"安装未知来源应用"的权限
+  try {
+    const { resultCode } = await IntentLauncher.startActivityAsync(
+      "android.settings.MANAGE_UNKNOWN_APP_SOURCES",
+      // 检测能否打开该 intent
+    );
+  } catch {
+    // 不支持该 intent 的旧设备忽略
+  }
+
   const destPath = FileSystem.cacheDirectory + "update.apk";
 
-  // Remove any stale download first
   const info = await FileSystem.getInfoAsync(destPath);
   if (info.exists) await FileSystem.deleteAsync(destPath, { idempotent: true });
 
@@ -162,16 +169,26 @@ export async function downloadAndInstallApk(
   const result = await downloadResumable.downloadAsync();
   if (!result?.uri) throw new Error("下载失败，请重试");
 
-  // Get the content URI so Android's package installer can open it
   const contentUri = await FileSystem.getContentUriAsync(result.uri);
-  await IntentLauncher.startActivityAsync(
-    "android.intent.action.VIEW",
-    {
-      data: contentUri,
-      flags: 1,          // FLAG_GRANT_READ_URI_PERMISSION
-      type: "application/vnd.android.package-archive",
-    },
-  );
+
+  try {
+    await IntentLauncher.startActivityAsync(
+      "android.intent.action.VIEW",
+      {
+        data: contentUri,
+        flags: 1,// FLAG_GRANT_READ_URI_PERMISSION
+        type: "application/vnd.android.package-archive",
+      },
+    );
+  } catch (e: any) {
+    // 没有权限时，引导用户去设置页开启"安装未知应用"
+    if (e?.message?.includes("Permission") || e?.message?.includes("permission")) {
+      throw new Error(
+        "没有安装权限。请前往「设置 → 应用(或隐私与安全) → 特殊应用权限 → 安装未知应用」，找到本应用并开启权限后重试。"
+      );
+    }
+    throw e;
+  }
 }
 
 /**

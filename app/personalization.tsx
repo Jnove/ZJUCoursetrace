@@ -16,8 +16,11 @@ import {
 import { useColors } from "@/hooks/use-colors";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { COURSE_PALETTES, PALETTE_ORDER, PaletteKey } from "@/lib/course-palette";
-
+import { COURSE_PALETTES, PALETTE_ORDER, PaletteKey, assignColors } from "@/lib/course-palette";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { loadActiveSemesters} from "@/lib/semester-loader";
+import { RawCourse } from "@/lib/zju-client";
+import { useSchedule } from "@/lib/schedule-context";
 
 // Accent colour palette
 
@@ -39,10 +42,11 @@ const ACCENT_COLORS = [
   { name: "石板灰", value: "#64748b" },
 ];
 
-const RADII: { label: string; sub: string; value: "small" | "medium" | "large" }[] = [
+const RADII: { label: string; sub: string; value: "small" | "medium" | "large" | "very_large" }[] = [
   { label: "紧凑", sub: "8 px",  value: "small" },
   { label: "标准", sub: "14 px", value: "medium" },
-  { label: "圆润", sub: "22 px", value: "large" },
+  { label: "圆角", sub: "22 px", value: "large" },
+  { label: "胶囊", sub: "32 px", value: "very_large" },
 ];
 
 // Utils 
@@ -77,13 +81,12 @@ function Preview({
   const colors    = useColors();
   const palette   = COURSE_PALETTES[coursePaletteKey].colors;
   const cardR     = Math.max(radius - 2, 6);
-
   const MOCK = [
-    { name: "高等数学", period: "1–2", room: "东4-101"  },
-    { name: "大学物理", period: "3–4", room: "东1-208"  },
-    { name: "线性代数", period: "6–7", room: "西2-306"  },
-    { name: "英语写作", period: "9–10",room: "曹楼105"  },
-    { name: "程序设计", period: "11–12",room:"紫金港C321" },
+    { name: "高等数学", period: "8:00–9:35", room: "东4-101",color:"#0a7ea4"  },
+    { name: "大学物理", period: "10:00–11:35", room: "东1A-208",color:"#3b82f6"  },
+    { name: "军事理论", period: "13:25–14:310", room: "西2-306",color:"#06b6d4"  },
+    { name: "心理学及应用", period: "13:25–15:50",room: "北3-411",color:"#10b981"  },
+    { name: "程序设计", period: "17:00–17:50",room:"曹西彪楼105",color:"#159243" },
   ];
 
   return (
@@ -125,32 +128,43 @@ function Preview({
         {MOCK.map((c, i) => {
           const blockColor = palette[i % palette.length];
           return (
-            <View key={i} style={{
+            <View style={{
               borderRadius: cardR, backgroundColor: colors.background,
-              overflow: "hidden",
-              shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: 0.05, shadowRadius: 3, elevation: 1,
+              overflow: "hidden", 
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.06, shadowRadius: 5, elevation: 2,
             }}>
-              <View style={{ height: 3, backgroundColor: blockColor }} />
               <View style={{
-                flexDirection: "row", alignItems: "center",
-                paddingHorizontal: 11, paddingVertical: 8, gap: 8,
-              }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, fontWeight: "500", color: colors.foreground }}
-                    numberOfLines={1}>
+                position: "absolute", left: 0, top: 0, bottom: 0,
+                width: 4, backgroundColor: c.color,
+              }} />
+              <View style={{ paddingLeft: 17, paddingRight: 14, paddingVertical: 13, gap: 6 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Text style={{
+                    flex: 1, fontSize: 15, fontWeight: "500",
+                    color: colors.foreground, lineHeight: 20,
+                  }} numberOfLines={2}>
                     {c.name}
                   </Text>
-                  <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
-                    第{c.period}节  {c.room}
-                  </Text>
                 </View>
-                <View style={{
-                  width: 6, height: 24, borderRadius: 3,
-                  backgroundColor: blockColor, opacity: 0.6,
-                }} />
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <IconSymbol name="clock.fill" size={12} color={c.color} />
+                    <Text style={{ fontSize: 13, fontWeight: "500", color: colors.foreground }}>
+                      {c.period }
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flex: 1 }}>
+                    <IconSymbol name="location.fill" size={12} color={colors.muted} />
+                    <Text style={{ fontSize: 13, color: colors.muted }} numberOfLines={1}>
+                      {c.room}
+                    </Text>
+                  </View>
+                </View>
               </View>
             </View>
+                            
           );
         })}
       </View>
@@ -241,6 +255,7 @@ function PaletteCard({
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function PersonalizationScreen() {
+  const { state, fetchScheduleBySemester, refreshAllSemesters, resetScheduleLoading } = useSchedule();
   const router  = useRouter();
   const colors  = useColors();
   const {
@@ -274,7 +289,7 @@ export default function PersonalizationScreen() {
     await setPrimaryColor(value === DEFAULT_PRIMARY ? null : value);
   };
 
-  const handleRadiusPress = async (value: "small" | "medium" | "large") => {
+  const handleRadiusPress = async (value: "small" | "medium" | "large" | "very_large") => {
     setPreviewRadius(value);
     await setCardRadius(value);
   };
@@ -282,6 +297,18 @@ export default function PersonalizationScreen() {
   const handlePalettePress = async (key: PaletteKey) => {
     setPreviewPalette(key);
     await setCoursePaletteKey(key);
+    const username = await AsyncStorage.getItem("username");
+    if (!username) return;
+    const allSemesters = await loadActiveSemesters(username);
+    
+    if (!allSemesters || allSemesters.length === 0) return;
+    for (const sem of allSemesters) {
+      const courses = await fetchScheduleBySemester(sem.yearValue, sem.termValue); // 加载课程数据以应用新配色
+      if (!courses || courses.length === 0) continue;
+      const converted = assignColors(courses);
+      AsyncStorage.setItem(`schedule_${sem.yearValue}_${sem.termValue}`, JSON.stringify(converted));
+    }
+    
   };
 
   const rv = CARD_RADIUS_VALUES[previewRadius];
@@ -430,11 +457,11 @@ export default function PersonalizationScreen() {
                     elevation: active ? 3 : 1,
                   }}
                 >
-                  <View style={{
+                  {/* <View style={{
                     width: 40, height: 28, borderRadius: optRv,
                     backgroundColor: active ? previewAccent : colors.muted,
                     opacity: active ? 0.8 : 0.3,
-                  }} />
+                  }} /> */}
                   <View style={{ alignItems: "center", gap: 2 }}>
                     <Text style={{
                       fontSize: 14, fontWeight: active ? "600" : "400",
