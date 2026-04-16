@@ -38,8 +38,10 @@ export async function loadActiveSemesters(username: string): Promise<SemesterOpt
       // 2. 缓存无效，发起网络请求
       writeLog("SCHEDULE", "缓存不存在或为空，开始网络拉取学期列表", "info");
       const session: ZjuSession = { username, jsessionId: "native", routeCookie: null };
+      //console.log(session);
+      //if (session) console.log("[session已建立]");
       const opts = await zjuGetSemesterOptions(session);
-
+      //console.log(opts);
       const allSemesters: SemesterOption[] = [];
       for (const yo of opts.yearOptions) {
         for (const to of opts.termOptions) {

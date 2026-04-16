@@ -45,6 +45,9 @@ const MAPPING = {
   "medal.fill":                            "medal",
   "chart.bar.fill":                        "chart-bar",
   "star.fill":                             "star",
+
+  // Calendar
+  "calendar":                              "calendar-month",
 } as IconMapping;
 
 export function IconSymbol({

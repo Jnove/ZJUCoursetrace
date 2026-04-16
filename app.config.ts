@@ -3,7 +3,7 @@ import "./scripts/load-env.js";
 import type { ExpoConfig } from "expo/config";
 
 
-const rawBundleId = "zju.coursetrace.t20260224143431";
+const rawBundleId = "com.zju.coursetrace";
 const bundleId =
   rawBundleId
     .replace(/[-_]/g, ".") // Replace hyphens/underscores with dots
@@ -131,13 +131,13 @@ const config: ExpoConfig = {
     ["expo-notifications", {
       "androidMode": "default"
     }],
+    // ["expo-gaode-map", { "androidKey": "", "iosKey": "" }]
   ],
   experiments: {
     typedRoutes: true,
     reactCompiler: true,
   },
   "extra": {
-    
   }
 };
 

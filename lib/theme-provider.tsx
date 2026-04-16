@@ -51,26 +51,23 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // 加载保存的偏好
   useEffect(() => {
     const loadPreferences = async () => {
-      // 1. 先加载模块级调色板（从 AsyncStorage 同步到内存）
+      // 1. 加载课程配色到模块变量，并获取当前 key
       await loadCoursePalette();
-      
+      const paletteKey = getActivePaletteKey();
+      setCoursePaletteKeyState(paletteKey);  // 直接同步 state
+
+      // 2. 其他偏好...
       const savedTheme = await AsyncStorage.getItem('theme-preference');
       if (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system') {
         setThemePreferenceState(savedTheme);
       }
       const savedRadius = await AsyncStorage.getItem('card-radius');
-      if (savedRadius === 'small' || savedRadius === 'medium' || savedRadius === 'large') {
+      if (savedRadius === 'small' || savedRadius === 'medium' || savedRadius === 'large' || savedRadius === 'very_large') {
         setCardRadiusState(savedRadius);
       }
       const savedPrimary = await AsyncStorage.getItem('primary-color');
       if (savedPrimary && typeof savedPrimary === 'string') {
         setCustomPrimaryColor(savedPrimary);
-      }
-      const savedPalette = await AsyncStorage.getItem('course-palette');
-      if (savedPalette && COURSE_PALETTES[savedPalette as PaletteKey]) {
-        setCoursePaletteKeyState(savedPalette as PaletteKey);
-        // 确保模块变量与 state 一致（loadCoursePalette 已做，但若存储与之前不一致，再次同步）
-        await saveCoursePalette(savedPalette as PaletteKey);
       }
     };
     loadPreferences();

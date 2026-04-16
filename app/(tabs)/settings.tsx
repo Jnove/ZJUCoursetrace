@@ -236,11 +236,11 @@ export default function SettingsScreen() {
               // 保留当前登录用户名 (username)，除非是退出登录触发的清理
               const toRemove = keys.filter(k => 
                 !k.startsWith("pref_") && 
-                k !== "username" &&
-                k !== "zju_session_v3" // 保留会话，只清数据
+                k !== "username"  // 只清数据
               );
               
               if (toRemove.length > 0) {
+                if (toRemove.filter(k => k === "zju_session_vs")) console.log("[session cleaned]");
                 await AsyncStorage.multiRemove(toRemove);
               }
               Alert.alert("完成", `已清除 ${toRemove.length} 项缓存数据`);
