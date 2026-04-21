@@ -20,8 +20,16 @@ import { AuthProvider } from "@/lib/auth-context";
 import { ScheduleProvider } from "@/lib/schedule-context";
 import { useAutoUpdate } from '@/hooks/use-auto-update';
 import { CustomModal } from '@/components/ui/custom-modal';
+import * as Notifications from 'expo-notifications';
 
-
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+    shouldShowBanner: true,  // 前台不弹横幅
+    shouldShowList: true,     // 保留在通知中心列表
+  }),
+});
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };

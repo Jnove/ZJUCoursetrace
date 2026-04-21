@@ -10,9 +10,6 @@ import {
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import {
-  useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY,
-} from "@/lib/theme-provider";
 import { useColors } from "@/hooks/use-colors";
 import { useRouter } from "expo-router";
 import { useState } from "react";
@@ -21,6 +18,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { loadActiveSemesters} from "@/lib/semester-loader";
 import { RawCourse } from "@/lib/zju-client";
 import { useSchedule } from "@/lib/schedule-context";
+import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 
 // Accent colour palette
 
@@ -61,9 +59,11 @@ function hexToRgba(hex: string, a: number) {
 // Section label
 function SectionLabel({ children }: { children: string }) {
   const colors = useColors();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
   return (
     <Text style={{
-      fontSize: 11, fontWeight: "600", color: colors.muted,
+      fontSize: 11, fontWeight: "600", color: colors.muted, fontFamily: ff,
       letterSpacing: 0.6, textTransform: "uppercase",
       paddingHorizontal: 2,
     }}>
@@ -88,6 +88,8 @@ function Preview({
     { name: "心理学及应用", period: "13:25–15:50",room: "北3-411",color:"#10b981"  },
     { name: "程序设计", period: "17:00–17:50",room:"曹西彪楼105",color:"#159243" },
   ];
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   return (
     <View style={{
@@ -109,7 +111,7 @@ function Preview({
           backgroundColor: accentColor,
           alignItems: "center", justifyContent: "center",
         }}>
-          <Text style={{ fontSize: 13, fontWeight: "700", color: "#fff" }}>Z</Text>
+          <Text style={{ fontSize: 13, fontWeight: "700", color: "#fff", fontFamily: ff }}>Z</Text>
         </View>
         <View style={{ flex: 1, gap: 5 }}>
           <View style={{ width: 72, height: 9, borderRadius: 4, backgroundColor: colors.foreground, opacity: 0.75 }} />
@@ -119,7 +121,7 @@ function Preview({
           paddingHorizontal: 9, paddingVertical: 4, borderRadius: cardR,
           backgroundColor: hexToRgba(accentColor, 0.13),
         }}>
-          <Text style={{ fontSize: 11, fontWeight: "600", color: accentColor }}>周一</Text>
+          <Text style={{ fontSize: 11, fontWeight: "600", color: accentColor, fontFamily: ff }}>周一</Text>
         </View>
       </View>
 
@@ -142,7 +144,7 @@ function Preview({
               <View style={{ paddingLeft: 17, paddingRight: 14, paddingVertical: 13, gap: 6 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Text style={{
-                    flex: 1, fontSize: 15, fontWeight: "500",
+                    flex: 1, fontSize: 15, fontWeight: "500", fontFamily: ff,
                     color: colors.foreground, lineHeight: 20,
                   }} numberOfLines={2}>
                     {c.name}
@@ -151,13 +153,13 @@ function Preview({
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                     <IconSymbol name="clock.fill" size={12} color={c.color} />
-                    <Text style={{ fontSize: 13, fontWeight: "500", color: colors.foreground }}>
+                    <Text style={{ fontSize: 13, fontWeight: "500", color: colors.foreground, fontFamily: ff }}>
                       {c.period }
                     </Text>
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flex: 1 }}>
                     <IconSymbol name="location.fill" size={12} color={colors.muted} />
-                    <Text style={{ fontSize: 13, color: colors.muted }} numberOfLines={1}>
+                    <Text style={{ fontSize: 13, color: colors.muted, fontFamily: ff }} numberOfLines={1}>
                       {c.room}
                     </Text>
                   </View>
@@ -198,6 +200,8 @@ function PaletteCard({
   const colors  = useColors();
   const palette = COURSE_PALETTES[paletteKey];
   const { primaryColor } = useTheme();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   return (
     <TouchableOpacity
@@ -226,12 +230,12 @@ function PaletteCard({
       {/* Name + description */}
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={{
-          fontSize: 15, fontWeight: isActive ? "600" : "400",
+          fontSize: 15, fontWeight: isActive ? "600" : "400", fontFamily: ff,
           color: isActive ? primaryColor : colors.foreground,
         }}>
           {palette.name}
         </Text>
-        <Text style={{ fontSize: 12, color: colors.muted }}>{palette.desc}</Text>
+        <Text style={{ fontSize: 12, color: colors.muted, fontFamily: ff }}>{palette.desc}</Text>
       </View>
 
       {/* Check */}
@@ -241,7 +245,7 @@ function PaletteCard({
           backgroundColor: primaryColor,
           alignItems: "center", justifyContent: "center",
         }}>
-          <Text style={{ fontSize: 13, color: "#fff", fontWeight: "700" }}>✓</Text>
+          <Text style={{ fontSize: 13, color: "#fff", fontWeight: "700", fontFamily: ff }}>✓</Text>
         </View>
       ) : (
         <View style={{
@@ -268,6 +272,15 @@ export default function PersonalizationScreen() {
   const [previewAccent,  setPreviewAccent]  = useState(primaryColor);
   const [previewRadius,  setPreviewRadius]  = useState(cardRadius);
   const [previewPalette, setPreviewPalette] = useState(coursePaletteKey);
+  const { fontFamily, setFontFamily } = useTheme();
+  const [previewFont, setpreviewFont] = useState<FontFamily>(fontFamily);
+  const ff = FONT_FAMILY_META[fontFamily].value;
+
+
+  const handleFontPress = async (key: FontFamily) => {
+    setpreviewFont(key);
+    await setFontFamily(key);
+  };
 
   const isDefault =
     previewAccent  === DEFAULT_PRIMARY &&
@@ -329,7 +342,7 @@ export default function PersonalizationScreen() {
           <IconSymbol name="chevron.left" size={22} color={previewAccent} />
         </TouchableOpacity>
         <Text style={{
-          flex: 1, textAlign: "center",
+          flex: 1, textAlign: "center", fontFamily: ff,
           fontSize: 17, fontWeight: "600", color: colors.foreground,
         }}>
           个性化
@@ -340,7 +353,7 @@ export default function PersonalizationScreen() {
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           style={{ opacity: isDefault ? 0.3 : 1 }}
         >
-          <Text style={{ fontSize: 14, fontWeight: "500", color: previewAccent }}>重置</Text>
+          <Text style={{ fontSize: 14, fontWeight: "500", color: previewAccent, fontFamily: ff }}>重置</Text>
         </TouchableOpacity>
       </View>
 
@@ -377,10 +390,10 @@ export default function PersonalizationScreen() {
                 shadowOpacity: 0.45, shadowRadius: 10, elevation: 5,
               }} />
               <View style={{ flex: 1, gap: 3 }}>
-                <Text style={{ fontSize: 16, fontWeight: "500", color: colors.foreground }}>
+                <Text style={{ fontSize: 16, fontWeight: "500", color: colors.foreground, fontFamily: ff }}>
                   {ACCENT_COLORS.find(c => c.value === previewAccent)?.name ?? "自定义"}
                 </Text>
-                <Text style={{ fontSize: 12, color: colors.muted }}>
+                <Text style={{ fontSize: 12, color: colors.muted, fontFamily: ff }}>
                   {previewAccent.toUpperCase()}
                 </Text>
               </View>
@@ -419,7 +432,7 @@ export default function PersonalizationScreen() {
                       )}
                     </View>
                     <Text
-                      style={{ fontSize: 9, color: sel ? colors.foreground : colors.muted, width: 44, textAlign: "center" }}
+                      style={{ fontSize: 9, color: sel ? colors.foreground : colors.muted, width: 44, textAlign: "center", fontFamily: ff }}
                       numberOfLines={1}
                     >
                       {c.name}
@@ -450,11 +463,11 @@ export default function PersonalizationScreen() {
                     backgroundColor: active ? hexToRgba(previewAccent, 0.1) : colors.background,
                     borderWidth: active ? 1.5 : 0.5,
                     borderColor: active ? previewAccent : colors.border,
-                    shadowColor: active ? previewAccent : "#000",
-                    shadowOffset: { width: 0, height: active ? 3 : 1 },
-                    shadowOpacity: active ? 0.2 : 0.05,
-                    shadowRadius: active ? 6 : 3,
-                    elevation: active ? 3 : 1,
+                    // shadowColor: active ? previewAccent : "#000",
+                    // shadowOffset: { width: 0, height: active ? 3 : 1 },
+                    // shadowOpacity: active ? 0.2 : 0.05,
+                    // shadowRadius: active ? 6 : 3,
+                    // elevation: active ? 3 : 1,
                   }}
                 >
                   {/* <View style={{
@@ -464,17 +477,69 @@ export default function PersonalizationScreen() {
                   }} /> */}
                   <View style={{ alignItems: "center", gap: 2 }}>
                     <Text style={{
-                      fontSize: 14, fontWeight: active ? "600" : "400",
+                      fontSize: 14, fontWeight: active ? "600" : "400", fontFamily: ff,
                       color: active ? previewAccent : colors.foreground,
                     }}>
                       {opt.label}
                     </Text>
-                    <Text style={{ fontSize: 10, color: colors.muted }}>{opt.sub}</Text>
+                    <Text style={{ fontSize: 10, color: colors.muted, fontFamily: ff }}>{opt.sub}</Text>
                   </View>
                 </TouchableOpacity>
               );
             })}
           </View>
+        </View>
+
+        {/* ── 字体样式 */}
+        <View style={{ gap: 9 }}>
+          <SectionLabel>字体样式</SectionLabel>
+          <View style={{
+            flexDirection: "row", gap: 10,
+            backgroundColor: colors.background,
+            borderRadius: rv, borderWidth: 0.5, borderColor: colors.border,
+            padding: 12,
+          }}>
+            {(Object.keys(FONT_FAMILY_META) as FontFamily[]).map(key => {
+              const meta = FONT_FAMILY_META[key];
+              const isActive = previewFont === key;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  onPress={() => handleFontPress(key)}
+                  activeOpacity={0.7}
+                  style={{
+                    flex: 1, alignItems: "center", gap: 5,
+                    paddingVertical: 14, borderRadius: Math.max(rv - 4, 6),
+                    backgroundColor: isActive ? hexToRgba(previewAccent, 0.1) : colors.surface,
+                    borderWidth: isActive ? 1.5 : 0.5,
+                    borderColor: isActive ? previewAccent : colors.border,
+                    // shadowColor: isActive ? previewAccent : "transparent",
+                    // shadowOffset: { width: 0, height: 2 },
+                    // shadowOpacity: isActive ? 0.18 : 0,
+                    // shadowRadius: 5, elevation: isActive ? 2 : 0,
+                  }}
+                >
+                  {/* 字体预览大字 */}
+                  <Text style={{
+                    fontSize: 20, fontWeight: "700",
+                    color: isActive ? previewAccent : colors.foreground,
+                    fontFamily: meta.value,
+                  }}>
+                    Aa汉
+                  </Text>
+                  <Text style={{
+                    fontSize: 12, fontWeight: isActive ? "600" : "400",
+                    color: isActive ? previewAccent : colors.foreground,
+                    fontFamily: meta.value,
+                  }}>
+                    {meta.label}
+                  </Text>
+                  <Text style={{ fontSize: 9, color: colors.muted,fontFamily: meta.value, }}>{meta.sub}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
         </View>
 
         {/* ── Course palette ───────────────────────────────────────────────── */}
@@ -504,7 +569,7 @@ export default function PersonalizationScreen() {
             borderWidth: 0.5, borderColor: colors.border,
             padding: 16, gap: 10,
           }}>
-            <Text style={{ fontSize: 12, color: colors.muted }}>
+            <Text style={{ fontSize: 12, color: colors.muted, fontFamily: ff }}>
               {COURSE_PALETTES[previewPalette].name}的完整配色
             </Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
@@ -535,7 +600,7 @@ export default function PersonalizationScreen() {
           }}>
             <Text style={{ fontSize: 11, fontWeight: "700", color: previewAccent }}>i</Text>
           </View>
-          <Text style={{ flex: 1, fontSize: 13, color: colors.muted, lineHeight: 19 }}>
+          <Text style={{ flex: 1, fontSize: 13, color: colors.muted, lineHeight: 19, fontFamily: ff }}>
             所有更改实时生效并自动保存。课程色彩方案会在下次切换学期或刷新课表后完整呈现。
           </Text>
         </View>

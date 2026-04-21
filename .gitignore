@@ -71,3 +71,6 @@ package-lock.json
 
 *.code-workspace
 release-note.md
+
+#keystores
+*.keystore

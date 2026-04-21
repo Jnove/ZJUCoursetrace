@@ -1,12 +1,12 @@
 import {
   ScrollView, Text, View, TouchableOpacity,
-  TextInput, ActivityIndicator,
+  TextInput, ActivityIndicator, Animated, LayoutAnimation,
+  UIManager, Platform,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/lib/auth-context";
 import { useSchedule } from "@/lib/schedule-context";
 import { useRouter } from "expo-router";
-import { useTheme, CARD_RADIUS_VALUES } from "@/lib/theme-provider";
 import { useState, useEffect, useCallback, useRef } from "react";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
@@ -16,13 +16,20 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PasswordInput } from "@/components/password-input";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
-import { Platform } from 'react-native';
 import { setupNotificationChannel, updateCourseNotification, clearCourseNotification } from '@/lib/course-notification';
-import { loadActiveSemesters, SemesterOption } from "@/lib/semester-loader";
+import { loadActiveSemesters } from "@/lib/semester-loader";
+import Svg, {
+  Path, Circle, Text as SvgText,
+  Defs, LinearGradient, Stop, G, Line,
+} from 'react-native-svg';
+import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 
+// Android LayoutAnimation 需要手动启用
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
-
-// Period table 
+// ─── Period table ─────────────────────────────────────────────────────────────
 const PERIODS = [
   { number: 1,  startTime: "08:00", endTime: "08:45" },
   { number: 2,  startTime: "08:50", endTime: "09:35" },
@@ -39,7 +46,7 @@ const PERIODS = [
   { number: 13, startTime: "20:30", endTime: "21:15" },
 ];
 
-// Time utils
+// ─── Time utils ───────────────────────────────────────────────────────────────
 function parseTimeStr(t: string): number {
   const [h, m] = t.split(":").map(Number);
   return h * 3600 + m * 60;
@@ -92,7 +99,16 @@ function filterCourses(
     .sort((a, b) => a.startPeriod - b.startPeriod);
 }
 
-// Weather
+// ─── Weather types ────────────────────────────────────────────────────────────
+type HourlyWeather = {
+  time: string;      // "HH:00"
+  temp: number;
+  icon: string;
+  desc: string;
+  windSpeed: number;
+  humidity: number;
+};
+
 type WeatherData = {
   label: string;
   desc: string;
@@ -101,6 +117,9 @@ type WeatherData = {
   tempMin: number;
   rainProb: number;
   isTomorrow: boolean;
+  windSpeed: number;   // km/h
+  humidity: number;    // %
+  hourly: HourlyWeather[];
 };
 
 function weatherCodeToDesc(code: number): { desc: string; icon: string } {
@@ -129,6 +148,48 @@ function getWeatherTip(data: WeatherData): string | null {
   return null;
 }
 
+// ─── Location: 优先使用高德地图，降级到 expo-location ────────────────────────
+type SimpleCoords = { latitude: number; longitude: number };
+
+/**
+ * 尝试使用 expo-gaode-map 的定位服务（精度更高，适合中国大陆）。
+ * 若未安装或未配置 API Key，自动降级到 expo-location + IP 定位。
+ *
+ * 使用前请在 app.json plugins 配置 expo-gaode-map：
+ *   ["expo-gaode-map", { "androidKey": "YOUR_KEY", "iosKey": "YOUR_KEY" }]
+ */
+async function getLocationViaGaode(): Promise<SimpleCoords | null> {
+  try {
+    // 动态引入，避免未安装时崩溃
+    // @ts-ignore
+    const gaode = require('expo-gaode-map');
+    const AMapLocation = gaode.AMapLocation ?? gaode.Location ?? gaode.default?.Location;
+    if (!AMapLocation) return null;
+
+    // 请求系统定位权限
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') return null;
+
+    // 高德单次定位
+    const pos = await AMapLocation.getCurrentPosition({
+      accuracy: 'high',
+      timeout: 10000,
+      onceLocation: true,
+    });
+
+    const lat = pos?.latitude ?? pos?.coords?.latitude;
+    const lng = pos?.longitude ?? pos?.coords?.longitude;
+    if (lat && lng) {
+      console.log('[Location] 高德定位成功:', lat, lng, pos?.city ?? '');
+      return { latitude: lat, longitude: lng };
+    }
+    return null;
+  } catch {
+    // expo-gaode-map 未安装或未配置，静默降级
+    return null;
+  }
+}
+
 const getLocationViaWatch = (): Promise<Location.LocationObject> => {
   return new Promise((resolve, reject) => {
     let sub: Location.LocationSubscription | undefined;
@@ -140,50 +201,87 @@ const getLocationViaWatch = (): Promise<Location.LocationObject> => {
   });
 };
 
-type SimpleCoords = { latitude: number; longitude: number };
-
 export const getLocation = async (): Promise<SimpleCoords | null> => {
+  // 1. 优先高德定位（中国大陆更精准）
+  const gaodePos = await getLocationViaGaode();
+  if (gaodePos) return gaodePos;
+
+  // 2. Web 平台直接用浏览器 API
   if (Platform.OS === 'web') {
     const loc = await Location.getCurrentPositionAsync();
     return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
   }
+
+  // 3. expo-location 缓存定位
   try {
     const last = await Location.getLastKnownPositionAsync({ maxAge: 1000 * 60 * 60 * 24, requiredAccuracy: 5000 });
     if (last) return { latitude: last.coords.latitude, longitude: last.coords.longitude };
-  } catch {
-    try {
-      const ipRes = await fetch('https://httpbin.org/ip');
-      const { origin } = await ipRes.json();
-      const res = await fetch(`https://api.iping.cc/v1/query?ip=${origin}&language=zh`);
-      const json = await res.json();
-      const data = json.data;
-      if (data?.latitude && data?.longitude) {
-        console.log('[Location] 使用 IP 定位:', data.city);
-        return { latitude: parseFloat(data.latitude), longitude: parseFloat(data.longitude) };
-      }
-    } catch {}
-  }
+  } catch { /* ignore */ }
+
+  // 4. IP 定位兜底
+  try {
+    const ipRes = await fetch('https://httpbin.org/ip');
+    const { origin } = await ipRes.json();
+    const res = await fetch(`https://api.iping.cc/v1/query?ip=${origin}&language=zh`);
+    const json = await res.json();
+    const data = json.data;
+    if (data?.latitude && data?.longitude) {
+      console.log('[Location] IP 定位:', data.city);
+      return { latitude: parseFloat(data.latitude), longitude: parseFloat(data.longitude) };
+    }
+  } catch { /* ignore */ }
+
+  // 5. 最终降级：watch 定位
   const loc = await getLocationViaWatch();
   return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
 };
 
-const fetchWeather = async () => {
+// ─── Weather fetch (含风速/湿度/逐小时) ──────────────────────────────────────
+const fetchWeather = async (): Promise<WeatherData | undefined> => {
   const location = await getLocation();
   if (!location) { console.log('[Weather] 无法获取位置，跳过天气'); return; }
   const { latitude, longitude } = location;
   console.log('[Weather] 定位成功:', latitude, longitude);
+
   const url =
     `https://api.open-meteo.com/v1/forecast` +
     `?latitude=${latitude.toFixed(4)}&longitude=${longitude.toFixed(4)}` +
-    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,relative_humidity_2m_max` +
+    `&hourly=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m` +
     `&timezone=auto&forecast_days=2`;
+
   const res = await fetch(url);
   if (!res.ok) throw new Error(`API ${res.status}`);
   const json = await res.json();
   const daily = json.daily;
+  const hourly = json.hourly;
+
   const hour = new Date().getHours();
   const idx = hour >= 21 ? 1 : 0;
   const { desc, icon } = weatherCodeToDesc(daily.weather_code[idx]);
+
+  // 构建逐小时数据（从当前时刻起的 24 小时）
+  const nowHourIndex = hourly.time.findIndex((t: string) => {
+    const h = new Date(t).getHours();
+    return new Date(t).toDateString() === new Date().toDateString() && h >= hour;
+  });
+  const startIdx = nowHourIndex >= 0 ? nowHourIndex : hour;
+
+  const hourlyData: HourlyWeather[] = [];
+  for (let i = startIdx; i < startIdx + 24 && i < hourly.time.length; i++) {
+    const t = hourly.time[i];
+    const hh = new Date(t).getHours();
+    const { desc: hDesc, icon: hIcon } = weatherCodeToDesc(hourly.weather_code[i]);
+    hourlyData.push({
+      time: `${String(hh).padStart(2, '0')}:00`,
+      temp: Math.round(hourly.temperature_2m[i]),
+      icon: hIcon,
+      desc: hDesc,
+      windSpeed: Math.round(hourly.wind_speed_10m[i]),
+      humidity: Math.round(hourly.relative_humidity_2m[i]),
+    });
+  }
+
   return {
     label: idx === 1 ? "明天" : "今天",
     desc, icon,
@@ -191,11 +289,16 @@ const fetchWeather = async () => {
     tempMin: Math.round(daily.temperature_2m_min[idx]),
     rainProb: Math.round(daily.precipitation_probability_max[idx]),
     isTomorrow: idx === 1,
+    windSpeed: Math.round(daily.wind_speed_10m_max?.[idx] ?? 0),
+    humidity: Math.round(daily.relative_humidity_2m_max?.[idx] ?? 0),
+    hourly: hourlyData,
   };
 };
 
-// Period badge 
+// ─── Period badge ─────────────────────────────────────────────────────────────
 function PeriodBadge({ course }: { course: Course }) {
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
   const colors = useColors();
   const label = course.startPeriod === course.endPeriod
     ? `节 ${course.startPeriod}`
@@ -207,24 +310,47 @@ function PeriodBadge({ course }: { course: Course }) {
       borderRadius: 5,
       borderWidth: 0.5, borderColor: colors.border,
     }}>
-      <Text style={{ fontSize: 10, fontWeight: "500", color: colors.muted }}>{label}</Text>
+      <Text style={{ fontSize: 10, fontWeight: "500", color: colors.muted, fontFamily: ff }}>{label}</Text>
     </View>
   );
 }
 
-// ─── Weather card ─────────────────────────────────────────────────────────────
+// ─── Weather card (可展开) ────────────────────────────────────────────────────
 function WeatherCard({ data, radius }: { data: WeatherData; radius: number }) {
   const colors = useColors();
+  const { primaryColor } = useTheme();
+  const [expanded, setExpanded] = useState(false);
   const tip = getWeatherTip(data);
+
+  const handleToggle = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpanded(v => !v);
+  };
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
+
   return (
     <View style={{
-      borderRadius: radius,
-      backgroundColor: colors.background,
-      overflow: "hidden",
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.06, shadowRadius: 5, elevation: 2,
-    }}>
+        borderRadius: radius,
+        backgroundColor: colors.background,
+        overflow: "hidden",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06, shadowRadius: 5, elevation: 2,
+      }}>
+    <TouchableOpacity
+      activeOpacity={0.9}
+      onPress={handleToggle}
+      style={{
+        borderRadius: radius,
+        backgroundColor: colors.background,
+        overflow: "hidden",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06, shadowRadius: 5, elevation: 2,
+      }}
+    >
+      {/* ── 基础行 ── */}
       <View style={{
         flexDirection: "row", alignItems: "center",
         paddingHorizontal: 16, paddingVertical: 12, gap: 12,
@@ -232,33 +358,349 @@ function WeatherCard({ data, radius }: { data: WeatherData; radius: number }) {
         <IconSymbol
           name={data.icon as any}
           size={32}
-          color={data.isTomorrow ? colors.muted : colors.primary}
+          color={data.isTomorrow ? colors.muted : primaryColor}
         />
         <View style={{ flex: 1, gap: 3 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: colors.foreground }}>
+            <Text style={{ fontSize: 13, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
               {data.label}天气
             </Text>
             <Text style={{ fontSize: 13, color: colors.muted }}>{data.desc}</Text>
             {data.rainProb > 0 && (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
                 <IconSymbol name="drop.fill" size={10} color={colors.muted} />
-                <Text style={{ fontSize: 11, color: colors.muted }}>{data.rainProb}%</Text>
+                <Text style={{ fontSize: 11, color: colors.muted, fontFamily: ff }}>{data.rainProb}%</Text>
               </View>
             )}
           </View>
           {tip && (
-            <Text style={{ fontSize: 12, color: colors.primary }}>{tip}</Text>
+            <Text style={{ fontSize: 12, color: primaryColor, fontFamily: ff }}>{tip}</Text>
           )}
         </View>
         <View style={{ alignItems: "flex-end", gap: 1 }}>
-          <Text style={{ fontSize: 20, fontWeight: "500", color: colors.foreground }}>
+          <Text style={{ fontSize: 20, fontWeight: "500", color: colors.foreground, fontFamily: ff }}>
             {data.tempMax}°
           </Text>
-          <Text style={{ fontSize: 11, color: colors.muted }}>{data.tempMin}° 最低</Text>
+          <Text style={{ fontSize: 11, color: colors.muted, fontFamily: ff }}>{data.tempMin}° 最低</Text>
         </View>
+        {/* 展开指示箭头 */}
+        <IconSymbol
+          name={"chevron.left"}
+          size={14}
+          color={colors.muted}
+          style={{ transform: [{ rotate: expanded ? '90deg' : '-90deg' }] }}
+        />
       </View>
+          </TouchableOpacity>
+      {/* ── 展开详情 ── */}
+      {expanded && (
+        <View style={{ borderTopWidth: 0.5, borderTopColor: colors.border }}>
+
+          {/* 风速 / 湿度 */}
+          <View style={{
+            flexDirection: "row",
+            paddingHorizontal: 16, paddingVertical: 12,
+            gap: 0,
+            borderBottomWidth: 0.5, borderBottomColor: colors.border,
+          }}>
+            <WeatherStat
+              icon="cloud.rain.fill"
+              label="降水概率"
+              value={`${data.rainProb}%`}
+              color={primaryColor}
+            />
+            <WeatherStat
+              icon="drop.fill"
+              label="湿度"
+              value={`${data.humidity}%`}
+              color="#06b6d4"
+            />
+            <WeatherStat
+              icon="cloud.fog.fill"
+              label="风速"
+              value={`${data.windSpeed} km/h`}
+              color="#64748b"
+            />
+          </View>
+
+          {/* 逐小时预报：光滑曲线图 */}
+          {data.hourly.length > 0 && (
+            <View style={{ paddingTop: 12, paddingBottom: 4 }}>
+              <View style={{
+                flexDirection: 'row', alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16, marginBottom: 6,
+              }}>
+                <Text style={{
+                  fontSize: 11, fontWeight: "600", color: colors.muted, fontFamily: ff,
+                  letterSpacing: 0.5,
+                }}>
+                  未来 24 小时
+                </Text>
+                {/* 图例 */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 18, height: 2.5, borderRadius: 2, backgroundColor: primaryColor }} />
+                    <Text style={{ fontSize: 10, color: colors.muted, fontFamily: ff }}>温度</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 5, height: 10, borderRadius: 3, backgroundColor: '#06b6d4', opacity: 0.75 }} />
+                    <Text style={{ fontSize: 10, color: colors.muted, fontFamily: ff }}>湿度</Text>
+                  </View>
+                </View>
+              </View>
+              <HourlyChart hourly={data.hourly} primaryColor={primaryColor} colors={colors} />
+            </View>
+          )}
+        </View>
+      )}
+      </View>
+    
+  );
+}
+
+function WeatherStat({
+  icon, label, value, color,
+}: {
+  icon: string; label: string; value: string; color: string;
+}) {
+  const colors = useColors();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
+  return (
+    <View style={{ flex: 1, alignItems: 'center', gap: 4 }}>
+      <IconSymbol name={icon as any} size={18} color={color} />
+      <Text style={{ fontSize: 15, fontWeight: '600', color: colors.foreground, fontFamily: ff }}>{value}</Text>
+      <Text style={{ fontSize: 11, color: colors.muted, fontFamily: ff }}>{label}</Text>
     </View>
+  );
+}
+
+// ─── Weather icon → emoji map (for SVG text rendering) ───────────────────────
+const WEATHER_EMOJI: Record<string, string> = {
+  "sun.max.fill":       "☀",
+  "cloud.sun.fill":     "⛅",
+  "cloud.fill":         "☁",
+  "cloud.fog.fill":     "🌫",
+  "cloud.drizzle.fill": "🌦",
+  "cloud.rain.fill":    "🌧",
+  "cloud.snow.fill":    "❄",
+  "cloud.bolt.fill":    "⛈",
+};
+
+/**
+ * Catmull-Rom 样条 → Cubic Bezier 转换，生成经过所有控制点的光滑 SVG 路径。
+ * 相邻控制点切线由前后两点决定，自然不振荡。
+ */
+function buildSmoothPath(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return '';
+  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const p0 = pts[Math.max(i - 2, 0)];
+    const p1 = pts[i - 1];
+    const p2 = pts[i];
+    const p3 = pts[Math.min(i + 1, pts.length - 1)];
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)} ${cp2x.toFixed(1)} ${cp2y.toFixed(1)} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  }
+  return d;
+}
+
+// ─── 逐小时折线图（SVG 光滑曲线 + 湿度柱）──────────────────────────────────
+function HourlyChart({
+  hourly, primaryColor, colors,
+}: {
+  hourly: HourlyWeather[];
+  primaryColor: string;
+  colors: any;
+}) {
+  if (hourly.length < 2) return null;
+
+  // ── 水平布局 ──────────────────────────────────────────────────────────────
+  const STEP  = 54;                               // 每小时列宽
+  const PAD_L = 38;                               // 左侧留白（放刻度标签）
+  const PAD_R = 18;                               // 右侧留白
+  const W     = hourly.length * STEP + PAD_L + PAD_R;
+
+  // ── 纵向分区（从顶到底）───────────────────────────────────────────────────
+  //
+  //  ┌─ ICON_Y = 15      天气 emoji
+  //  ├─ CURVE_TOP = 30   ┐
+  //  │                   │ 温度曲线区
+  //  ├─ CURVE_BOT = 108  ┘
+  //  │  (8px gap)
+  //  ├─ HUM_TOP = 116    ← "100%" 参考线（顶）
+  //  │                   │ 湿度柱区（44px 高）
+  //  ├─ HUM_BASE = 160   ← "0%"  参考线（底）
+  //  │  (18px gap)
+  //  └─ TIME_Y = 183     时间标签
+  //     H = 192
+
+  const H          = 192;
+  const ICON_Y     = 15;
+  const CURVE_TOP  = 30;
+  const CURVE_BOT  = 108;
+  const HUM_TOP    = 116;   // 100% 对应的 y
+  const HUM_BASE   = 160;   // 0%  对应的 y
+  const HUM_ZONE_H = HUM_BASE - HUM_TOP;  // = 44px，满格就是 44px
+  const TIME_Y     = 183;
+  const CURVE_H    = CURVE_BOT - CURVE_TOP;
+
+  // ── 温度映射 ──────────────────────────────────────────────────────────────
+  const temps   = hourly.map(h => h.temp);
+  const minTemp = Math.min(...temps) - 1.5;
+  const maxTemp = Math.max(...temps) + 1.5;
+  const range   = maxTemp - minTemp || 1;
+
+  const getX   = (i: number) => PAD_L + i * STEP + STEP / 2;
+  const getTempY = (t: number) => CURVE_BOT - ((t - minTemp) / range) * CURVE_H;
+  const getHumY  = (h: number) => HUM_BASE - (h / 100) * HUM_ZONE_H;
+
+  const pts      = hourly.map((h, i) => ({ x: getX(i), y: getTempY(h.temp) }));
+  const linePath = buildSmoothPath(pts);
+  const fillPath = `${linePath} L ${pts[pts.length-1].x} ${CURVE_BOT} L ${pts[0].x} ${CURVE_BOT} Z`;
+
+  const HUM_COLOR  = '#06b6d4';
+  const GUIDE_COL  = colors.muted;   // 刻度文字颜色
+  const GUIDE_LINE = '#94a3b8';      // 参考线颜色（比 border 深一些，保证可见）
+
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ paddingVertical: 4 }}
+    >
+      <Svg width={W} height={H}>
+        <Defs>
+          <LinearGradient id="tGrad2" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0"   stopColor={primaryColor} stopOpacity="0.26" />
+            <Stop offset="0.8" stopColor={primaryColor} stopOpacity="0.04" />
+            <Stop offset="1"   stopColor={primaryColor} stopOpacity="0"    />
+          </LinearGradient>
+          {/* 湿度柱：从顶（不透明）到底（半透明） */}
+          <LinearGradient id="hGrad2" x1="0" y1={HUM_TOP} x2="0" y2={HUM_BASE} gradientUnits="userSpaceOnUse">
+            <Stop offset="0" stopColor={HUM_COLOR} stopOpacity="0.9" />
+            <Stop offset="1" stopColor={HUM_COLOR} stopOpacity="0.3" />
+          </LinearGradient>
+        </Defs>
+
+        {/* ── 湿度区参考线：100% ────────────────────────────────────────── */}
+        <Line
+          x1={PAD_L - 6} y1={HUM_TOP}
+          x2={W - PAD_R} y2={HUM_TOP}
+          stroke={GUIDE_LINE} strokeWidth="1"
+          strokeDasharray="3 3" opacity="0.9"
+        />
+        <SvgText
+          x={PAD_L - 8} y={HUM_TOP + 4}
+          fontSize="9" textAnchor="end" fill={GUIDE_COL} opacity="0.85"
+        >100%</SvgText>
+
+        {/* ── 湿度区参考线：50% ──────────────────────────────────────────── */}
+        <Line
+          x1={PAD_L - 6} y1={(HUM_TOP + HUM_BASE) / 2}
+          x2={W - PAD_R} y2={(HUM_TOP + HUM_BASE) / 2}
+          stroke={GUIDE_LINE} strokeWidth="0.75"
+          strokeDasharray="2 4" opacity="0.5"
+        />
+        <SvgText
+          x={PAD_L - 8} y={(HUM_TOP + HUM_BASE) / 2 + 4}
+          fontSize="9" textAnchor="end" fill={GUIDE_COL} opacity="0.6"
+        >50%</SvgText>
+
+        {/* ── 湿度区基线：0% ────────────────────────────────────────────── */}
+        <Line
+          x1={PAD_L - 6} y1={HUM_BASE}
+          x2={W - PAD_R} y2={HUM_BASE}
+          stroke={GUIDE_LINE} strokeWidth="1.2"
+          opacity="0.9"
+        />
+        <SvgText
+          x={PAD_L - 8} y={HUM_BASE + 4}
+          fontSize="9" textAnchor="end" fill={GUIDE_COL} opacity="0.85"
+        >0%</SvgText>
+
+        {/* ── 温度曲线渐变填充 ──────────────────────────────────────────── */}
+        <Path d={fillPath} fill="url(#tGrad2)" />
+
+        {/* ── 每列数据 ─────────────────────────────────────────────────── */}
+        {hourly.map((h, i) => {
+          const x      = getX(i);
+          const tempY  = getTempY(h.temp);
+          const humTop = getHumY(h.humidity);        // 柱顶 y（数值越大 y 越小）
+          const showLabel = i % 3 === 0;
+          const emoji  = WEATHER_EMOJI[h.icon] ?? '·';
+
+          return (
+            <G key={i}>
+              {/* 天气 emoji（每 3 小时） */}
+              {showLabel && (
+                <SvgText x={x} y={ICON_Y} fontSize="13" textAnchor="middle" fill={colors.foreground}>
+                  {emoji}
+                </SvgText>
+              )}
+
+              {/* 温度标签（曲线上方） */}
+              <SvgText
+                x={x} y={tempY - 6}
+                fontSize="10.5" fontWeight="700" textAnchor="middle"
+                fill={colors.foreground}
+              >
+                {h.temp}°
+              </SvgText>
+
+              {/* 湿度柱：从 HUM_BASE 向上延伸到 humTop */}
+              <Path
+                d={`M ${x} ${HUM_BASE} L ${x} ${humTop}`}
+                stroke="url(#hGrad2)"
+                strokeWidth="6"
+                strokeLinecap="round"
+              />
+
+              {/* 湿度数值（柱顶上方，若列太短就显示在柱内）*/}
+              {showLabel && (
+                <SvgText
+                  x={x}
+                  y={humTop - 4}
+                  fontSize="9" fontWeight="600" textAnchor="middle"
+                  fill={HUM_COLOR} opacity="0.95"
+                >
+                  {h.humidity}%
+                </SvgText>
+              )}
+
+              {/* 时间标签（每 3 小时） */}
+              {showLabel && (
+                <SvgText x={x} y={TIME_Y} fontSize="10" textAnchor="middle" fill={colors.muted}>
+                  {h.time}
+                </SvgText>
+              )}
+            </G>
+          );
+        })}
+
+        {/* ── 温度主曲线（最后画，保证在柱和标签之上） ──────────────────── */}
+        <Path
+          d={linePath}
+          stroke={primaryColor} strokeWidth="2.5"
+          fill="none" strokeLinecap="round" strokeLinejoin="round"
+        />
+
+        {/* 曲线关键点圆点（每 3 小时） */}
+        {hourly.map((h, i) => {
+          if (i % 3 !== 0) return null;
+          return (
+            <Circle key={`dot-${i}`}
+              cx={getX(i)} cy={getTempY(h.temp)} r={3.5}
+              fill={primaryColor} stroke={colors.background} strokeWidth="1.5"
+            />
+          );
+        })}
+      </Svg>
+    </ScrollView>
   );
 }
 
@@ -271,6 +713,8 @@ function OngoingCard({ course, countdown, nowSec, radius }: {
   const progress = t
     ? Math.min(1, Math.max(0, (nowSec - t.start) / (t.end - t.start)))
     : 0;
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   return (
     <View style={{
@@ -287,30 +731,30 @@ function OngoingCard({ course, countdown, nowSec, radius }: {
         <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: course.color }} />
-            <Text style={{ fontSize: 11, fontWeight: "500", color: course.color }}>上课中</Text>
+            <Text style={{ fontSize: 11, fontWeight: "500", color: course.color, fontFamily: ff }}>上课中</Text>
           </View>
-          <Text style={{ fontSize: 16, fontWeight: "500", color: colors.foreground, lineHeight: 20 }} numberOfLines={2}>
+          <Text style={{ fontSize: 16, fontWeight: "500", color: colors.foreground, lineHeight: 20, fontFamily: ff }} numberOfLines={2}>
             {course.name}
           </Text>
           <View style={{ gap: 3, marginTop: 1 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
               <IconSymbol name="clock.fill" size={12} color={course.color} />
-              <Text style={{ fontSize: 13, fontWeight: "500", color: colors.foreground }}>
+              <Text style={{ fontSize: 13, fontWeight: "500", color: colors.foreground, fontFamily: ff }}>
                 {course.periodTime ?? ""}
               </Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
               <IconSymbol name="location.fill" size={12} color={colors.muted} />
-              <Text style={{ fontSize: 13, color: colors.muted }} numberOfLines={1}>
+              <Text style={{ fontSize: 13, color: colors.muted, fontFamily: ff }} numberOfLines={1}>
                 {course.classroom}
               </Text>
             </View>
           </View>
         </View>
         <View style={{ alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-          <Text style={{ fontSize: 10, color: colors.muted, letterSpacing: 0.3 }}>距下课</Text>
+          <Text style={{ fontSize: 10, color: colors.muted, letterSpacing: 0.3, fontFamily: ff }}>距下课</Text>
           <Text style={{
-            fontSize: 24, fontWeight: "500", color: course.color,
+            fontSize: 24, fontWeight: "500", color: course.color, fontFamily: ff,
             fontVariant: ["tabular-nums"], lineHeight: 26,
           }}>
             {formatCountdown(countdown)}
@@ -331,6 +775,8 @@ function OngoingCard({ course, countdown, nowSec, radius }: {
 // ─── Next card ────────────────────────────────────────────────────────────────
 function NextCard({ course, countdown, radius }: { course: Course; countdown: number; radius: number; }) {
   const colors = useColors();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
   return (
     <View style={{
       borderRadius: radius, backgroundColor: colors.background, overflow: "hidden",
@@ -345,30 +791,30 @@ function NextCard({ course, countdown, radius }: { course: Course; countdown: nu
         <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: course.color, opacity: 0.75 }} />
-            <Text style={{ fontSize: 11, fontWeight: "500", color: colors.muted }}>即将上课</Text>
+            <Text style={{ fontSize: 11, fontWeight: "500", color: colors.muted, fontFamily: ff }}>即将上课</Text>
           </View>
-          <Text style={{ fontSize: 16, fontWeight: "500", color: colors.foreground, lineHeight: 20 }} numberOfLines={2}>
+          <Text style={{ fontSize: 16, fontWeight: "500", color: colors.foreground, lineHeight: 20, fontFamily: ff }} numberOfLines={2}>
             {course.name}
           </Text>
           <View style={{ gap: 3, marginTop: 1 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
               <IconSymbol name="clock.fill" size={12} color={course.color} />
-              <Text style={{ fontSize: 13, fontWeight: "500", color: colors.foreground }}>
+              <Text style={{ fontSize: 13, fontWeight: "500", color: colors.foreground, fontFamily: ff }}>
                 {course.periodTime ?? ""}
               </Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
               <IconSymbol name="location.fill" size={12} color={colors.muted} />
-              <Text style={{ fontSize: 13, color: colors.muted }} numberOfLines={1}>
+              <Text style={{ fontSize: 13, color: colors.muted, fontFamily: ff }} numberOfLines={1}>
                 {course.classroom}
               </Text>
             </View>
           </View>
         </View>
         <View style={{ alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-          <Text style={{ fontSize: 10, color: colors.muted, letterSpacing: 0.3 }}>距上课</Text>
+          <Text style={{ fontSize: 10, color: colors.muted, letterSpacing: 0.3, fontFamily: ff }}>距上课</Text>
           <Text style={{
-            fontSize: 22, fontWeight: "500", color: colors.foreground,
+            fontSize: 22, fontWeight: "500", color: colors.foreground, fontFamily: ff,
             fontVariant: ["tabular-nums"], lineHeight: 24,
           }}>
             {formatCountdown(countdown)}
@@ -382,6 +828,9 @@ function NextCard({ course, countdown, radius }: { course: Course; countdown: nu
 // ─── Plain course card ────────────────────────────────────────────────────────
 function CourseCard({ course, radius }: { course: Course; radius: number }) {
   const colors = useColors();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
+  
   return (
     <View style={{
       borderRadius: radius, backgroundColor: colors.background, overflow: "hidden",
@@ -395,7 +844,7 @@ function CourseCard({ course, radius }: { course: Course; radius: number }) {
       <View style={{ paddingLeft: 17, paddingRight: 13, paddingVertical: 11, gap: 4 }}>
         <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
           <Text style={{
-            flex: 1, fontSize: 14, fontWeight: "500",
+            flex: 1, fontSize: 14, fontWeight: "500", fontFamily: ff,
             color: colors.foreground, lineHeight: 18,
           }} numberOfLines={2}>
             {course.name}
@@ -405,13 +854,13 @@ function CourseCard({ course, radius }: { course: Course; radius: number }) {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <IconSymbol name="clock.fill" size={11} color={course.color} />
-            <Text style={{ fontSize: 12, fontWeight: "500", color: colors.foreground }}>
+            <Text style={{ fontSize: 12, fontWeight: "500", color: colors.foreground, fontFamily: ff }}>
               {course.periodTime ?? ""}
             </Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flex: 1 }}>
             <IconSymbol name="location.fill" size={11} color={colors.muted} />
-            <Text style={{ fontSize: 12, color: colors.muted }} numberOfLines={1}>
+            <Text style={{ fontSize: 12, color: colors.muted, fontFamily: ff }} numberOfLines={1}>
               {course.classroom}
             </Text>
           </View>
@@ -422,6 +871,8 @@ function CourseCard({ course, radius }: { course: Course; radius: number }) {
 }
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
+const POEM_COOLDOWN_MS = 5000; // 5 秒冷却
+
 export default function HomeScreen() {
   const { primaryColor } = useTheme();
   const { state: authState, signIn } = useAuth();
@@ -439,7 +890,12 @@ export default function HomeScreen() {
   const [semesterInfo, setSemesterInfo] = useState<SemesterInfo | null>(null);
   const [nowSeconds, setNowSeconds] = useState(getNowSeconds);
 
+  // ── 诗词：支持刷新 + 5 秒冷却 ──────────────────────────────────────────────
   const [poem, setPoem] = useState<{ content: string; origin: string; author: string } | null>(null);
+  const [poemLoading, setPoemLoading] = useState(false);
+  const [poemCooldown, setPoemCooldown] = useState(0); // 剩余冷却秒数
+  const poemCooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [weatherError, setWeatherError] = useState<string | null>(null);
   const { cardRadius } = useTheme();
@@ -457,12 +913,40 @@ export default function HomeScreen() {
     return () => clearInterval(t);
   }, []);
 
-  // Poem
+  // ── 诗词获取 ─────────────────────────────────────────────────────────────────
+  const fetchPoem = useCallback(async () => {
+    if (poemLoading || poemCooldown > 0) return;
+    setPoemLoading(true);
+    try {
+      const res = await fetch("https://v1.jinrishici.com/all.json");
+      const d = await res.json();
+      setPoem({ content: d.content, origin: d.origin, author: d.author });
+      // 启动冷却倒计时
+      setPoemCooldown(POEM_COOLDOWN_MS / 1000);
+      poemCooldownRef.current = setInterval(() => {
+        setPoemCooldown(prev => {
+          if (prev <= 1) {
+            clearInterval(poemCooldownRef.current!);
+            poemCooldownRef.current = null;
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } catch { /* 静默失败 */ } finally {
+      setPoemLoading(false);
+    }
+  }, [poemLoading, poemCooldown]);
+
+  // 首次加载诗词
   useEffect(() => {
     fetch("https://v1.jinrishici.com/all.json")
       .then(r => r.json())
       .then(d => setPoem({ content: d.content, origin: d.origin, author: d.author }))
       .catch(() => {});
+    return () => {
+      if (poemCooldownRef.current) clearInterval(poemCooldownRef.current);
+    };
   }, []);
 
   // Weather
@@ -472,19 +956,13 @@ export default function HomeScreen() {
       .catch(e => setWeatherError(e instanceof Error ? e.message : '天气获取失败'));
   }, []);
 
-  /**
-   * 按优先级依次尝试找到课表 cacheKey：
-   *   1. activeSemesters 列表精确匹配（termValue 如 "2|春"）
-   *   2. lastSelectedSemester（格式与存储完全一致，最可靠的回落）
-   *   3. 纯名称拼接兜底（命中率低，但总比崩溃好）
-   */
+  // resolveCacheKey
   const resolveCacheKey = useCallback(async (
     schoolYear: string,
     semester: string,
     username: string | null,
   ): Promise<string> => {
     if (username) {
-      // ① activeSemesters 精确匹配
       const cachedSemesters = await AsyncStorage.getItem(`activeSemesters_${username}`);
       if (cachedSemesters) {
         const allSemesters: { yearValue: string; termValue: string }[] = JSON.parse(cachedSemesters);
@@ -494,11 +972,8 @@ export default function HomeScreen() {
         );
         if (match) return `schedule_${match.yearValue}_${match.termValue}`;
       }
-
-      // ② lastSelectedSemester（key 格式与 AsyncStorage 存储完全一致）
       const lastKey = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
       if (lastKey) {
-        // lastKey 形如 "2025-2026|2|春"，校验学年和学期末尾是否匹配
         const parts = lastKey.split("|");
         const lastYear     = parts[0];
         const lastSemester = parts[parts.length - 1];
@@ -507,38 +982,27 @@ export default function HomeScreen() {
         }
       }
     }
-
-    // ③ 兜底
     return `schedule_${schoolYear}_${semester}`;
   }, []);
 
-  /**
-   * 拉取今日 / 明日课程。
-   * 返回 true  → 成功读到缓存数据
-   * 返回 false → 缓存未命中，调用方可安排重试
-   */
   const fetchDayCourses = useCallback(async (): Promise<boolean> => {
     try {
       const now  = new Date();
       const info = getCurrentSemester(now);
       setSemesterInfo(info);
-      if (!info) { setTodaysCourses([]); return true; }  // 学期间隙，不重试
+      if (!info) { setTodaysCourses([]); return true; }
 
       const uname   = await AsyncStorage.getItem("username");
       const cacheKey = await resolveCacheKey(info.schoolYear, info.semester, uname);
       console.log("今日课程尝试读取课程缓存，key =", cacheKey);
       const raw      = await AsyncStorage.getItem(cacheKey);
 
-      if (!raw) {
-        // 缓存未命中，保持现有显示，告知上层重试
-        return false;
-      }
+      if (!raw) return false;
 
       const all: Course[] = JSON.parse(raw);
       const todayDow = now.getDay() === 0 ? 7 : now.getDay();
       setTodaysCourses(filterCourses(all, todayDow, info.week, info.week % 2 === 1));
 
-      // 明天
       const tomorrow = new Date(now);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tInfo = getCurrentSemester(tomorrow);
@@ -557,46 +1021,30 @@ export default function HomeScreen() {
     }
   }, [resolveCacheKey]);
 
-  // ── 登录后 / 课表更新后触发首次拉取 + 有限重试 ─────────────────────────────
   useEffect(() => {
     if (!authState.userToken) return;
-
-    // 清除上一轮遗留的重试定时器
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
+    if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
     fetchAttemptsRef.current = 0;
 
     const attemptFetch = async () => {
       fetchAttemptsRef.current += 1;
       const found = await fetchDayCourses();
-
       if (!found && fetchAttemptsRef.current < MAX_FETCH_ATTEMPTS) {
-        // 缓存还没准备好，稍后重试
         retryTimerRef.current = setTimeout(attemptFetch, RETRY_INTERVAL_MS);
       }
     };
-
     attemptFetch();
 
     return () => {
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
+      if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
     };
   }, [authState.userToken, scheduleState.courses, fetchDayCourses]);
 
-  // 午夜自动刷新（切换到新的一天）
   useEffect(() => {
     const now = new Date();
     const msToMidnight =
       new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime();
-    const t = setTimeout(() => {
-      fetchAttemptsRef.current = 0;
-      fetchDayCourses();
-    }, msToMidnight);
+    const t = setTimeout(() => { fetchAttemptsRef.current = 0; fetchDayCourses(); }, msToMidnight);
     return () => clearTimeout(t);
   }, [fetchDayCourses]);
 
@@ -626,6 +1074,9 @@ export default function HomeScreen() {
     const t = getCourseSeconds(nextCourse);
     return t ? Math.max(0, t.start - nowSeconds) : 0;
   })();
+
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   useEffect(() => {
     setupNotificationChannel();
@@ -666,35 +1117,55 @@ export default function HomeScreen() {
 
             {/* Welcome */}
             <View style={{ alignItems: "center", gap: 6 }}>
-              <Text style={{ fontSize: 28, fontWeight: "700", color: colors.foreground }}>
+              <Text style={{ fontSize: 28, fontWeight: "700", color: colors.foreground, fontFamily: ff }}>
                 欢迎回来
               </Text>
-              <Text style={{ fontSize: 15, color: colors.muted }}>{authState.username}</Text>
+              <Text style={{ fontSize: 15, color: colors.muted, fontFamily: ff }}>{authState.username}</Text>
               {semesterInfo && (
-                <Text style={{ fontSize: 13, color: primaryColor, fontWeight: "600" }}>
+                <Text style={{ fontSize: 13, color: primaryColor, fontWeight: "600", fontFamily: ff }}>
                   {semesterInfo.schoolYear} {semesterInfo.semester}学期 第{semesterInfo.week}周
                 </Text>
               )}
             </View>
 
-            {/* Poem */}
+            {/* ── 诗词（点击可刷新，5 秒冷却）─────────────────────────────── */}
             {poem && (
-              <View style={{
-                borderRadius: r,
-                backgroundColor: colors.background,
-                borderLeftWidth: 3, borderLeftColor: colors.primary,
-                paddingHorizontal: 16, paddingVertical: 14, gap: 6,
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.05, shadowRadius: 5, elevation: 1,
-              }}>
-                <Text style={{ fontSize: 14, color: colors.foreground, lineHeight: 22, letterSpacing: 0.3 }}>
+              <TouchableOpacity
+                activeOpacity={poemCooldown > 0 ? 1 : 0.75}
+                onPress={fetchPoem}
+                style={{
+                  borderRadius: r,
+                  backgroundColor: colors.background,
+                  borderLeftWidth: 3, borderLeftColor: colors.primary,
+                  paddingHorizontal: 16, paddingVertical: 14, gap: 6,
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.05, shadowRadius: 5, elevation: 1,
+                }}
+              >
+                <Text style={{ fontSize: 14, color: colors.foreground, lineHeight: 22, letterSpacing: 0.3, fontFamily: ff }}>
                   {poem.content}
                 </Text>
-                <Text style={{ fontSize: 12, color: colors.muted, textAlign: "right" }}>
-                  —— {poem.author}《{poem.origin}》
-                </Text>
-              </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 12, color: colors.muted, fontFamily: ff }}>
+                    —— {poem.author}《{poem.origin}》
+                  </Text>
+                  {/* 刷新指示 */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    {poemLoading ? (
+                      <ActivityIndicator size="small" color={colors.muted} />
+                    ) : poemCooldown > 0 ? (
+                      <Text style={{ fontSize: 11, color: colors.muted, fontFamily: ff }}>
+                        {poemCooldown}s 后可换一句
+                      </Text>
+                    ) : (
+                      <Text style={{ fontSize: 11, color: primaryColor, fontFamily: ff }}>
+                        点击换一句
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              </TouchableOpacity>
             )}
 
             {/* Weather */}
@@ -702,7 +1173,7 @@ export default function HomeScreen() {
 
             {/* Course section */}
             <View style={{ gap: 10 }}>
-              <Text style={{ fontSize: 16, fontWeight: "600", color: colors.foreground }}>
+              <Text style={{ fontSize: 16, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
                 {showTomorrow ? "明天的课程" : "今天的课程"}
               </Text>
 
@@ -713,7 +1184,7 @@ export default function HomeScreen() {
                     borderWidth: 0.5, borderColor: colors.border,
                     paddingHorizontal: 16, paddingVertical: 10, alignItems: "center",
                   }}>
-                    <Text style={{ fontSize: 13, color: colors.muted }}>
+                    <Text style={{ fontSize: 13, color: colors.muted, fontFamily: ff }}>
                       {todaysCourses.length > 0 ? "今天的课程已全部结束" : "今天没有课程"}
                     </Text>
                   </View>
@@ -725,7 +1196,7 @@ export default function HomeScreen() {
                         borderWidth: 0.5, borderColor: colors.border,
                         padding: 16, alignItems: "center",
                       }}>
-                        <Text style={{ fontSize: 13, color: colors.muted }}>明天也没有课程</Text>
+                        <Text style={{ fontSize: 13, color: colors.muted, fontFamily: ff }}>明天也没有课程</Text>
                       </View>
                     )}
                 </View>
@@ -735,8 +1206,8 @@ export default function HomeScreen() {
                     <OngoingCard
                       course={ongoingCourse}
                       countdown={ongoingCountdown}
-                        nowSec={nowSeconds}
-                        radius={r}
+                      nowSec={nowSeconds}
+                      radius={r}
                     />
                   )}
                   {nextCourse && (
@@ -749,7 +1220,7 @@ export default function HomeScreen() {
                       borderWidth: 0.5, borderColor: colors.border,
                       padding: 16, alignItems: "center",
                     }}>
-                      <Text style={{ fontSize: 13, color: colors.muted }}>今天没有课程</Text>
+                      <Text style={{ fontSize: 13, color: colors.muted, fontFamily: ff }}>今天没有课程</Text>
                     </View>
                   )}
                 </View>
@@ -762,7 +1233,7 @@ export default function HomeScreen() {
               style={{ backgroundColor:primaryColor, borderRadius:r, paddingVertical:14, alignItems:"center",flexDirection:"row", justifyContent:"center", gap:8 }}
               activeOpacity={0.8}
             >
-              <Text style={{ color: "#fff", fontWeight: "600", fontSize: 15 }}>查看课表</Text>
+              <Text style={{ color: "#fff", fontWeight: "600", fontSize: 15, fontFamily: ff }}>查看课表</Text>
             </TouchableOpacity>
 
           </View>
@@ -778,8 +1249,8 @@ export default function HomeScreen() {
         <View style={{ flex: 1, justifyContent: "center", gap: 24, padding: 24 }}>
 
           <View style={{ alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <Text style={{ fontSize: 36, fontWeight: "700", color: colors.foreground }}>ZJU 课迹</Text>
-            <Text style={{ fontSize: 15, color: colors.muted }}>浙江大学课表助手</Text>
+            <Text style={{ fontSize: 36, fontWeight: "700", color: colors.foreground, fontFamily: ff }}>ZJU 课迹</Text>
+            <Text style={{ fontSize: 15, color: colors.muted, fontFamily: ff }}>浙江大学课表助手</Text>
           </View>
 
           <View style={{ gap: 14 }}>
@@ -814,7 +1285,7 @@ export default function HomeScreen() {
                 borderWidth: 1, borderColor: colors.error,
                 borderRadius: r, padding: 12,
               }}>
-                <Text style={{ color: colors.error, fontSize: 13 }}>{error}</Text>
+                <Text style={{ color: colors.error, fontSize: 1, fontFamily: ff }}>{error}</Text>
               </View>
             ) : null}
 
@@ -835,10 +1306,10 @@ export default function HomeScreen() {
           </View>
 
           <View style={{ alignItems: "center", gap: 6, marginTop: 8 }}>
-            <Text style={{ fontSize: 12, color: colors.muted, textAlign: "center" }}>
+            <Text style={{ fontSize: 12, color: colors.muted, textAlign: "center", fontFamily: ff }}>
               使用浙江大学统一身份认证登录
             </Text>
-            <Text style={{ fontSize: 12, color: colors.muted, textAlign: "center" }}>
+            <Text style={{ fontSize: 12, color: colors.muted, textAlign: "center", fontFamily: ff }}>
               登录后可查看您的课程安排
             </Text>
           </View>

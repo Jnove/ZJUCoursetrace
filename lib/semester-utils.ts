@@ -102,6 +102,11 @@ export function getCurrentSemester(date: Date = new Date()): SemesterInfo | null
       week: winterWeeks + 1
     };
   }
+  else if (winterWeeks === 8) return {
+    schoolYear: `${year}-${year + 1}`,
+    semester: '冬',
+    week: 9
+  }
   
   // 检查春学期（当前年）
   const springWeeks = getWeeksDiff(springWeek1, currentMonday);
@@ -121,6 +126,10 @@ export function getCurrentSemester(date: Date = new Date()): SemesterInfo | null
       semester: '夏',
       week: summerWeeks + 1
     };
+  }else if (summerWeeks === 8) return {
+    schoolYear: `${year - 1 }-${year}`,
+    semester: '夏',
+    week: 9
   }
   
   // 检查前一年的冬学期（跨年情况）
@@ -132,6 +141,14 @@ export function getCurrentSemester(date: Date = new Date()): SemesterInfo | null
       week: prevWinterWeeks + 1
     };
   }
+  else if (prevWinterWeeks === 8) {
+    
+    return {
+      schoolYear: `${year-1}-${year}`,
+      semester: '冬',
+      week: 9
+    }
+  } 
   
   // 不在任何学期内
   return null;

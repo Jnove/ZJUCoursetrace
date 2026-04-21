@@ -265,9 +265,11 @@ async function checkSessionAlive(): Promise<boolean> {
 export async function loadSession(): Promise<ZjuSession | null> {
   try {
     const raw = await AsyncStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const s = JSON.parse(raw) as ZjuSession;
-    if (await checkSessionAlive()) return s;
+    if (raw) {
+      console.log("会话已过期");
+      const s = JSON.parse(raw) as ZjuSession;
+      if (await checkSessionAlive()) return s;
+    }
     // Silently re-login
     const creds = await loadCredentials();
     if (creds) {
@@ -277,48 +279,85 @@ export async function loadSession(): Promise<ZjuSession | null> {
   } catch { return null; }
 }
 
-// ─── Core login ───────────────────────────────────────────────────────────────
+// ─── Core login
+// - Step 1 被重定向到非 zjuam.zju.edu.cn → 换 UA 重试，最多 5 次
+// - Step 1 网络错误 / 超时（无响应）→ 立即 throw，不进行 Step 2+
 
 async function loginCore(username: string, password: string): Promise<ZjuSession> {
-  // 每次登录选一个新的 UA，避免固定 UA 触发 CAS 频率限制导致 Step 1 失败
-  const ua = randomUA();
   const loginWithService = `${CAS_BASE}/cas/login?service=${encodeURIComponent(SERVICE_URL)}`;
 
-  // ── Step 1: GET 登录页（带 service param）────────────────────────────────
-  // XHR 使用 iOS NSURLSession，自动维护 native cookie store（含 _csrf 等）
-  const pageRes1 = await xhrGet(loginWithService, ua);
-  if (!pageRes1.body) throw new Error("无法访问浙大统一认证页面，请检查网络");
+  // ── Step 1: GET 登录页 ────────────────────────────────────────────────────
+  // 若被重定向到非 zjuam 域名，换 UA 重试；若网络无响应则立即终止。
+  const MAX_STEP1_RETRIES = 5;
+  let pageRes1: Awaited<ReturnType<typeof xhrGet>> | null = null;
+  let ua = randomUA();
+
+  for (let attempt = 0; attempt < MAX_STEP1_RETRIES; attempt++) {
+    if (attempt > 0) {
+      ua = randomUA();
+      console.log(`[zju-client] Step1 retry ${attempt} with new UA`);
+    }
+
+    let res: Awaited<ReturnType<typeof xhrGet>>;
+    try {
+      // xhrGet 内部在 onerror / ontimeout 时 reject —— 网络无响应走这里
+      res = await xhrGet(loginWithService, ua);
+    } catch (netErr: any) {
+      // 无响应：直接抛出，不继续任何后续步骤
+      throw new Error(`无法访问浙大统一认证页面：${netErr?.message ?? "网络错误"}`);
+    }
+
+    if (!res.body) {
+      // 有连接但响应体为空，同样视为无响应
+      throw new Error("无法访问浙大统一认证页面，响应为空，请检查网络");
+    }
+
+    if (res.url.includes("zjuam.zju.edu.cn")) {
+      // 正常落地到 CAS 登录页
+      pageRes1 = res;
+      break;
+    }
+
+    // 被重定向到其他域名（如验证码页、中间跳转页等），换 UA 重试
+    console.warn(`[zju-client] Step1 redirected to unexpected URL: ${res.url.slice(0, 80)}`);
+  }
+
+  if (!pageRes1) {
+    throw new Error(
+      "CAS 登录页面持续重定向到非认证地址，请稍后重试。\n" +
+      "如问题持续，可尝试在浏览器访问 https://zjuam.zju.edu.cn 解锁账号。"
+    );
+  }
 
   // ── Step 2: GET RSA 公钥 ─────────────────────────────────────────────────
   const pkRes = await xhrGet(`${CAS_BASE}/cas/v2/getPubKey`, ua);
   const pkJson = JSON.parse(pkRes.body);
-  const modulus = pkJson.modulus as string | undefined;
+  const modulus  = pkJson.modulus  as string | undefined;
   const exponent = pkJson.exponent as string | undefined;
   if (!modulus || !exponent) throw new Error("RSA 公钥获取失败");
 
   const pwdEnc = rsaEncrypt(password, modulus, exponent);
 
   // ── Step 3: 重新 GET 登录页拿新的 execution token ──────────────────────
-  // execution token 是一次性的，必须重新 GET 而不是复用 Step1 的 HTML
   const pageRes2 = await xhrGet(loginWithService, ua);
-  const fields = parseCasForm(pageRes2.body);
+  const fields   = parseCasForm(pageRes2.body);
   if (fields.length === 0) throw new Error("CAS 登录表单解析失败，页面结构可能已变更");
 
   console.log("[zju-client] form fields:", fields.map(f => `${f.name}(${f.type})`).join(", "));
 
   const formBody = buildFormBody(fields, username, pwdEnc);
 
-  // ── Step 4: POST 登录（使用 XHR 避免跨域重定向导致 status=0）────────────
+  // ── Step 4: POST 登录 ────────────────────────────────────────────────────
   const postResp = await xhrPost(
     `${CAS_BASE}/cas/login?service=${encodeURIComponent(SERVICE_URL)}`,
     formBody.toString(),
     {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Referer": loginWithService,
-      "sec-fetch-dest": "document",
-      "sec-fetch-mode": "navigate",
-      "sec-fetch-site": "same-origin",
-      "sec-fetch-user": "?1",
+      "Content-Type":             "application/x-www-form-urlencoded",
+      "Referer":                   loginWithService,
+      "sec-fetch-dest":            "document",
+      "sec-fetch-mode":            "navigate",
+      "sec-fetch-site":            "same-origin",
+      "sec-fetch-user":            "?1",
       "upgrade-insecure-requests": "1",
     },
     ua,
@@ -327,20 +366,19 @@ async function loginCore(username: string, password: string): Promise<ZjuSession
 
   const finalUrl = postResp.url;
 
-  // 登录失败：最终落点仍在 zjuam（密码错、execution 不匹配、账号被锁）
   if (finalUrl.includes("zjuam.zju.edu.cn")) {
-    const errBody = postResp.body;
+    const errBody    = postResp.body;
     const errPatterns = [
       /class="[^"]*text-danger/i, /class="[^"]*alert-danger/i,
-      /class="[^"]*is-invalid/i, /id="errormsg"/i,
-      /authenticationFailure/i, /登录失败/,
-      /密码不正确|密码错误/, /账号不存在/,
+      /class="[^"]*is-invalid/i,  /id="errormsg"/i,
+      /authenticationFailure/i,   /登录失败/,
+      /密码不正确|密码错误/,       /账号不存在/,
     ];
     if (errPatterns.some(p => p.test(errBody))) {
       throw new Error("学号或密码错误，请检查后重试");
     }
     throw new Error(
-      `CAS 认证失败（最终停在 zjuam）。\n` +
+      "CAS 认证失败（最终停在 zjuam）。\n" +
       "可能账号被锁定需要滑块验证，请先在浏览器访问 https://zjuam.zju.edu.cn 解锁。"
     );
   }
@@ -376,7 +414,7 @@ const DATA_HDR = {
 async function zGet(url: string): Promise<string> {
   const ua = DATA_HDR["User-Agent"];
   const { body, url: finalUrl } = await xhrGet(url, ua, 15000);
-  if (finalUrl.includes("zjuam.zju.edu.cn")) throw new Error("__SESSION_EXPIRED__");
+  if (finalUrl.includes("zjuam.zju.edu.cn") || finalUrl.includes("login_slogin.html")) throw new Error("__SESSION_EXPIRED__");
   return body;
 }
 
@@ -392,12 +430,32 @@ async function zPost(url: string, body: string): Promise<string> {
   return respBody;
 }
 
+async function zPostJson(url: string, data: any): Promise<string> {
+  const ua = DATA_HDR["User-Agent"];
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/plain, */*",
+    "X-Requested-With": "XMLHttpRequest",
+    "User-Agent": ua,
+  };
+  const { body, url: finalUrl } = await xhrPost(url, JSON.stringify(data), headers, ua, 15000);
+  console.log(finalUrl);
+  if (finalUrl.includes("zjuam.zju.edu.cn")) throw new Error("__COURSES_EXPIRED__");
+  return body;
+}
+
 async function withRelogin<T>(session: ZjuSession, fn: () => Promise<T>): Promise<T> {
-  try { return await fn(); }
+  try {
+    return await fn();
+    console.log("这是什么");
+   }
   catch (e: any) {
     if (e.message !== "__SESSION_EXPIRED__") throw e;
     const creds = await loadCredentials();
+    const session = loadSession();
+    //if (!session) throw new Error("会话已过期，请重新登录");
     if (!creds) throw new Error("会话已过期，请重新登录");
+    console.log("重新登录");
     await loginCore(creds.username, creds.password);
     return fn();
   }
@@ -435,6 +493,7 @@ export async function getSemesterOptions(session: ZjuSession) {
   const text = await withRelogin(session, () =>
     zGet(`${ZDBK_BASE}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${session.username}`)
   );
+  //if (text) console.log("活跃学期列表"+text);
   const parseSelect = (id: string): SemesterOption[] => {
     const opts: SemesterOption[] = [];
     const block = text.match(new RegExp(`<select[^>]+id="${id}"[^>]*>([\\s\\S]*?)</select>`))?.[1] ?? "";
@@ -800,4 +859,227 @@ export async function checkSemesterHasCourses(
 export async function invalidateSession() {
   await AsyncStorage.removeItem(SESSION_KEY);
 }
+
+// ─── Homework (courses.zju.edu.cn) ──────────────────────────────────────────
+
+const COURSES_BASE = "https://courses.zju.edu.cn";
+
+export interface HomeworkInfo {
+  id: number;
+  title: string;
+  courseName: string;
+  courseId: number;
+  /** formatted "M月D日 HH:mm" */
+  deadline: string;
+  /** raw ISO-8601, used for sorting */
+  deadlineIso: string;
+  submitted: boolean;
+}
+
+function fmtHwDdl(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const mo = d.getMonth() + 1;
+    const da = d.getDate();
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${mo}月${da}日 ${hh}:${mm}`;
+  } catch {
+    return iso;
+  }
+}
+
+async function zGetCourse(url: string): Promise<string> {
+  const { body, url: fin } = await xhrGet(url, DATA_HDR["User-Agent"], 15000);
+  if (fin.includes("zjuam.zju.edu.cn")) throw new Error("__COURSES_EXPIRED__");
+  return body;
+}
+
+/**
+ * Fetch homework list for all current-semester courses.
+ *
+ * After CAS login the native cookie jar already holds the TGT, so a warm-up
+ * GET to courses.zju.edu.cn performs the service-ticket exchange silently.
+ * If that fails (account locked, network down) we re-throw with a user-
+ * friendly message.
+ */
+export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo[]> {
+  // 预热：建立 courses 会话
+  const res = await xhrGet(COURSES_BASE, DATA_HDR["User-Agent"], 10000).catch(() => {
+    console.log(`[course response]:`+res);
+    throw new Error("无法连接课程平台，请检查网络");
+  });
+
+  const loginWithService = `${CAS_BASE}/cas/login?service=${encodeURIComponent(COURSES_BASE)}`;
+  let logged_in = false;
+  // ── Step 1: GET 登录页 ────────────────────────────────────────────────────
+  // 若被重定向到非 zjuam 域名，换 UA 重试；若网络无响应则立即终止。
+  const MAX_STEP1_RETRIES = 5;
+  let pageRes1: Awaited<ReturnType<typeof xhrGet>> | null = null;
+  let ua = randomUA();
+
+  for (let attempt = 0; attempt < MAX_STEP1_RETRIES; attempt++) {
+    if (attempt > 0) {
+      ua = randomUA();
+      console.log(`[zju-client-Homework] Step1 retry ${attempt} with new UA`);
+    }
+
+    let res: Awaited<ReturnType<typeof xhrGet>>;
+    try {
+      // xhrGet 内部在 onerror / ontimeout 时 reject —— 网络无响应走这里
+      res = await xhrGet(loginWithService, ua);
+    } catch (netErr: any) {
+      // 无响应：直接抛出，不继续任何后续步骤
+      throw new Error(`无法访问浙大统一认证页面：${netErr?.message ?? "网络错误"}`);
+    }
+
+    if (!res.body) {
+      // 有连接但响应体为空，同样视为无响应
+      throw new Error("无法访问浙大统一认证页面，响应为空，请检查网络");
+    }
+    if (res.url.includes("courses.zju.edu.cn")){
+      logged_in = true;
+      break;
+    }
+    if (res.url.includes("zjuam.zju.edu.cn")) {
+      // 正常落地到 CAS 登录页
+      pageRes1 = res;
+      break;
+    }
+
+    // 被重定向到其他域名（如验证码页、中间跳转页等），换 UA 重试
+    console.warn(`[zju-client-Homework] Step1 redirected to unexpected URL: ${res.url.slice(0, 80)}`);
+  }
+  if (!logged_in) {
+    if (!pageRes1) {
+      throw new Error(
+        "CAS 登录页面持续重定向到非认证地址，请稍后重试。\n" +
+        "如问题持续，可尝试在浏览器访问 https://zjuam.zju.edu.cn 解锁账号。"
+      );
+    }
+  
+    // ── Step 2: GET RSA 公钥 ─────────────────────────────────────────────────
+    const pkRes = await xhrGet(`${CAS_BASE}/cas/v2/getPubKey`, ua);
+    const pkJson = JSON.parse(pkRes.body);
+    const modulus = pkJson.modulus as string | undefined;
+    const exponent = pkJson.exponent as string | undefined;
+    if (!modulus || !exponent) throw new Error("RSA 公钥获取失败");
+    const creds = await loadCredentials();
+    if (!creds) return [];
+    const password = creds.password;
+    const username = creds.username;
+    const pwdEnc = rsaEncrypt(password, modulus, exponent);
+
+    // ── Step 3: 重新 GET 登录页拿新的 execution token ──────────────────────
+    const pageRes2 = await xhrGet("https://zjuam.zju.edu.cn/cas/login?service=https%3A%2F%2Fidentity.zju.edu.cn%2Fauth%2Frealms%2Fzju%2Fbroker%2Fcas-client%2Fendpoint?state%3D96tljSdUIBD2ckfXLUO5scSkQuTG4SliBzf7dZqGTDo._Nx_LhVKldk.TronClass", ua);
+    console.log(pageRes2.body);
+    const fields = parseCasForm(pageRes2.body);
+    if (fields.length === 0) throw new Error("CAS 登录表单解析失败，页面结构可能已变更");
+
+    console.log("[zju-client-Homework] form fields:", fields.map(f => `${f.name}(${f.type})`).join(", "));
+
+    const formBody = buildFormBody(fields, username, pwdEnc);
+
+    // ── Step 4: POST 登录 ────────────────────────────────────────────────────
+    const postResp = await xhrPost(
+      `${CAS_BASE}/cas/login?service=${encodeURIComponent(SERVICE_URL)}`,
+      formBody.toString(),
+      {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Referer": loginWithService,
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-user": "?1",
+        "upgrade-insecure-requests": "1",
+      },
+      ua,
+      20000
+    );
+
+    const finalUrl = postResp.url;
+    //console.log(`final url:`+finalUrl);
+    if (finalUrl.includes("zjuam.zju.edu.cn")) {
+      const errBody = postResp.body;
+      const errPatterns = [
+        /class="[^"]*text-danger/i, /class="[^"]*alert-danger/i,
+        /class="[^"]*is-invalid/i, /id="errormsg"/i,
+        /authenticationFailure/i, /登录失败/,
+        /密码不正确|密码错误/, /账号不存在/,
+      ];
+      if (errPatterns.some(p => p.test(errBody))) {
+        throw new Error("学号或密码错误，请检查后重试");
+      }
+      throw new Error(
+        "CAS 认证失败（最终停在 zjuam）。\n" +
+        "可能账号被锁定需要滑块验证，请先在浏览器访问 https://zjuam.zju.edu.cn 解锁。"
+      );
+    }
+
+    // if (!finalUrl.includes("courses.zju.edu.cn")) {
+    //   throw new Error(
+    //     `登录未到达 zdbk（最终 URL: ${finalUrl.slice(0, 80)}）\n` +
+    //     "可能账号被锁定，请在浏览器访问 https://zjuam.zju.edu.cn 解锁后重试。"
+    //   );
+    // }
+
+    console.log(`[zju-client] ✅ 登录成功: ${username}`);
+  }
+  // 1. 获取课程列表（POST JSON）
+  const listPayload = {
+    fields: "id,name,course_code,department(id,name),grade(id,name),klass(id,name),course_type,cover,small_cover,start_date,end_date,is_started,is_closed,academic_year_id,semester_id,credit,compulsory,second_name,display_name,created_user(id,name),org(is_enterprise_or_organization),org_id,public_scope,audit_status,audit_remark,can_withdraw_course,imported_from,allow_clone,is_instructor,is_team_teaching,is_default_course_cover,archived,instructors(id,name,email,avatar_small_url),course_attributes(teaching_class_name,is_during_publish_period,copy_status,tip,data,audience_type,graduate_method),user_stick_course_record(id),classroom_schedule",
+    page: 1,
+    page_size: 1000,          // 一次拉取足够多的课程
+    conditions: {
+      status: ["ongoing", "notStarted"],
+      keyword: "",
+      classify_type: "recently_started",
+      display_studio_list: false
+    },
+    showScorePassedStatus: false
+  };
+
+  let courses: Array<{ id: number; name: string }>;
+  try {
+    const listText = await zPostJson(`${COURSES_BASE}/api/my-courses`, listPayload);
+    //console.log(listText);
+    const parsed = JSON.parse(listText);
+    courses = parsed.courses ?? [];
+  } catch (e: any) {
+    throw new Error(`获取课程列表失败：${e?.message || "未知错误"}`);
+  }
+
+  // 2. 并行获取每个课程的作业活动
+  const perCourse = await Promise.all(
+    courses.map(async (c) => {
+      const url = `${COURSES_BASE}/api/courses/${c.id}/homework-activities?page=1&page_size=1000`;
+      try {
+        const body = await zGetCourse(url);  // 作业列表仍为 GET 请求
+        const acts: any[] = JSON.parse(body).homework_activities ?? [];
+        return acts
+          .filter((hw) => !hw.is_closed)
+          .map(
+            (hw): HomeworkInfo => ({
+              id: hw.id as number,
+              title: (hw.title ?? "") as string,
+              courseName: c.name,
+              courseId: c.id,
+              deadline: hw.deadline ? fmtHwDdl(hw.deadline as string) : "未知",
+              deadlineIso: (hw.deadline as string) ?? "",
+              submitted: !!(hw.submitted),
+            })
+          );
+      } catch (err) {
+        console.warn(`获取课程 ${c.id} 作业失败`, err);
+        return [] as HomeworkInfo[];
+      }
+    })
+  );
+
+  // 3. 扁平化并按截止时间升序排列
+  return perCourse
+    .flat()
+    .sort((a, b) => a.deadlineIso.localeCompare(b.deadlineIso));
+}
+
 export { parseKbList, yToXnm, tToXqm, parsePeriod, parseWeeks };

@@ -12,6 +12,21 @@ import {
   getActivePaletteKey 
 } from "@/lib/course-palette";
 
+// 字体类型定义
+export type FontFamily = "system" | "rounded" | "serif" | "mono";
+
+export const FONT_FAMILY_META: Record<FontFamily, {
+  label: string; sub: string; value: string | undefined
+}> = {
+  system:  { label: "系统",   sub: "默认",          value: undefined },
+  rounded: { label: "圆润",   sub: Platform.OS === "ios" ? "SF Rounded" : "Medium", 
+             value: Platform.select({ ios: "ui-rounded", android: "sans-serif-medium" }) },
+  serif:   { label: "衬线",   sub: "Georgia",        
+             value: Platform.select({ ios: "Georgia", android: "serif" }) ?? "serif" },
+  mono:    { label: "等宽",   sub: "Menlo",          
+             value: Platform.select({ ios: "Menlo", android: "monospace" }) ?? "monospace" },
+};
+
 // 圆角半径预设
 export const CARD_RADIUS_VALUES = {
   small: 6,
@@ -35,6 +50,8 @@ type ThemeContextValue = {
   setCardRadius: (radius: CardRadius) => Promise<void>;
   coursePaletteKey: PaletteKey;
   setCoursePaletteKey: (key: PaletteKey) => Promise<void>;
+  fontFamily: FontFamily;
+  setFontFamily: (f: FontFamily) => Promise<void>;
 };
 
 
@@ -47,31 +64,35 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [customPrimaryColor, setCustomPrimaryColor] = useState<string | null>(null);
   const [cardRadius, setCardRadiusState] = useState<CardRadius>('medium');
   const [coursePaletteKey, setCoursePaletteKeyState] = useState<PaletteKey>(DEFAULT_PALETTE_KEY);
+  const [fontFamily, setFontFamilyState] = useState<FontFamily>("system");
 
   // 加载保存的偏好
   useEffect(() => {
     const loadPreferences = async () => {
-      // 1. 先加载模块级调色板（从 AsyncStorage 同步到内存）
+      // 1. 加载课程配色到模块变量，并获取当前 key
       await loadCoursePalette();
-      
+      const paletteKey = getActivePaletteKey();
+      setCoursePaletteKeyState(paletteKey);  // 直接同步 state
+
+      // 2. 其他偏好...
       const savedTheme = await AsyncStorage.getItem('theme-preference');
       if (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system') {
         setThemePreferenceState(savedTheme);
       }
       const savedRadius = await AsyncStorage.getItem('card-radius');
-      if (savedRadius === 'small' || savedRadius === 'medium' || savedRadius === 'large') {
+      if (savedRadius === 'small' || savedRadius === 'medium' || savedRadius === 'large' || savedRadius === 'very_large') {
         setCardRadiusState(savedRadius);
       }
       const savedPrimary = await AsyncStorage.getItem('primary-color');
       if (savedPrimary && typeof savedPrimary === 'string') {
         setCustomPrimaryColor(savedPrimary);
       }
-      const savedPalette = await AsyncStorage.getItem('course-palette');
-      if (savedPalette && COURSE_PALETTES[savedPalette as PaletteKey]) {
-        setCoursePaletteKeyState(savedPalette as PaletteKey);
-        // 确保模块变量与 state 一致（loadCoursePalette 已做，但若存储与之前不一致，再次同步）
-        await saveCoursePalette(savedPalette as PaletteKey);
+
+      const savedFont = await AsyncStorage.getItem("font-family");
+      if (savedFont && savedFont in FONT_FAMILY_META) {
+        setFontFamilyState(savedFont as FontFamily);
       }
+      
     };
     loadPreferences();
   }, []);
@@ -138,6 +159,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setCoursePaletteKeyState(key);
     await saveCoursePalette(key);  // 更新模块变量并存储
   };
+  
+  const setFontFamily = async (f: FontFamily) => {
+    setFontFamilyState(f);
+    await AsyncStorage.setItem("font-family", f);
+  };
 
   const themeVariables = vars({
     "color-primary": primaryColor,
@@ -163,6 +189,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         setCardRadius,
         coursePaletteKey,
         setCoursePaletteKey,
+        fontFamily,
+        setFontFamily,
       }}
     >
       <View style={[{ flex: 1 }, themeVariables]}>{children}</View>

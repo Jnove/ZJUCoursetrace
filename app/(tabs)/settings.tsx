@@ -11,7 +11,7 @@ import {
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuth } from "@/lib/auth-context";
-import { useTheme, CARD_RADIUS_VALUES } from "@/lib/theme-provider";
+import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 import { useColors } from "@/hooks/use-colors";
 import { useRouter } from "expo-router";
 import { useState } from "react";
@@ -29,6 +29,9 @@ function SettingsRow({
   chevron?: boolean; danger?: boolean; last?: boolean;
 }) {
   const colors = useColors();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
+
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -53,14 +56,14 @@ function SettingsRow({
         <IconSymbol name={icon} size={18} color="#fff" />
       </View>
       <Text style={{
-        flex: 1, fontSize: 15,
-        color:      danger ? colors.error : colors.foreground,
+        flex: 1, fontSize: 15, fontFamily: ff,
+        color: danger ? colors.error : colors.foreground,
         fontWeight: "400",
       }}>
         {label}
       </Text>
       {value && (
-        <Text style={{ fontSize: 14, color: colors.muted, marginRight: chevron ? 2 : 0 }}>
+        <Text style={{ fontSize: 14, color: colors.muted, marginRight: chevron ? 2 : 0, fontFamily: ff }}>
           {value}
         </Text>
       )}
@@ -75,11 +78,13 @@ function SettingsSection({ title, children }: { title?: string; children: React.
   const colors = useColors();
   const { cardRadius } = useTheme();
   const r = CARD_RADIUS_VALUES[cardRadius];
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
   return (
     <View style={{ gap: 6 }}>
       {title && (
         <Text style={{
-          fontSize: 11, fontWeight: "600", color: colors.muted,
+          fontSize: 11, fontWeight: "600", color: colors.muted, fontFamily: ff,
           letterSpacing: 0.6, textTransform: "uppercase",
           paddingHorizontal: 4,
         }}>
@@ -108,6 +113,8 @@ function ThemeSegment() {
     { label: "深色", value: "dark",   icon: "moon.fill" },
     { label: "自动", value: "system", icon: "circle.righthalf.fill" },
   ];
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
   return (
     <View style={{
       flexDirection: "row", backgroundColor: colors.surface,
@@ -134,7 +141,7 @@ function ThemeSegment() {
           >
             <IconSymbol name={o.icon} size={15} color={active ? primaryColor : colors.muted} />
             <Text style={{
-              fontSize: 13, fontWeight: active ? "600" : "400",
+              fontSize: 13, fontWeight: active ? "600" : "400", fontFamily: ff,
               color: active ? colors.foreground : colors.muted,
             }}>
               {o.label}
@@ -154,6 +161,8 @@ function ProfileCard({ username }: { username: string | null }) {
   const initial = username
     ? (username.match(/^\d+$/) ? username.slice(-2) : username.slice(0, 1).toUpperCase())
     : "?";
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
   return (
     <View style={{
       flexDirection: "row", alignItems: "center", gap: 14,
@@ -168,10 +177,10 @@ function ProfileCard({ username }: { username: string | null }) {
         backgroundColor: primaryColor,
         alignItems: "center", justifyContent: "center",
       }}>
-        <Text style={{ fontSize: 20, fontWeight: "600", color: "#fff" }}>{initial}</Text>
+        <Text style={{ fontSize: 20, fontWeight: "600", color: "#fff", fontFamily: ff }}>{initial}</Text>
       </View>
       <View style={{ flex: 1, gap: 3 }}>
-        <Text style={{ fontSize: 17, fontWeight: "600", color: colors.foreground }}>
+        <Text style={{ fontSize: 17, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
           {username ?? "未登录"}
         </Text>
         <Text style={{ fontSize: 12, color: colors.muted }}>浙江大学统一身份认证</Text>
@@ -180,7 +189,7 @@ function ProfileCard({ username }: { username: string | null }) {
         paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8,
         backgroundColor: `${primaryColor}1A`,
       }}>
-        <Text style={{ fontSize: 11, fontWeight: "600", color: primaryColor }}>已登录</Text>
+        <Text style={{ fontSize: 11, fontWeight: "600", color: primaryColor, fontFamily: ff }}>已登录</Text>
       </View>
     </View>
   );
@@ -196,6 +205,9 @@ export default function SettingsScreen() {
 
   const r = CARD_RADIUS_VALUES[cardRadius];
   const version = Constants.expoConfig?.version ?? "1.1.0";
+
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   const handleLogout = () => {
     Alert.alert(
@@ -236,11 +248,11 @@ export default function SettingsScreen() {
               // 保留当前登录用户名 (username)，除非是退出登录触发的清理
               const toRemove = keys.filter(k => 
                 !k.startsWith("pref_") && 
-                k !== "username" &&
-                k !== "zju_session_v3" // 保留会话，只清数据
+                k !== "username"  // 只清数据
               );
               
               if (toRemove.length > 0) {
+                if (toRemove.filter(k => k === "zju_session_vs")) console.log("[session cleaned]");
                 await AsyncStorage.multiRemove(toRemove);
               }
               Alert.alert("完成", `已清除 ${toRemove.length} 项缓存数据`);
@@ -261,7 +273,7 @@ export default function SettingsScreen() {
       >
         {/* Title */}
         <Text style={{
-          fontSize: 28, fontWeight: "700",
+          fontSize: 28, fontWeight: "700", fontFamily: ff,
           color: colors.foreground, textAlign: "center", marginBottom: 2,
         }}>
           设置
@@ -274,7 +286,7 @@ export default function SettingsScreen() {
         <SettingsSection title="外观">
           <View style={{ paddingTop: 14 }}>
             <Text style={{
-              fontSize: 12, fontWeight: "500", color: colors.muted,
+              fontSize: 12, fontWeight: "500", color: colors.muted, fontFamily: ff,
               paddingHorizontal: 16, marginBottom: 10,
               borderRadius: 10,
             }}>
@@ -352,7 +364,7 @@ export default function SettingsScreen() {
                   name="rectangle.portrait.and.arrow.right"
                   size={18} color={colors.error}
                 />
-                <Text style={{ fontSize: 15, fontWeight: "600", color: colors.error }}>
+                <Text style={{ fontSize: 15, fontWeight: "600", color: colors.error, fontFamily: ff }}>
                   退出登录
                 </Text>
               </>
