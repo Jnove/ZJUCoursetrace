@@ -1,18 +1,24 @@
 import {
-  View, Text, FlatList, TouchableOpacity,
-  ActivityIndicator, RefreshControl,
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
-import { useTheme, CARD_RADIUS_VALUES } from "@/lib/theme-provider";
+import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 import { useAuth } from "@/lib/auth-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { loadSession, fetchHomeworks, HomeworkInfo } from "@/lib/zju-client";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+import { CommonNavBar } from "@/components/common/nav-bar";
+import { ErrorCard } from "@/components/common/error-card";
+import { EmptyState } from "@/components/common/empty-state";
+import { LoadingView } from "@/components/common/loading-view";
 
 const HW_COLOR = "#8b5cf6";
 
@@ -25,9 +31,11 @@ function isToday(iso: string): boolean {
   if (!iso) return false;
   const d = new Date(iso);
   const now = new Date();
-  return d.getFullYear() === now.getFullYear() &&
+  return (
+    d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
+    d.getDate() === now.getDate()
+  );
 }
 
 function isWithin7Days(iso: string): boolean {
@@ -45,45 +53,39 @@ function isPast(iso: string): boolean {
   return new Date(iso) < new Date();
 }
 
-// ─── Tab definitions ──────────────────────────────────────────────────────────
-
 type TabKey = "today" | "week" | "pending" | "submitted" | "overdue";
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: "today",     label: "今天" },
-  { key: "week",      label: "近七天" },
-  { key: "pending",   label: "未提交" },
+  { key: "today", label: "今天" },
+  { key: "week", label: "近七天" },
+  { key: "pending", label: "未提交" },
   { key: "submitted", label: "已提交" },
-  { key: "overdue",   label: "已截止" },
+  { key: "overdue", label: "已截止" },
 ];
 
 function filterHomeworks(homeworks: HomeworkInfo[], tab: TabKey): HomeworkInfo[] {
   switch (tab) {
     case "today":
-      return homeworks.filter(h => !h.submitted && isToday(h.deadlineIso));
+      return homeworks.filter((h) => !h.submitted && isToday(h.deadlineIso));
     case "week":
-      return homeworks.filter(h => !h.submitted && isWithin7Days(h.deadlineIso));
+      return homeworks.filter((h) => !h.submitted && isWithin7Days(h.deadlineIso));
     case "pending":
-      return homeworks.filter(h => !h.submitted && !isPast(h.deadlineIso));
+      return homeworks.filter((h) => !h.submitted && !isPast(h.deadlineIso));
     case "submitted":
-      return homeworks.filter(h => h.submitted);
+      return homeworks.filter((h) => h.submitted);
     case "overdue":
-      return homeworks.filter(h => !h.submitted && isPast(h.deadlineIso));
+      return homeworks.filter((h) => !h.submitted && isPast(h.deadlineIso));
     default:
       return homeworks;
   }
 }
 
-// ─── Homework card ────────────────────────────────────────────────────────────
-
-function HomeworkCard({
-  hw, radius, tab,
-}: {
-  hw: HomeworkInfo; radius: number; tab: TabKey;
-}) {
+function HomeworkCard({ hw, radius }: { hw: HomeworkInfo; radius: number }) {
   const colors = useColors();
   const past = isPast(hw.deadlineIso);
   const today = isToday(hw.deadlineIso);
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   let accentColor = HW_COLOR;
   let tagLabel = "待提交";
@@ -103,42 +105,68 @@ function HomeworkCard({
   }
 
   return (
-    <View style={{
-      borderRadius: radius,
-      backgroundColor: colors.background,
-      overflow: "hidden",
-      marginBottom: 10,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.06,
-      shadowRadius: 5,
-      elevation: 2,
-    }}>
-      <View style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, backgroundColor: accentColor }} />
+    <View
+      style={{
+        borderRadius: radius,
+        backgroundColor: colors.background,
+        overflow: "hidden",
+        marginBottom: 10,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 5,
+        elevation: 2,
+        borderWidth: 0.5,
+        borderColor: colors.border,
+      }}
+    >
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 4,
+          backgroundColor: accentColor,
+        }}
+      />
       <View style={{ paddingLeft: 17, paddingRight: 14, paddingVertical: 13, gap: 6 }}>
-        {/* Title row */}
         <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
-          <Text style={{
-            flex: 1, fontSize: 15, fontWeight: "500",
-            color: colors.foreground, lineHeight: 20,
-          }} numberOfLines={2}>
+          <Text
+            style={{
+              flex: 1,
+              fontSize: 15,
+              fontWeight: "500",
+              fontFamily: ff,
+              color: colors.foreground,
+              lineHeight: 20,
+            }}
+            numberOfLines={2}
+          >
             {hw.title}
           </Text>
-          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: tagBg }}>
-            <Text style={{ fontSize: 11, fontWeight: "600", color: accentColor }}>{tagLabel}</Text>
+          <View
+            style={{
+              paddingHorizontal: 8,
+              paddingVertical: 3,
+              borderRadius: 6,
+              backgroundColor: tagBg,
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: "600", color: accentColor, fontFamily: ff }}>
+              {tagLabel}
+            </Text>
           </View>
         </View>
-        {/* Course name */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
           <IconSymbol name="graduationcap.fill" size={11} color={colors.muted} />
-          <Text style={{ fontSize: 12, color: colors.muted }} numberOfLines={1}>
+          <Text style={{ fontSize: 12, color: colors.muted, fontFamily: ff }} numberOfLines={1}>
             {hw.courseName}
           </Text>
         </View>
-        {/* Deadline */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
           <IconSymbol name="clock.fill" size={11} color={accentColor} />
-          <Text style={{ fontSize: 12, fontWeight: "500", color: accentColor }}>
+          <Text style={{ fontSize: 12, fontWeight: "500", color: accentColor, fontFamily: ff }}>
             截止 {hw.deadline}
           </Text>
         </View>
@@ -147,31 +175,94 @@ function HomeworkCard({
   );
 }
 
-// ─── Empty state ──────────────────────────────────────────────────────────────
-
-function EmptyState({ tab }: { tab: TabKey }) {
+function HomeworkTabBar({
+  activeTab,
+  onTabChange,
+  counts,
+}: {
+  activeTab: TabKey;
+  onTabChange: (tab: TabKey) => void;
+  counts: Record<TabKey, number>;
+}) {
   const colors = useColors();
-  const msg = {
-    today:     "今天没有截止的作业",
-    week:      "近七天没有截止的作业",
-    pending:   "没有待提交的作业",
-    submitted: "没有已提交的作业",
-    overdue:   "没有已截止未提交的作业",
-  }[tab];
+  const { primaryColor } = useTheme();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   return (
-    <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingVertical: 60, gap: 8 }}>
-      <Text style={{ fontSize: 14, color: colors.muted }}>{msg}</Text>
+    <View
+      style={{
+        flexDirection: "row",
+        backgroundColor: colors.background,
+        borderBottomWidth: 0.5,
+        borderBottomColor: colors.border,
+        paddingHorizontal: 4,
+      }}
+    >
+      {TABS.map((tab) => {
+        const isActive = activeTab === tab.key;
+        const count = counts[tab.key];
+        return (
+          <TouchableOpacity
+            key={tab.key}
+            onPress={() => onTabChange(tab.key)}
+            style={{
+              flex: 1,
+              paddingVertical: 12,
+              alignItems: "center",
+              borderBottomWidth: 2,
+              borderBottomColor: isActive ? primaryColor : "transparent",
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Text
+                style={{
+                  fontSize: 13, fontFamily: ff,
+                  fontWeight: isActive ? "600" : "400",
+                  color: isActive ? primaryColor : colors.muted,
+                }}
+              >
+                {tab.label}
+              </Text>
+              {count > 0 && (
+                <View
+                  style={{
+                    minWidth: 16,
+                    height: 16,
+                    borderRadius: 8,
+                    backgroundColor: isActive ? primaryColor : colors.surface,
+                    borderWidth: 0.5,
+                    borderColor: isActive ? primaryColor : colors.border,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingHorizontal: 4,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 9,
+                      fontFamily: ff,
+                      fontWeight: "600",
+                      color: isActive ? "#fff" : colors.muted,
+                      fontVariant: ["tabular-nums"],
+                    }}
+                  >
+                    {count > 99 ? "99+" : count}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
 
-// ─── Main screen ──────────────────────────────────────────────────────────────
-
 export default function HomeworkDetailScreen() {
   const router = useRouter();
   const colors = useColors();
-  const { primaryColor, cardRadius } = useTheme();
+  const { cardRadius } = useTheme();
   const { state: authState } = useAuth();
   const r = CARD_RADIUS_VALUES[cardRadius];
 
@@ -180,12 +271,14 @@ export default function HomeworkDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-    
-  const Service_url = "courses.zju.edu.cn";
 
   const loadData = useCallback(async (forceRefresh = false) => {
     const username = await AsyncStorage.getItem("username");
-    if (!username) { setError("请先登录"); setLoading(false); return; }
+    if (!username) {
+      setError("请先登录");
+      setLoading(false);
+      return;
+    }
     const cacheKey = `academic_homeworks_${username}`;
 
     if (!forceRefresh) {
@@ -193,7 +286,6 @@ export default function HomeworkDetailScreen() {
       if (raw) {
         setHomeworks(JSON.parse(raw));
         setLoading(false);
-        // background refresh
         try {
           const session = await loadSession();
           if (session) {
@@ -210,7 +302,10 @@ export default function HomeworkDetailScreen() {
     setError(null);
     try {
       const session = await loadSession();
-      if (!session) { setError("请先登录"); return; }
+      if (!session) {
+        setError("请先登录");
+        return;
+      }
       const result = await fetchHomeworks(session);
       setHomeworks(result);
       await AsyncStorage.setItem(cacheKey, JSON.stringify(result));
@@ -227,135 +322,65 @@ export default function HomeworkDetailScreen() {
     setRefreshing(false);
   }, [loadData]);
 
-  useEffect(() => { if (authState.userToken) loadData(); }, [authState.userToken]);
+  useEffect(() => {
+    if (authState.userToken) {
+      loadData();
+    }
+  }, [authState.userToken]);
 
   const filtered = useMemo(() => filterHomeworks(homeworks, activeTab), [homeworks, activeTab]);
 
-  // Tab badges
-  const counts = useMemo(() => ({
-    today:     filterHomeworks(homeworks, "today").length,
-    week:      filterHomeworks(homeworks, "week").length,
-    pending:   filterHomeworks(homeworks, "pending").length,
-    submitted: filterHomeworks(homeworks, "submitted").length,
-    overdue:   filterHomeworks(homeworks, "overdue").length,
-  }), [homeworks]);
+  const counts = useMemo(
+    () => ({
+      today: filterHomeworks(homeworks, "today").length,
+      week: filterHomeworks(homeworks, "week").length,
+      pending: filterHomeworks(homeworks, "pending").length,
+      submitted: filterHomeworks(homeworks, "submitted").length,
+      overdue: filterHomeworks(homeworks, "overdue").length,
+    }),
+    [homeworks]
+  );
+
+  const tabLabel = TABS.find((t) => t.key === activeTab)?.label || "作业";
+
+  if (!authState.userToken) {
+    return (
+      <ScreenContainer className="flex-1 bg-surface">
+        <CommonNavBar title="作业" />
+        <EmptyState message="请先在首页登录浙大统一身份认证" />
+      </ScreenContainer>
+    );
+  }
+
+  if (loading && homeworks.length === 0) {
+    return (
+      <ScreenContainer className="flex-1 bg-surface">
+        <CommonNavBar title="作业" />
+        <HomeworkTabBar activeTab={activeTab} onTabChange={setActiveTab} counts={counts} />
+        <LoadingView />
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer className="flex-1 bg-surface">
-      {/* Nav bar */}
-      <View style={{
-        flexDirection: "row", alignItems: "center",
-        paddingHorizontal: 16, paddingVertical: 14,
-        borderBottomWidth: 0.5, borderBottomColor: colors.border,
-        backgroundColor: colors.surface,
-      }}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <IconSymbol name="chevron.left" size={22} color={primaryColor} />
-        </TouchableOpacity>
-        <Text style={{
-          flex: 1, textAlign: "center",
-          fontSize: 17, fontWeight: "600", color: colors.foreground,
-        }}>
-          作业
-        </Text>
-        {loading && !refreshing && (
-          <ActivityIndicator size="small" color={colors.muted} style={{ opacity: 0.5 }} />
-        )}
-        {!loading && <View style={{ width: 22 }} />}
-      </View>
-
-      {/* Tab bar */}
-      <View style={{
-        flexDirection: "row",
-        backgroundColor: colors.background,
-        borderBottomWidth: 0.5,
-        borderBottomColor: colors.border,
-        paddingHorizontal: 4,
-      }}>
-        {TABS.map(tab => {
-          const isActive = activeTab === tab.key;
-          const count = counts[tab.key];
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              onPress={() => setActiveTab(tab.key)}
-              style={{
-                flex: 1,
-                paddingVertical: 12,
-                alignItems: "center",
-                borderBottomWidth: 2,
-                borderBottomColor: isActive ? primaryColor : "transparent",
-              }}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Text style={{
-                  fontSize: 13,
-                  fontWeight: isActive ? "600" : "400",
-                  color: isActive ? primaryColor : colors.muted,
-                }}>
-                  {tab.label}
-                </Text>
-                {count > 0 && (
-                  <View style={{
-                    minWidth: 16, height: 16,
-                    borderRadius: 8,
-                    backgroundColor: isActive ? primaryColor : colors.surface,
-                    borderWidth: 0.5,
-                    borderColor: isActive ? primaryColor : colors.border,
-                    alignItems: "center", justifyContent: "center",
-                    paddingHorizontal: 4,
-                  }}>
-                    <Text style={{
-                      fontSize: 9, fontWeight: "600",
-                      color: isActive ? "#fff" : colors.muted,
-                      //lineHeight: 12,
-                      fontVariant: ['tabular-nums']
-                    }}>
-                      {count > 99 ? "99+" : count}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* Content */}
+      <CommonNavBar title="作业" />
+      <HomeworkTabBar activeTab={activeTab} onTabChange={setActiveTab} counts={counts} />
       {error ? (
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", gap: 12, padding: 24 }}>
-          <Text style={{ fontSize: 14, color: colors.error, textAlign: "center" }}>{error}</Text>
-          <TouchableOpacity
-            onPress={() => loadData(true)}
-            style={{
-              paddingHorizontal: 20, paddingVertical: 10,
-              borderRadius: r, backgroundColor: hexToRgba(colors.error, 0.1),
-            }}>
-            <Text style={{ fontSize: 14, fontWeight: "600", color: colors.error }}>重试</Text>
-          </TouchableOpacity>
-        </View>
-      ) : loading && homeworks.length === 0 ? (
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-          <ActivityIndicator size="large" color={HW_COLOR} />
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
+          <ErrorCard message={error} onRetry={() => loadData(true)} />
         </View>
       ) : (
         <FlatList
           data={filtered}
-          keyExtractor={item => String(item.id)}
-          renderItem={({ item }) => <HomeworkCard hw={item} radius={r} tab={activeTab} />}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={({ item }) => <HomeworkCard hw={item} radius={r} />}
           contentContainerStyle={{ padding: 16, flexGrow: 1 }}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={HW_COLOR}
-            />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={HW_COLOR} />
           }
-          ListEmptyComponent={<EmptyState tab={activeTab} />}
+          ListEmptyComponent={<EmptyState message={`暂无${tabLabel}作业`} />}
         />
       )}
     </ScreenContainer>

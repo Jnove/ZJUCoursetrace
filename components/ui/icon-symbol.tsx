@@ -29,6 +29,8 @@ const MAPPING = {
   "eye": "eye",
   "eye.slash": "eye-off",
   "chevron.left": "chevron-left",
+  "chevron.up": "chevron-up",
+  "chevron.down": "chevron-down",
   "sun.max.fill":        "weather-sunny",
   "cloud.sun.fill":      "weather-partly-cloudy",
   "cloud.fill":          "weather-cloudy",

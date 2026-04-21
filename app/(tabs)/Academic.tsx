@@ -14,7 +14,7 @@ import {
 } from "@/lib/zju-client";
 import { useRouter } from "expo-router";
 import { writeLog } from "@/lib/diagnostic-log";
-import { useTheme, CARD_RADIUS_VALUES } from "@/lib/theme-provider";
+import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 
 // ─── Cache ────────────────────────────────────────────────────────────────────
 
@@ -116,9 +116,11 @@ const GPA_KEY     = "pref_gpa_hidden";
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
 function Pill({ label, color, bg }: { label: string; color: string; bg: string }) {
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
   return (
     <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 100, backgroundColor: bg }}>
-      <Text style={{ fontSize: 11, fontWeight: "600", color, lineHeight: 14 }}>{label}</Text>
+      <Text style={{ fontSize: 11, fontWeight: "600", color, lineHeight: 14, fontFamily: ff }}>{label}</Text>
     </View>
   );
 }
@@ -128,21 +130,23 @@ function SectionLabel({ title, badge, action, busy }: {
   action?: {label:string; onPress:()=>void}; busy?: boolean;
 }) {
   const colors = useColors();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
   return (
     <View style={{ flexDirection:"row", alignItems:"center", gap:8 }}>
-      <Text style={{ fontSize:15, fontWeight:"600", color:colors.foreground }}>{title}</Text>
+      <Text style={{ fontSize:15, fontWeight:"600", color:colors.foreground, fontFamily: ff }}>{title}</Text>
       {badge !== undefined && (
         <View style={{
           paddingHorizontal:7, paddingVertical:1, borderRadius:8,
           backgroundColor:colors.surface, borderWidth:0.5, borderColor:colors.border,
         }}>
-          <Text style={{ fontSize:11, color:colors.muted, fontWeight:"500" }}>{badge}</Text>
+          <Text style={{ fontSize:11, color:colors.muted, fontWeight:"500", fontFamily: ff }}>{badge}</Text>
         </View>
       )}
       {busy && <ActivityIndicator size="small" color={colors.muted} style={{opacity:0.4}} />}
       {action && (
         <TouchableOpacity onPress={action.onPress} style={{ marginLeft:"auto" }}>
-          <Text style={{ fontSize:13, color:colors.primary }}>{action.label}</Text>
+          <Text style={{ fontSize:13, color:colors.primary, fontFamily: ff }}>{action.label}</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -163,7 +167,10 @@ function GpaColumn({ title, gpa, credits, loading, color, bg, hidden, radius }: 
   color:string; bg:string; hidden:boolean; radius:number;
 }) {
   const colors = useColors();
-  const opacity = useRef(new Animated.Value(hidden?0:1)).current;
+  const opacity = useRef(new Animated.Value(hidden ? 0 : 1)).current;
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
+
   useEffect(() => {
     Animated.timing(opacity,{toValue:hidden?0:1,duration:200,useNativeDriver:true}).start();
   },[hidden]);
@@ -172,22 +179,22 @@ function GpaColumn({ title, gpa, credits, loading, color, bg, hidden, radius }: 
     <View style={{flex:1,backgroundColor:bg,borderRadius:Math.max(radius-6,6),padding:14,gap:8}}>
       <View style={{flexDirection:"row",alignItems:"center",gap:6}}>
         <View style={{width:5,height:5,borderRadius:3,backgroundColor:color}}/>
-        <Text style={{fontSize:11,fontWeight:"600",color,letterSpacing:0.3}}>{title}</Text>
+        <Text style={{fontSize:11, fontWeight:"600", color, letterSpacing:0.3, fontFamily: ff}}>{title}</Text>
       </View>
 
       {loading ? (
         <ActivityIndicator size="small" color={color} style={{alignSelf:"flex-start"}} />
       ) : hidden ? (
         <View style={{flexDirection:"row",gap:6,alignItems:"flex-end",height:44}}>
-          {[0,1,2].map(i=><Text key={i} style={{fontSize:28,color,lineHeight:36,opacity:0.7}}>•</Text>)}
+          {[0,1,2].map(i=><Text key={i} style={{fontSize:28, color, lineHeight:36, opacity:0.7, fontFamily: ff}}>•</Text>)}
         </View>
       ) : (
         <Animated.View style={{opacity}}>
           <View style={{flexDirection:"row",alignItems:"baseline",gap:2}}>
-            <Text style={{fontSize:30,fontWeight:"500",color,fontVariant:["tabular-nums"],lineHeight:34}}>
+            <Text style={{fontSize:30, fontWeight:"500", color, fontVariant:["tabular-nums"], lineHeight:34, fontFamily: ff}}>
               {gpa.toFixed(2)}
             </Text>
-            <Text style={{fontSize:11,color,opacity:0.6}}>/5</Text>
+            <Text style={{fontSize:11, color, opacity:0.6, fontFamily: ff}}>/5</Text>
           </View>
         </Animated.View>
       )}
@@ -197,7 +204,7 @@ function GpaColumn({ title, gpa, credits, loading, color, bg, hidden, radius }: 
           <View style={{height:3,borderRadius:2,backgroundColor:rgba(color,0.15),overflow:"hidden"}}>
             <View style={{height:"100%",width:`${(gpa/5)*100}%` as any,borderRadius:2,backgroundColor:color}} />
           </View>
-          <Text style={{fontSize:10,color,opacity:0.7}}>{credits} 学分</Text>
+          <Text style={{fontSize:10, color, opacity:0.7, fontFamily: ff}}>{credits} 学分</Text>
         </>
       )}
     </View>
@@ -215,7 +222,9 @@ function GpaCard({
 }) {
   const colors = useColors();
   const c1 = gpaColor(majorGpa, colors);
-  const c2 = gpaColor(allGpa,   colors);
+  const c2 = gpaColor(allGpa, colors);
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   return (
     <TouchableOpacity activeOpacity={0.8} onPress={onPress} style={{
@@ -231,7 +240,7 @@ function GpaCard({
       <View style={{padding:18,gap:14}}>
         {/* header */}
         <View style={{flexDirection:"row",alignItems:"center",justifyContent:"space-between"}}>
-          <Text style={{fontSize:13,fontWeight:"500",color:colors.muted,letterSpacing:0.2}}>绩点概览</Text>
+          <Text style={{fontSize:13, fontWeight:"500", color:colors.muted, letterSpacing:0.2, fontFamily: ff}}>绩点概览</Text>
           <View style={{flexDirection:"row",alignItems:"center",gap:10}}>
             {stale && <ActivityIndicator size="small" color={colors.muted} style={{opacity:0.4}}/>}
             <TouchableOpacity
@@ -258,12 +267,12 @@ function GpaCard({
         {/* errors */}
         {majorError && (
           <TouchableOpacity onPress={onRetryMajor}>
-            <Text style={{fontSize:12,color:colors.error}}>{majorError} · 点击重试</Text>
+            <Text style={{fontSize:12, color:colors.error, fontFamily: ff}}>{majorError} · 点击重试</Text>
           </TouchableOpacity>
         )}
         {allError && (
           <TouchableOpacity onPress={onRetryAll}>
-            <Text style={{fontSize:12,color:colors.error}}>{allError} · 点击重试</Text>
+            <Text style={{fontSize:12, color:colors.error, fontFamily: ff}}>{allError} · 点击重试</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -277,17 +286,20 @@ function StatBox({ label, value, color, bg, highlight, radius }: {
   label:string; value:number; color:string; bg:string; highlight:boolean; radius:number;
 }) {
   const colors = useColors();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
+
   return (
     <View style={{
       flex:1, backgroundColor:bg, borderRadius:Math.max(radius-6,6), padding:12, gap:6,
       borderWidth: highlight ? 1 : 0, borderColor: rgba(color, 0.25),
     }}>
-      <Text style={{fontSize:10,color:colors.muted,letterSpacing:0.2}}>{label}</Text>
+      <Text style={{fontSize:10, color:colors.muted, letterSpacing:0.2, fontFamily: ff}}>{label}</Text>
       <View style={{flexDirection:"row",alignItems:"baseline",gap:2}}>
-        <Text style={{fontSize:24,fontWeight:"500",color,fontVariant:["tabular-nums"],lineHeight:28}}>
+        <Text style={{fontSize:24, fontWeight:"500", color, fontVariant:["tabular-nums"], lineHeight:28, fontFamily: ff}}>
           {value}
         </Text>
-        <Text style={{fontSize:11,color,opacity:0.7}}>项</Text>
+        <Text style={{fontSize:11, color,opacity:0.7, fontFamily: ff}}>项</Text>
       </View>
     </View>
   );
@@ -295,16 +307,19 @@ function StatBox({ label, value, color, bg, highlight, radius }: {
 
 function CourseCountBox({ value, bg, color, radius }: {value:number;bg:string;color:string;radius:number}) {
   const colors = useColors();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
+
   return (
     <View style={{
       flex:1, backgroundColor:bg, borderRadius:Math.max(radius-6,6), padding:12, gap:6,
     }}>
-      <Text style={{fontSize:10,color:colors.muted,letterSpacing:0.2}}>本学期课程</Text>
+      <Text style={{fontSize:10, color:colors.muted, letterSpacing:0.2, fontFamily: ff}}>本学期课程</Text>
       <View style={{flexDirection:"row",alignItems:"baseline",gap:2}}>
-        <Text style={{fontSize:24,fontWeight:"500",color,fontVariant:["tabular-nums"],lineHeight:28}}>
+        <Text style={{fontSize:24, fontWeight:"500", color, fontVariant:["tabular-nums"], lineHeight:28, fontFamily: ff}}>
           {value}
         </Text>
-        <Text style={{fontSize:11,color,opacity:0.7}}>门</Text>
+        <Text style={{fontSize:11, color,opacity:0.7, fontFamily: ff}}>门</Text>
       </View>
     </View>
   );
@@ -318,7 +333,9 @@ function HomeworkSummaryCard({ homeworks, loading, error, onRetry, stale, radius
   const courses  = new Set(homeworks.map(h=>h.courseId)).size;
   const pending  = homeworks.filter(h=>!h.submitted && !hwPast(h.deadlineIso)).length;
   const today    = homeworks.filter(h=>!h.submitted && hwToday(h.deadlineIso)).length;
-  const week     = homeworks.filter(h=>!h.submitted && hwWeek(h.deadlineIso)).length;
+  const week = homeworks.filter(h => !h.submitted && hwWeek(h.deadlineIso)).length;
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   return (
     <TouchableOpacity
@@ -335,13 +352,13 @@ function HomeworkSummaryCard({ homeworks, loading, error, onRetry, stale, radius
 
       <View style={{padding:18,gap:14}}>
         {/* header */}
-        <View style={{flexDirection:"row",alignItems:"center",justifyContent:"space-between"}}>
-          <Text style={{fontSize:13,fontWeight:"500",color:colors.muted,letterSpacing:0.2}}>作业</Text>
-          <View style={{flexDirection:"row",alignItems:"center",gap:8}}>
+        <View style={{flexDirection:"row", alignItems:"center", justifyContent:"space-between"}}>
+          <Text style={{fontSize:13, fontWeight:"500", color:colors.muted, letterSpacing:0.2, fontFamily: ff}}>作业</Text>
+          <View style={{flexDirection:"row", alignItems:"center",gap:8}}>
             {stale && <ActivityIndicator size="small" color={colors.muted} style={{opacity:0.4}}/>}
             {!loading && (
-              <View style={{flexDirection:"row",alignItems:"center",gap:4}}>
-                <Text style={{fontSize:12,color:colors.muted}}>查看详情</Text>
+              <View style={{flexDirection:"row", alignItems:"center",gap:4}}>
+                <Text style={{fontSize:12, color:colors.muted, fontFamily: ff}}>查看详情</Text>
                 <IconSymbol name="chevron.right" size={12} color={colors.muted}/>
               </View>
             )}
@@ -349,17 +366,17 @@ function HomeworkSummaryCard({ homeworks, loading, error, onRetry, stale, radius
         </View>
 
         {loading && homeworks.length===0 ? (
-          <View style={{alignItems:"center",paddingVertical:12}}>
+          <View style={{alignItems:"center", paddingVertical:12}}>
             <ActivityIndicator color={HW_ACCENT}/>
           </View>
         ) : error && homeworks.length===0 ? (
           <TouchableOpacity onPress={onRetry}>
-            <Text style={{fontSize:13,color:colors.error}}>{error} · 点击重试</Text>
+            <Text style={{fontSize:13, color:colors.error, fontFamily: ff}}>{error} · 点击重试</Text>
           </TouchableOpacity>
         ) : (
           <View style={{gap:10}}>
             {/* row 1 */}
-            <View style={{flexDirection:"row",gap:10}}>
+            <View style={{flexDirection:"row", gap:10}}>
               <CourseCountBox
                 value={courses}
                 color={colors.primary}
@@ -374,7 +391,7 @@ function HomeworkSummaryCard({ homeworks, loading, error, onRetry, stale, radius
               />
             </View>
             {/* row 2 */}
-            <View style={{flexDirection:"row",gap:10}}>
+            <View style={{flexDirection:"row", gap:10}}>
               <StatBox
                 label="今日截止" value={today}
                 color={today>0 ? colors.error : colors.muted}
@@ -412,7 +429,9 @@ function ExamCard({ exam, isPast=false, compact=false, radius=12 }: {
   const colors = useColors();
   const accent = isPast ? PAST_COLOR : EXAM_ACCENT;
   const date   = parseExamDate(exam.examTime);
-  const days   = date ? daysUntil(date) : -999;
+  const days = date ? daysUntil(date) : -999;
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   return (
     <View style={{
@@ -428,7 +447,7 @@ function ExamCard({ exam, isPast=false, compact=false, radius=12 }: {
       <View style={{gap:compact?3:5}}>
         <View style={{flexDirection:"row",alignItems:"flex-start",gap:8}}>
           <Text style={{
-            flex:1, fontSize:compact?13:14, fontWeight:"500",
+            flex:1, fontSize:compact?13:14, fontWeight:"500", fontFamily: ff,
             color:colors.foreground, lineHeight:compact?17:19,
           }} numberOfLines={2}>
             {exam.courseName}
@@ -437,20 +456,20 @@ function ExamCard({ exam, isPast=false, compact=false, radius=12 }: {
         </View>
         <View style={{flexDirection:"row",alignItems:"center",gap:5}}>
           <IconSymbol name="clock.fill" size={compact?9:10} color={accent}/>
-          <Text style={{fontSize:compact?12:13,fontWeight:"500",color:colors.foreground}}>
+          <Text style={{fontSize:compact?12:13, fontWeight:"500", color:colors.foreground, fontFamily: ff}}>
             {fmtExamTime(exam.examTime)}
           </Text>
         </View>
         <View style={{flexDirection:"row",alignItems:"center",gap:10}}>
           <View style={{flexDirection:"row",alignItems:"center",gap:4,flex:1}}>
             <IconSymbol name="location.fill" size={compact?8:9} color={colors.muted}/>
-            <Text style={{fontSize:compact?12:13,color:colors.muted}} numberOfLines={1}>
+            <Text style={{fontSize:compact?12:13, color:colors.muted, fontFamily: ff}} numberOfLines={1}>
               {exam.examLocation||"地点待定"}
             </Text>
           </View>
           {exam.seat&&(
             <View style={{paddingHorizontal:7,paddingVertical:2,borderRadius:5,backgroundColor:rgba(accent,0.1)}}>
-              <Text style={{fontSize:11,fontWeight:"600",color:accent}}>座位 {exam.seat}</Text>
+              <Text style={{fontSize:11, fontWeight:"600", color:accent, fontFamily: ff}}>座位 {exam.seat}</Text>
             </View>
           )}
         </View>
@@ -466,6 +485,8 @@ function ExamGroup({ group, isPast=false, radius=12 }: {
   const colors = useColors();
   const [expanded, setExpanded] = useState(false);
   const near = !isPast ? nearestFuture(group.exams) : null;
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   let main: ExamInfo[] = group.exams;
   let rest: ExamInfo[] = [];
@@ -480,12 +501,12 @@ function ExamGroup({ group, isPast=false, radius=12 }: {
         <SectionLabel title={group.displayName} badge={group.exams.length}/>
         {!isPast && !expanded && rest.length>0 && (
           <TouchableOpacity onPress={()=>setExpanded(true)} style={{marginLeft:"auto"}}>
-            <Text style={{fontSize:12,color:colors.primary}}>+{rest.length} 场</Text>
+            <Text style={{fontSize:12, color:colors.primary, fontFamily: ff}}>+{rest.length} 场</Text>
           </TouchableOpacity>
         )}
         {expanded && (
           <TouchableOpacity onPress={()=>setExpanded(false)} style={{marginLeft:"auto"}}>
-            <Text style={{fontSize:12,color:colors.muted}}>收起</Text>
+            <Text style={{fontSize:12, color:colors.muted, fontFamily: ff}}>收起</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -532,7 +553,11 @@ export default function AcademicScreen() {
   // UI
   const [gpaHidden, setGpaHidden]           = useState(false);
   const [showPast, setShowPast]             = useState(false);
-  const [refreshing, setRefreshing]         = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // fonts
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   // ── loaders ────────────────────────────────────────────────────────────────
 
@@ -654,8 +679,8 @@ export default function AcademicScreen() {
   if (!authState.userToken) {
     return (
       <ScreenContainer className="flex-1 bg-background">
-        <View style={{flex:1,justifyContent:"center",alignItems:"center",padding:24}}>
-          <Text style={{fontSize:15,color:colors.muted,textAlign:"center"}}>
+        <View style={{flex:1, justifyContent:"center", alignItems:"center", padding:24}}>
+          <Text style={{fontSize:15, color:colors.muted, textAlign:"center", fontFamily: ff}}>
             请先在首页登录浙大统一身份认证
           </Text>
         </View>
@@ -689,8 +714,8 @@ export default function AcademicScreen() {
         <View style={{flex:1,gap:20,padding:20}}>
 
           {/* ── Header ───────────────────────────────────────────────────── */}
-          <View style={{alignItems:"center",paddingTop:4,gap:10}}>
-            <Text style={{fontSize:26,fontWeight:"700",color:colors.foreground,letterSpacing:-0.5}}>
+          <View style={{alignItems:"center", paddingTop:4,gap:10}}>
+            <Text style={{fontSize:26, fontWeight:"700", color:colors.foreground, letterSpacing:-0.5, fontFamily: ff}}>
               学业
             </Text>
             {/* quick status pills */}
@@ -741,12 +766,12 @@ export default function AcademicScreen() {
               borderRadius:r, backgroundColor:rgba(colors.error,0.07),
               borderWidth:0.5, borderColor:rgba(colors.error,0.25), padding:16, gap:10,
             }}>
-              <Text style={{fontSize:13,color:colors.error}}>{examError}</Text>
+              <Text style={{fontSize:13, color:colors.error, fontFamily: ff}}>{examError}</Text>
               <TouchableOpacity onPress={()=>loadExams(true)} style={{
                 alignSelf:"flex-start",paddingHorizontal:14,paddingVertical:7,
                 borderRadius:8, backgroundColor:rgba(colors.error,0.1),
               }}>
-                <Text style={{fontSize:13,fontWeight:"600",color:colors.error}}>重试</Text>
+                <Text style={{fontSize:13, fontWeight:"600", color:colors.error, fontFamily: ff}}>重试</Text>
               </TouchableOpacity>
             </View>
           ) : exams.length===0 ? (
@@ -755,7 +780,7 @@ export default function AcademicScreen() {
               borderWidth:0.5, borderColor:colors.border,
               paddingVertical:20, alignItems:"center",
             }}>
-              <Text style={{fontSize:13,color:colors.muted}}>暂无考试安排</Text>
+              <Text style={{fontSize:13, color:colors.muted, fontFamily: ff}}>暂无考试安排</Text>
             </View>
           ) : (
             <View style={{gap:20}}>
@@ -775,7 +800,7 @@ export default function AcademicScreen() {
                     <View style={{gap:14}}>
                       {past.map(g=>(
                         <View key={g.key} style={{gap:8,opacity:0.7}}>
-                          <Text style={{fontSize:13,fontWeight:"500",color:PAST_COLOR}}>{g.displayName}</Text>
+                          <Text style={{fontSize:13, fontWeight:"500", color:PAST_COLOR, fontFamily: ff}}>{g.displayName}</Text>
                           {g.exams.map((e:ExamInfo,i:number)=><ExamCard key={i} exam={e} isPast compact radius={r}/>)}
                         </View>
                       ))}

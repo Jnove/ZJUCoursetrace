@@ -5,12 +5,12 @@
 
 import {
   View, Text, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert, Platform,
+  ActivityIndicator, Alert, Platform, Image
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
-import { useTheme, CARD_RADIUS_VALUES } from "@/lib/theme-provider";
+import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 import { useRouter } from "expo-router";
 import { useState, useCallback, useEffect } from "react";
 import Constants from "expo-constants";
@@ -44,6 +44,8 @@ function InfoRow({
   onPress?: () => void; last?: boolean; valueColor?: string;
 }) {
   const colors = useColors();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -58,11 +60,11 @@ function InfoRow({
         gap: 12,
       }}
     >
-      <Text style={{ flex: 1, fontSize: 15, color: colors.foreground }}>
+      <Text style={{ flex: 1, fontSize: 15, color: colors.foreground, fontFamily: ff }}>
         {label}
       </Text>
       <Text style={{
-        fontSize: 14,
+        fontSize: 14, fontFamily: ff,
         color: valueColor ?? colors.muted,
         fontWeight: valueColor ? "500" : "400",
       }}>
@@ -81,11 +83,13 @@ function Section({ title, children }: { title?: string; children: React.ReactNod
   const colors = useColors();
   const { cardRadius } = useTheme();
   const rv = CARD_RADIUS_VALUES[cardRadius];
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
   return (
     <View style={{ gap: 6 }}>
       {title && (
         <Text style={{
-          fontSize: 11, fontWeight: "600", color: colors.muted,
+          fontSize: 11, fontWeight: "600", color: colors.muted, fontFamily: ff,
           letterSpacing: 0.6, textTransform: "uppercase",
           paddingHorizontal: 4,
         }}>
@@ -118,6 +122,8 @@ function UpdateCard() {
   const { primaryColor, cardRadius } = useTheme();
   const rv = CARD_RADIUS_VALUES[cardRadius];
   const [u, setU] = useState<UpdatePhase>({ phase: "idle" });
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   const handleCheck = useCallback(async () => {
     setU({ phase: "checking" });
@@ -202,10 +208,10 @@ function UpdateCard() {
               : <IconSymbol name="square.and.arrow.down" size={18} color={primaryColor} />}
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 15, fontWeight: "500", color: colors.foreground }}>
+            <Text style={{ fontSize: 15, fontWeight: "500", color: colors.foreground, fontFamily: ff }}>
               {u.phase === "checking" ? "正在检查更新…" : "检查更新"}
             </Text>
-            <Text style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>
+            <Text style={{ fontSize: 12, color: colors.muted, marginTop: 2, fontFamily: ff }}>
               当前版本 v{APP_VERSION}
             </Text>
           </View>
@@ -223,14 +229,14 @@ function UpdateCard() {
             backgroundColor: rgba(colors.success, 0.12),
             alignItems: "center", justifyContent: "center",
           }}>
-            <Text style={{ fontSize: 20, color: colors.success }}>✓</Text>
+            <Text style={{ fontSize: 20, color: colors.success, fontFamily: ff }}>✓</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 15, fontWeight: "500", color: colors.foreground }}>已是最新版本</Text>
-            <Text style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>v{u.version}</Text>
+            <Text style={{ fontSize: 15, fontWeight: "500", color: colors.foreground, fontFamily: ff }}>已是最新版本</Text>
+            <Text style={{ fontSize: 12, color: colors.muted, marginTop: 2, fontFamily: ff }}>{u.version}</Text>
           </View>
           <TouchableOpacity onPress={() => setU({ phase: "idle" })} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Text style={{ fontSize: 13, color: colors.muted }}>关闭</Text>
+            <Text style={{ fontSize: 13, color: colors.muted, fontFamily: ff }}>关闭</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -247,10 +253,10 @@ function UpdateCard() {
               <IconSymbol name="square.and.arrow.down" size={18} color={primaryColor} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 15, fontWeight: "600", color: colors.foreground }}>
+              <Text style={{ fontSize: 15, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
                 新版本 v{u.result.latestVersion}
               </Text>
-              <Text style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>
+              <Text style={{ fontSize: 12, color: colors.muted, marginTop: 2, fontFamily: ff }}>
                 当前 v{u.result.currentVersion}
               </Text>
             </View>
@@ -262,7 +268,7 @@ function UpdateCard() {
               padding: 11, borderRadius: 8,
               backgroundColor: rgba(primaryColor, 0.06),
             }}>
-              <Text style={{ fontSize: 12, color: colors.foreground, lineHeight: 18 }} numberOfLines={5}>
+              <Text style={{ fontSize: 12, color: colors.foreground, lineHeight: 18, fontFamily: ff }} numberOfLines={5}>
                 {u.result.releaseNotes}
               </Text>
             </View>
@@ -278,7 +284,7 @@ function UpdateCard() {
                 borderWidth: 0.5, borderColor: rgba(primaryColor, 0.3),
               }}
             >
-              <Text style={{ fontSize: 14, fontWeight: "500", color: primaryColor }}>查看详情</Text>
+              <Text style={{ fontSize: 14, fontWeight: "500", color: primaryColor, fontFamily: ff }}>查看详情</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleInstall}
@@ -288,7 +294,7 @@ function UpdateCard() {
                 backgroundColor: primaryColor,
               }}
             >
-              <Text style={{ fontSize: 14, fontWeight: "600", color: "#fff" }}>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: "#fff", fontFamily: ff }}>
                 {Platform.OS === "android" && u.result.downloadUrl ? "下载安装" : "前往更新"}
               </Text>
             </TouchableOpacity>
@@ -301,10 +307,10 @@ function UpdateCard() {
         <View style={{ padding: 16, gap: 12 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <ActivityIndicator size="small" color={primaryColor} />
-            <Text style={{ fontSize: 15, fontWeight: "500", color: colors.foreground, flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: "500", color: colors.foreground, flex: 1, fontFamily: ff }}>
               正在下载…
             </Text>
-            <Text style={{ fontSize: 13, color: colors.muted }}>
+            <Text style={{ fontSize: 13, color: colors.muted, fontFamily: ff }}>
               {Math.round(u.progress.fraction * 100)}%
             </Text>
           </View>
@@ -315,7 +321,7 @@ function UpdateCard() {
             }} />
           </View>
           {u.progress.bytesTotal > 0 && (
-            <Text style={{ fontSize: 11, color: colors.muted, textAlign: "center" }}>
+            <Text style={{ fontSize: 11, color: colors.muted, textAlign: "center", fontFamily: ff }}>
               {(u.progress.bytesDownloaded / 1048576).toFixed(1)} / {(u.progress.bytesTotal / 1048576).toFixed(1)} MB
             </Text>
           )}
@@ -330,11 +336,11 @@ function UpdateCard() {
             backgroundColor: rgba(colors.error, 0.12),
             alignItems: "center", justifyContent: "center",
           }}>
-            <Text style={{ fontSize: 20, color: colors.error }}>!</Text>
+            <Text style={{ fontSize: 20, color: colors.error, fontFamily: ff }}>!</Text>
           </View>
-          <Text style={{ flex: 1, fontSize: 14, color: colors.foreground }}>{u.message}</Text>
+          <Text style={{ flex: 1, fontSize: 14, color: colors.foreground, fontFamily: ff }}>{u.message}</Text>
           <TouchableOpacity onPress={() => setU({ phase: "idle" })} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Text style={{ fontSize: 13, color: primaryColor }}>重试</Text>
+            <Text style={{ fontSize: 13, color: primaryColor, fontFamily: ff }}>重试</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -347,6 +353,8 @@ export default function AboutScreen() {
   const colors  = useColors();
   const { primaryColor, cardRadius } = useTheme();
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   useEffect(() => {
     const loadAutoUpdateSetting = async () => {
@@ -378,7 +386,7 @@ const toggleAutoUpdate = async (value: boolean) => {
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <IconSymbol name="chevron.left" size={22} color={primaryColor} />
         </TouchableOpacity>
-        <Text style={{ flex: 1, textAlign: "center", fontSize: 17, fontWeight: "600", color: colors.foreground }}>
+        <Text style={{ flex: 1, textAlign: "center", fontSize: 17, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
           关于
         </Text>
         <View style={{ width: 36 }} />
@@ -387,18 +395,13 @@ const toggleAutoUpdate = async (value: boolean) => {
       <ScrollView contentContainerStyle={{ padding: 20, gap: 24, paddingBottom: 52 }} showsVerticalScrollIndicator={false}>
 
         <View style={{ alignItems: "center", gap: 10, paddingVertical: 8 }}>
-          <View style={{
-            width: 80, height: 80, borderRadius: 20,
-            backgroundColor: primaryColor,
-            alignItems: "center", justifyContent: "center",
-            shadowColor: primaryColor, shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.35, shadowRadius: 16, elevation: 8,
-          }}>
-            <Text style={{ fontSize: 36, color: "#fff" }}>Z</Text>
-          </View>
+          <Image
+            source={require("@/assets/images/android-icon-foreground.png")}
+            style={{ width: 150, height: 100}}
+          />
           <View style={{ alignItems: "center", gap: 4 }}>
-            <Text style={{ fontSize: 22, fontWeight: "700", color: colors.foreground }}>ZJU 课迹</Text>
-            <Text style={{ fontSize: 13, color: colors.muted }}>v{APP_VERSION}</Text>
+            <Text style={{ fontSize: 22, fontWeight: "700", color: colors.foreground, fontFamily: ff }}>ZJU 课迹</Text>
+            <Text style={{ fontSize: 13, color: colors.muted, fontFamily: ff }}>v{APP_VERSION}</Text>
           </View>
         </View>
 
@@ -406,7 +409,7 @@ const toggleAutoUpdate = async (value: boolean) => {
         <View style={{ gap: 6 }}>
           <Text style={{
             fontSize: 11, fontWeight: "600", color: colors.muted,
-            letterSpacing: 0.6, textTransform: "uppercase", paddingHorizontal: 4,
+            letterSpacing: 0.6, textTransform: "uppercase", paddingHorizontal: 4, fontFamily: ff
           }}>
             更新
           </Text>
@@ -424,7 +427,7 @@ const toggleAutoUpdate = async (value: boolean) => {
             borderColor: colors.border,
             marginBottom: 8,
           }}>
-            <Text style={{ fontSize: 15, color: colors.foreground }}>
+            <Text style={{ fontSize: 15, color: colors.foreground, fontFamily: ff }}>
               自动检查更新
             </Text>
             <Switch
@@ -502,7 +505,7 @@ const toggleAutoUpdate = async (value: boolean) => {
         </Section>
 
         {/* 底部*/}
-        <Text style={{ fontSize: 12, color: colors.muted, textAlign: "center", lineHeight: 18 }}>
+        <Text style={{ fontSize: 12, color: colors.muted, textAlign: "center", lineHeight: 18, fontFamily: ff }}>
           本应用使用浙大统一身份认证，数据直连教务系统。{"\n"}
           与浙江大学官方无关。
         </Text>

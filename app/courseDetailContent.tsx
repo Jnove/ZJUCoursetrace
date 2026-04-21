@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text } from "react-native";
 import { cn } from "@/lib/utils";
+import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 
 interface CourseDetailContentProps {
   courseName: string;
@@ -17,54 +18,29 @@ export default function CourseDetailContent({
   weekType,
   examInfo,
 }: CourseDetailContentProps) {
-  // 根据 weekType 确定显示文字和样式
-  const getWeekTypeDisplay = () => {
-    if (weekType === "single") return "单周";
-    if (weekType === "double") return "双周";
-    return "单双周";
-  };
-
-  const getWeekTypeStyles = () => {
-    if (weekType === "single") {
-      return {
-        container: "bg-primary/20",
-        text: "text-primary",
-      };
-    }
-    if (weekType === "double") {
-      return {
-        container: "bg-warning/20",
-        text: "text-warning",
-      };
-    }
-    return {
-      container: "bg-success/20",
-      text: "text-success",
-    };
-  };
-
-  const weekTypeStyles = getWeekTypeStyles();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   return (
     <View className="gap-4">
       {/* 课程名称 */}
       <View className="bg-surface rounded-lg p-6 gap-2">
-        <Text className="text-xs text-muted font-semibold">课程名称</Text>
-        <Text className="text-2xl font-bold text-foreground">{courseName}</Text>
+        <Text className="text-xs text-muted " style={{ fontFamily: ff}}>课程名称</Text>
+        <Text className="text-2xl font-bold text-foreground" style={{ fontFamily: ff}}>{courseName}</Text>
       </View>
 
       {/* 基本信息 */}
       <View className="bg-surface rounded-lg p-6 gap-4">
         {/* 教师 */}
         <View className="gap-2">
-          <Text className="text-xs text-muted font-semibold">授课教师</Text>
-          <Text className="text-base text-foreground">{teacher}</Text>
+          <Text className="text-xs text-muted " style={{ fontFamily: ff}}>授课教师</Text>
+          <Text className="text-base text-foreground" style={{ fontFamily: ff}}>{teacher}</Text>
         </View>
 
         {/* 教室 */}
         <View className="gap-2 border-t border-border pt-4">
-          <Text className="text-xs text-muted font-semibold">上课地点</Text>
-          <Text className="text-base text-foreground">{classroom}</Text>
+          <Text className="text-xs text-muted " style={{ fontFamily: ff}}>上课地点</Text>
+          <Text className="text-base text-foreground" style={{ fontFamily: ff}}>{classroom}</Text>
         </View>
 
         {/* 周次类型 */}
@@ -83,8 +59,8 @@ export default function CourseDetailContent({
       {/* 考试信息 */}
       {examInfo && (
         <View className="bg-surface border border-orange-400 rounded-lg p-6 gap-2">
-          <Text className="text-sm text-muted font-semibold">考试信息</Text>
-          <Text className="text-base text-foreground">{examInfo}</Text>
+          <Text className="text-sm text-muted " style={{ fontFamily: ff}}>考试信息</Text>
+          <Text className="text-base text-foreground" style={{ fontFamily: ff}}>{examInfo}</Text>
         </View>
       )}
     </View>

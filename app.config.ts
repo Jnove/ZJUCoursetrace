@@ -3,31 +3,15 @@ import "./scripts/load-env.js";
 import type { ExpoConfig } from "expo/config";
 
 
-const rawBundleId = "com.zju.coursetrace";
-const bundleId =
-  rawBundleId
-    .replace(/[-_]/g, ".") // Replace hyphens/underscores with dots
-    .replace(/[^a-zA-Z0-9.]/g, "") // Remove invalid chars
-    .replace(/\.+/g, ".") // Collapse consecutive dots
-    .replace(/^\.+|\.+$/g, "") // Trim leading/trailing dots
-    .toLowerCase()
-    .split(".")
-    .map((segment) => {
-      // Android requires each segment to start with a letter
-      // Prefix with 'x' if segment starts with a digit
-      return /^[a-zA-Z]/.test(segment) ? segment : "x" + segment;
-    })
-    .join(".") || "zju.coursetrace";
-const timestamp = bundleId.split(".").pop()?.replace(/^t/, "") ?? "";
-const schemeFromBundleId = `zju.coursetrace${timestamp}`;
+const bundleId = "com.github.jnove.zjucoursetrace";
 
 const env = {
   // App branding - update these values directly (do not use env vars)
   appName: "ZJU 课迹",
-  appSlug: "zju-CourseTrace",
+  appSlug: "ZJU-CourseTrace",
   // S3 URL of the app logo - set this to the URL returned by generate_image when creating custom logo
   // Leave empty to use the default icon from assets/images/icon.png
-  scheme: schemeFromBundleId,
+  scheme: bundleId,
   iosBundleId: bundleId,
   androidPackage: bundleId,
 };

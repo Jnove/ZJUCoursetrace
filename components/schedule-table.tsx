@@ -3,6 +3,7 @@ import { View, Text, ScrollView, Pressable } from "react-native";
 import { Course } from "@/lib/schedule-context";
 import { useColors } from "@/hooks/use-colors";
 import { RefreshControl } from "react-native-gesture-handler";
+import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 
 const HEADER_H   = 38;
 const TIME_COL_W = 34;
@@ -46,9 +47,6 @@ export interface ScheduleTableProps {
   availableHeight?: number;
   refreshControl?: React.ReactElement<React.ComponentProps<typeof RefreshControl>>;
   radius?: number;
-  // "list" mode has been removed — daily course lists are now rendered by
-  // CalendarMode in schedule.tsx. This prop is kept for type-safety during
-  // the migration period but is ignored.
   mode?: "grid";
 }
 
@@ -60,6 +58,8 @@ export function ScheduleTable({
   radius = 5,
 }: ScheduleTableProps) {
   const colors = useColors();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
 
   const CELL_H = availableHeight > 200
     ? Math.max(44, Math.floor((availableHeight - HEADER_H) / PERIODS.length))
@@ -75,10 +75,10 @@ export function ScheduleTable({
           <View style={{ height: HEADER_H }} />
           {PERIODS.map(p => (
             <View key={p.number} style={{ height: CELL_H, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ fontSize: 8, color: colors.muted, opacity: 0.6, marginTop: 1 }}>
+              <Text style={{ fontSize: 8, color: colors.muted, opacity: 0.6, marginTop: 1, fontFamily: ff }}>
                 {p.startTime}
               </Text>
-              <Text style={{ fontSize: 10, color: colors.muted, fontWeight: "600" }}>
+              <Text style={{ fontSize: 10, color: colors.muted, fontWeight: "600", fontFamily: ff }}>
                 {p.number}
               </Text>
             </View>
@@ -110,7 +110,7 @@ export function ScheduleTable({
                 borderBottomWidth: 0.5, borderBottomColor: colors.border,
                 backgroundColor: colors.surface,
               }}>
-                <Text style={{ fontSize: 12, fontWeight: "600", color: colors.foreground }}>
+                <Text style={{ fontSize: 12, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
                   {day}
                 </Text>
               </View>
@@ -157,14 +157,14 @@ export function ScheduleTable({
                         overflow: "hidden",
                       }}>
                         <Text style={{
-                          fontSize: 11, fontWeight: "700",
+                          fontSize: 11, fontWeight: "700", fontFamily: ff,
                           color: colors.foreground, lineHeight: 14,
                         }} numberOfLines={maxSpan >= 2 ? 4 : 2}>
                           {cs[0].name}
                         </Text>
                         {maxSpan >= 2 && (
                           <Text style={{
-                            fontSize: 10, color: colors.muted,
+                            fontSize: 10, color: colors.muted, fontFamily: ff,
                             marginTop: 2, lineHeight: 13,
                           }} numberOfLines={2}>
                             {cs[0].classroom}
@@ -176,7 +176,7 @@ export function ScheduleTable({
                             backgroundColor: cs[0].color,
                             borderRadius: radius, paddingHorizontal: 2.5, paddingVertical: 1,
                           }}>
-                            <Text style={{ fontSize: 8, color: "#fff", fontWeight: "800" }}>
+                            <Text style={{ fontSize: 8, color: "#fff", fontWeight: "800", fontFamily: ff }}>
                               {getWeekLabel(cs[0].isSingleWeek)}
                             </Text>
                           </View>
@@ -213,7 +213,7 @@ export function ScheduleTable({
                           shadowOpacity: 0.12, shadowRadius: 2, elevation: 2,
                         }}>
                           <Text style={{
-                            fontSize: 11, fontWeight: "700",
+                            fontSize: 11, fontWeight: "700", fontFamily: ff,
                             color: colors.foreground, lineHeight: 14,
                           }} numberOfLines={maxSpan >= 2 ? 3 : 2}>
                             {cs[0].name}
@@ -223,7 +223,7 @@ export function ScheduleTable({
                             backgroundColor: cs[0].color,
                             borderRadius: 3, paddingHorizontal: 3, paddingVertical: 1,
                           }}>
-                            <Text style={{ fontSize: 9, color: "#fff", fontWeight: "800" }}>
+                            <Text style={{ fontSize: 9, color: "#fff", fontWeight: "800", fontFamily: ff }}>
                               +{cs.length - 1}
                             </Text>
                           </View>
