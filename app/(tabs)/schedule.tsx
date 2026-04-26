@@ -53,21 +53,9 @@ function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 
-/**
- * Find the SemesterCalendar that governs a given date.
- *
- * Priority:
- *   1. The semester the date naturally falls inside (via getCurrentSemester).
- *   2. If the date is outside every semester (e.g. a makeup day in week 9),
- *      scan every SemesterCalendar in calData and return the first one that
- *      lists this date in its `exchange` map or `holiday` array.
- *      This handles the case where a 调休 makeup date falls after the last
- *      official week of the semester.
- */
 function getSemCal(date: Date, calData: CalendarData | null): { selcal: SemesterCalendar | null,sem: string | null} {
   if (!calData) return { selcal: null, sem: null };
 
-  // 1. Normal path — date is inside a recognised semester
   const info = getCurrentSemester(date);
   if (info) {
     const key = semesterInfoToCalendarKey(info.schoolYear, info.semester);
@@ -75,7 +63,6 @@ function getSemCal(date: Date, calData: CalendarData | null): { selcal: Semester
     if (cal) return { selcal: cal, sem: key };
   }
 
-  // 2. Fallback — scan all semesters for an explicit entry matching this date
   const ds = toDateStr(date);
   for (const semKey of Object.keys(calData)) {
     if (Object.keys(calData[semKey].exchange).includes(ds) || calData[semKey].holiday.includes(ds) ) {
@@ -108,10 +95,8 @@ function computeCoursesForDate(
   const effDow = effective.getDay() === 0 ? 7 : effective.getDay();
   const { week } = effInfo;
   const isOddWeek = week % 2 === 1;
-  //console.log(toDateStr(date), semester, effDow);
   return all
     .filter(c => {
-      //console.log(c.semester);
       if (c.dayOfWeek !== effDow) return false;
       if (week < c.weekStart || week > c.weekEnd) return false;
       if ((c.semester?.split(' ')[0] !== dateSemester.schoolYear || c.semester?.split(' ')[1] !== dateSemester.semester) || (!exchRef && dateSemester.week === 9 ))return false;
@@ -134,7 +119,7 @@ interface DayCell {
   isHol: boolean;
   exchRef: string | null;
   courses: Course[];
-  isOtherMonth: boolean; // 本月视图中显示的上/下月日期
+  isOtherMonth: boolean;
 }
 
 function CalendarMode({
@@ -169,9 +154,12 @@ function CalendarMode({
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
   const [calData, setCalData]           = useState<CalendarData | null>(null);
 
-  // Animated values
+  // ── Animated values ──────────────────────────────────────────────────────────
+  // Both use useNativeDriver: false so they can be driven together without conflict.
   const collapseAnim = useRef(new Animated.Value(0)).current;
   const translateAnim = useRef(new Animated.Value(0)).current;
+
+  // Ref mirrors for use inside pan responder closure
   const monthSlideX = useRef(new Animated.Value(0)).current;
   const monthAlpha  = useRef(new Animated.Value(1)).current;
 
@@ -181,21 +169,26 @@ function CalendarMode({
   const weekRowRef        = useRef(0);
   const cellHRef          = useRef(cellH);
   const fullGridHRef      = useRef(0);
+  const isCollapsedRef    = useRef(false);
   const changeMonthRef    = useRef<(dir: "prev" | "next") => void>(() => {});
+  const changeWeekRef     = useRef<(dir: "prev" | "next") => void>(() => {});
+  const selectedDateRef   = useRef(selectedDate);
+  const displayMonthRef   = useRef(viewMonth);
+  const onSelectRef       = useRef(onCoursePress); // We'll use a separate select ref
+
+  // Separate ref for date selection (not course press)
+  const selectDateRef = useRef<(d: Date) => void>(() => {});
 
   useEffect(() => { cellHRef.current = cellH; }, [cellH]);
+  useEffect(() => { weekRowRef.current = selectedWeekRow; }); // updated after selectedWeekRow computed
+  useEffect(() => { selectedDateRef.current = selectedDate; }, [selectedDate]);
+  useEffect(() => { displayMonthRef.current = viewMonth; }, [viewMonth]);
 
+  // Track animValue for gesture release snapping
   useEffect(() => {
     const id = collapseAnim.addListener(({ value }) => { animValueRef.current = value; });
     return () => collapseAnim.removeListener(id);
   }, [collapseAnim]);
-
-  useEffect(() => {
-    const id = collapseAnim.addListener(({ value }) => {
-      translateAnim.setValue(-value * weekRowRef.current * cellHRef.current);
-    });
-    return () => collapseAnim.removeListener(id);
-  }, [collapseAnim, translateAnim]);
 
   useEffect(() => {
     loadCalendarData().then(d => setCalData(d)).catch(() => {});
@@ -213,9 +206,8 @@ function CalendarMode({
     const courseMap = new Map<string, Course[]>();
     const days: DayCell[] = [];
 
-    // 前月末尾填充：让第一行的周一~周六显示上月日期（标记 isOtherMonth）
     if (offset > 0) {
-      const prevMonthLastDay = new Date(y, m, 0).getDate(); // 上月最后一天
+      const prevMonthLastDay = new Date(y, m, 0).getDate();
       for (let i = 0; i < offset; i++) {
         const d    = prevMonthLastDay - offset + 1 + i;
         const date = new Date(y, m - 1, d);
@@ -239,7 +231,7 @@ function CalendarMode({
       courseMap.set(dateStr, cs);
       days.push({ date, dateStr, isToday: dateStr === todayStr, isHol, exchRef, courses: cs, isOtherMonth: false });
     }
-    // 后月头部填充
+
     let nextMonthDay = 1;
     while (days.length % 7 !== 0) {
       const date    = new Date(y, m + 1, nextMonthDay++);
@@ -265,6 +257,7 @@ function CalendarMode({
   const FULL_GRID_H = weeks.length * cellH;
   const ONE_WEEK_H  = cellH;
 
+  // Keep refs in sync
   useEffect(() => { weekRowRef.current = selectedWeekRow; }, [selectedWeekRow]);
   useEffect(() => { fullGridHRef.current = FULL_GRID_H; }, [FULL_GRID_H]);
 
@@ -275,6 +268,9 @@ function CalendarMode({
     }),
   [collapseAnim, FULL_GRID_H, ONE_WEEK_H]);
 
+  // ── Animation effect: driven by isWeekView / selectedWeekRow ────────────────
+  // Both collapseAnim and translateAnim use useNativeDriver: false to avoid
+  // conflicts between setValue (from gesture) and spring (from state).
   useEffect(() => {
     const target = isWeekView ? 1 : 0;
     const targetTY = isWeekView ? -selectedWeekRow * cellH : 0;
@@ -283,7 +279,7 @@ function CalendarMode({
         toValue: target, useNativeDriver: false, tension: 68, friction: 12,
       }),
       Animated.spring(translateAnim, {
-        toValue: targetTY, useNativeDriver: true, tension: 68, friction: 12,
+        toValue: targetTY, useNativeDriver: false, tension: 68, friction: 12,
       }),
     ]).start();
   }, [isWeekView, selectedWeekRow, cellH, collapseAnim, translateAnim]);
@@ -303,8 +299,23 @@ function CalendarMode({
     });
   }, [sw, monthAlpha, monthSlideX]);
 
-  useEffect(() => { changeMonthRef.current = changeMonth; }, [changeMonth]);
+  // ── Change week: advance/retreat selected date by 7 days ────────────────────
+  const changeWeek = useCallback((dir: "prev" | "next") => {
+    const delta = dir === "next" ? 7 : -7;
+    const next = new Date(selectedDateRef.current);
+    next.setDate(next.getDate() + delta);
+    setSelectedDate(next);
+    // Also sync viewMonth if we crossed a month boundary
+    const nextMonth = new Date(next.getFullYear(), next.getMonth(), 1);
+    if (nextMonth.getTime() !== displayMonthRef.current.getTime()) {
+      setViewMonth(nextMonth);
+    }
+  }, []);
 
+  useEffect(() => { changeMonthRef.current = changeMonth; }, [changeMonth]);
+  useEffect(() => { changeWeekRef.current  = changeWeek;  }, [changeWeek]);
+
+  // ── Pan responder ────────────────────────────────────────────────────────────
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -327,36 +338,59 @@ function CalendarMode({
         if (range <= 0) return;
         const delta  = -g.dy / range;
         const newVal = Math.max(0, Math.min(1, gestureStartAnim.current + delta));
+        // Drive both animated values directly — no listener conflict
         collapseAnim.setValue(newVal);
+        translateAnim.setValue(-newVal * weekRowRef.current * cellHRef.current);
       },
       onPanResponderRelease: (_, g) => {
         const dir = gestureDir.current;
         gestureDir.current = null;
         if (dir === "h" && Math.abs(g.dx) > 50) {
-          changeMonthRef.current(g.dx < 0 ? "next" : "prev");
-          Animated.spring(collapseAnim, {
-            toValue: animValueRef.current > 0.5 ? 1 : 0,
-            useNativeDriver: false, tension: 70, friction: 12,
-          }).start();
+          // FIX: when collapsed, swipe changes week; when expanded, swipe changes month
+          if (isCollapsedRef.current) {
+            changeWeekRef.current(g.dx < 0 ? "next" : "prev");
+          } else {
+            changeMonthRef.current(g.dx < 0 ? "next" : "prev");
+          }
+          // Snap collapse state to wherever it currently is
+          const snapToWeek = animValueRef.current > 0.42;
+          const targetTY = snapToWeek ? -weekRowRef.current * cellHRef.current : 0;
+          Animated.parallel([
+            Animated.spring(collapseAnim, {
+              toValue: snapToWeek ? 1 : 0,
+              useNativeDriver: false, tension: 70, friction: 12,
+            }),
+            Animated.spring(translateAnim, {
+              toValue: targetTY,
+              useNativeDriver: false, tension: 70, friction: 12,
+            }),
+          ]).start();
         } else {
           const snapToWeek = animValueRef.current > 0.42;
           setIsWeekView(snapToWeek);
+          isCollapsedRef.current = snapToWeek;
           const targetTY = snapToWeek ? -weekRowRef.current * cellHRef.current : 0;
           Animated.parallel([
             Animated.spring(collapseAnim, {
               toValue: snapToWeek ? 1 : 0, useNativeDriver: false, tension: 70, friction: 12,
             }),
             Animated.spring(translateAnim, {
-              toValue: targetTY, useNativeDriver: true, tension: 70, friction: 12,
+              toValue: targetTY, useNativeDriver: false, tension: 70, friction: 12,
             }),
           ]).start();
         }
       },
       onPanResponderTerminate: () => {
         const snapToWeek = animValueRef.current > 0.42;
-        Animated.spring(collapseAnim, {
-          toValue: snapToWeek ? 1 : 0, useNativeDriver: false, tension: 70, friction: 12,
-        }).start();
+        const targetTY = snapToWeek ? -weekRowRef.current * cellHRef.current : 0;
+        Animated.parallel([
+          Animated.spring(collapseAnim, {
+            toValue: snapToWeek ? 1 : 0, useNativeDriver: false, tension: 70, friction: 12,
+          }),
+          Animated.spring(translateAnim, {
+            toValue: targetTY, useNativeDriver: false, tension: 70, friction: 12,
+          }),
+        ]).start();
       },
     })
   ).current;
@@ -383,6 +417,15 @@ function CalendarMode({
     const n = new Date();
     setViewMonth(new Date(n.getFullYear(), n.getMonth(), 1));
     setSelectedDate(n);
+  }, []);
+
+  // Toggle button also needs to update isCollapsedRef
+  const handleToggleCollapse = useCallback(() => {
+    setIsWeekView(v => {
+      const next = !v;
+      isCollapsedRef.current = next;
+      return next;
+    });
   }, []);
 
   const pillW = collapseAnim.interpolate({ inputRange: [0, 1], outputRange: [32, 20] });
@@ -457,8 +500,7 @@ function CalendarMode({
           </TouchableOpacity>
         </View>
 
-        {/* 星期行 + 可折叠网格：整体受月份滑动动画驱动 */}
-        {/* 外层用 native driver（opacity + translateX），内层用 JS driver（height） */}
+        {/* 星期行 + 可折叠网格 */}
         <Animated.View style={{ opacity: monthAlpha, transform: [{ translateX: monthSlideX }] }}>
           <View style={{ flexDirection: "row", paddingHorizontal: HPAD, marginBottom: 4 }}>
             {CN_WEEKDAYS.map((d, i) => (
@@ -475,6 +517,7 @@ function CalendarMode({
 
           {/* 可折叠网格 */}
           <Animated.View style={{ height: animatedGridH, overflow: "hidden", paddingHorizontal: HPAD }}>
+            {/* translateAnim drives the inner grid upward so the selected row stays visible */}
             <Animated.View style={{ transform: [{ translateY: translateAnim }] }}>
             {weeks.map((week, wi) => (
               <View key={wi} style={{ flexDirection: "row" }}>
@@ -525,7 +568,6 @@ function CalendarMode({
                         </Text>
                         <View style={{
                           position: "absolute", top: 1, right: 1,
-                          //backgroundColor: color,
                           borderRadius: r, paddingHorizontal: 2.5, paddingVertical: 1,
                         }}>
                           {day.isHol ? (
@@ -558,11 +600,11 @@ function CalendarMode({
             ))}
           </Animated.View>
           </Animated.View>
-        </Animated.View> {/* end monthSlideX wrapper */}
+        </Animated.View>
 
         {/* 折叠手柄 */}
         <TouchableOpacity
-          onPress={() => setIsWeekView(v => !v)}
+          onPress={handleToggleCollapse}
           hitSlop={{ top: 8, bottom: 8, left: 60, right: 60 }}
           style={{ alignItems: "center", paddingTop: 8, paddingBottom: 2 }}
         >
@@ -573,7 +615,7 @@ function CalendarMode({
         </TouchableOpacity>
       </View>
 
-      {/* 详情区域（独立 ScrollView，带刷新控件） */}
+      {/* 详情区域 */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 40 }}
@@ -750,7 +792,6 @@ export default function ScheduleScreen() {
   const [overlappingCourses, setOverlappingCourses] = useState<Course[]>([]);
   const [overlapVisible, setOverlapVisible]     = useState(false);
 
-  // 所有学期课程合并，供日历模式跨学期显示使用
   const [allCourses, setAllCourses] = useState<Course[]>([]);
 
   const { cardRadius } = useTheme();
@@ -779,7 +820,6 @@ export default function ScheduleScreen() {
         if (all && all.length > 0) {
           setSemesters(all);
 
-          // 后台加载所有学期缓存并合并，供日历模式跨学期展示
           (async () => {
             const combined: Course[] = [];
             for (const s of all) {
@@ -794,6 +834,7 @@ export default function ScheduleScreen() {
             }
             setAllCourses(combined);
           })();
+
           let def = restoredKey ? all.find(s => semesterKey(s.yearValue, s.termValue) === restoredKey) : undefined;
           if (!def) def = all[0];
           if (def) {
@@ -819,7 +860,6 @@ export default function ScheduleScreen() {
     if (u) await AsyncStorage.setItem(`lastSelectedSemester_${u}`, key);
     await fetchScheduleBySemester(yv, tv);
 
-    // 重新合并所有学期缓存（新学期可能刚刚落盘）
     const combined: Course[] = [];
     for (const s of semesters) {
       try {
@@ -839,7 +879,6 @@ export default function ScheduleScreen() {
       if (!all.length) { Alert.alert("提示", "学期列表未加载"); return; }
       const { success, failedCount } = await refreshAllSemesters(all);
   
-      // ✅ 区分"部分失败"和"全部成功"
       if (failedCount > 0) {
         Alert.alert(
           "刷新完成",
@@ -853,6 +892,7 @@ export default function ScheduleScreen() {
     const [yv, tv] = parseKey(selectedSemester);
     await handleSemesterChange(yv, tv);
   };
+
   const handleDownload = async () => {
     if (!captureViewRef.current) return;
     try {
@@ -910,7 +950,6 @@ export default function ScheduleScreen() {
             gap: 10, backgroundColor: colors.surface,
             borderBottomWidth: 0.5, borderBottomColor: colors.border,
           }}>
-            {/* 学期选择器：仅网格模式显示（日历模式展示全部学期） */}
             {viewMode === "grid" && (
               <>
                 <View style={{ flexDirection: "row", gap: 8 }}>
