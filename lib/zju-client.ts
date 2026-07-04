@@ -266,9 +266,9 @@ export async function loadSession(): Promise<ZjuSession | null> {
   try {
     const raw = await AsyncStorage.getItem(SESSION_KEY);
     if (raw) {
-      console.log("会话已过期");
       const s = JSON.parse(raw) as ZjuSession;
       if (await checkSessionAlive()) return s;
+      console.log("[zju-client] 已存会话失效，尝试静默重登");
     }
     // Silently re-login
     const creds = await loadCredentials();
@@ -458,6 +458,41 @@ async function withRelogin<T>(session: ZjuSession, fn: () => Promise<T>): Promis
     console.log("重新登录");
     await loginCore(creds.username, creds.password);
     return fn();
+  }
+}
+
+// ─── 学生姓名 ─────────────────────────────────────────────────────────────────
+// 登录后访问用户信息页，解析「姓名」并本地缓存，供首页欢迎语和设置页头像使用。
+
+const STUDENT_NAME_KEY = "studentName";
+
+/** 从用户信息页 HTML 中解析姓名。结构：<th><b>姓名</b></th><td ...>张三</td> */
+function parseStudentName(html: string): string | null {
+  const m = html.match(/姓名\s*<\/b>\s*<\/th>\s*<td[^>]*>\s*([^<]+?)\s*<\/td>/);
+  const name = m?.[1]?.trim();
+  return name ? name : null;
+}
+
+/** 读取本地缓存的姓名（无网络） */
+export async function loadStoredStudentName(): Promise<string | null> {
+  try { return await AsyncStorage.getItem(STUDENT_NAME_KEY); } catch { return null; }
+}
+
+/**
+ * 拉取并缓存学生姓名。session 过期时 withRelogin 会用已存凭据静默重登。
+ * 失败静默返回 null，绝不影响登录/课表主流程。
+ */
+export async function fetchStudentName(username: string): Promise<string | null> {
+  const session: ZjuSession = { username, jsessionId: "native", routeCookie: null };
+  try {
+    const html = await withRelogin(session, () =>
+      zGet(`${ZDBK_BASE}/jwglxt/xtgl/yhxx_cxYhxx.html?gnmkdm=index`)
+    );
+    const name = parseStudentName(html);
+    if (name) await AsyncStorage.setItem(STUDENT_NAME_KEY, name);
+    return name;
+  } catch {
+    return null;
   }
 }
 
@@ -905,8 +940,8 @@ async function zGetCourse(url: string): Promise<string> {
  */
 export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo[]> {
   // 预热：建立 courses 会话
-  const res = await xhrGet(COURSES_BASE, DATA_HDR["User-Agent"], 10000).catch(() => {
-    console.log(`[course response]:`+res);
+  await xhrGet(COURSES_BASE, DATA_HDR["User-Agent"], 10000).catch((err) => {
+    console.warn(`[zju-client-Homework] 预热失败:`, err);
     throw new Error("无法连接课程平台，请检查网络");
   });
 
@@ -1050,35 +1085,55 @@ export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo
   }
 
   // 2. 并行获取每个课程的作业活动
-  const perCourse = await Promise.all(
-    courses.map(async (c) => {
-      const url = `${COURSES_BASE}/api/courses/${c.id}/homework-activities?page=1&page_size=1000`;
-      try {
-        const body = await zGetCourse(url);  // 作业列表仍为 GET 请求
-        const acts: any[] = JSON.parse(body).homework_activities ?? [];
-        return acts
-          .filter((hw) => !hw.is_closed)
-          .map(
-            (hw): HomeworkInfo => ({
-              id: hw.id as number,
-              title: (hw.title ?? "") as string,
-              courseName: c.name,
-              courseId: c.id,
-              deadline: hw.deadline ? fmtHwDdl(hw.deadline as string) : "未知",
-              deadlineIso: (hw.deadline as string) ?? "",
-              submitted: !!(hw.submitted),
-            })
-          );
-      } catch (err) {
-        console.warn(`获取课程 ${c.id} 作业失败`, err);
-        return [] as HomeworkInfo[];
-      }
-    })
-  );
+  //    注意：这里必须区分「这门课确实没有作业」与「请求失败」——
+  //    以前失败被静默吞成 []，一旦会话/网络瞬时异常导致全部课程同时失败，
+  //    结果就会误报「作业 0 项」。改为：失败的课程重试一次；若全部课程都失败，
+  //    抛错让 UI 显示重试，而不是把用户骗成「没有作业」。
+  const fetchCourseHw = async (c: { id: number; name: string }): Promise<HomeworkInfo[]> => {
+    const url = `${COURSES_BASE}/api/courses/${c.id}/homework-activities?page=1&page_size=1000`;
+    const body = await zGetCourse(url); // 作业列表仍为 GET 请求
+    const acts: any[] = JSON.parse(body).homework_activities ?? [];
+    return acts
+      .filter((hw) => !hw.is_closed)
+      .map(
+        (hw): HomeworkInfo => ({
+          id: hw.id as number,
+          title: (hw.title ?? "") as string,
+          courseName: c.name,
+          courseId: c.id,
+          deadline: hw.deadline ? fmtHwDdl(hw.deadline as string) : "未知",
+          deadlineIso: (hw.deadline as string) ?? "",
+          submitted: !!(hw.submitted),
+        })
+      );
+  };
+
+  let results = await Promise.allSettled(courses.map(fetchCourseHw));
+  let failedIdx = results.flatMap((r, i) => (r.status === "rejected" ? [i] : []));
+
+  // 失败的课程稍后重试一次（多为并发突发 / 会话尚未热的瞬时问题）
+  if (failedIdx.length > 0) {
+    await new Promise((r) => setTimeout(r, 600));
+    const retried = await Promise.allSettled(failedIdx.map((i) => fetchCourseHw(courses[i])));
+    retried.forEach((r, j) => {
+      results[failedIdx[j]] = r;
+    });
+    failedIdx = results.flatMap((r, i) => (r.status === "rejected" ? [i] : []));
+  }
+
+  // 全部课程都失败 → 会话/网络异常，抛错让 UI 显示重试，避免误报「0 项」
+  if (failedIdx.length > 0 && failedIdx.length === courses.length) {
+    const reason = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
+    const detail = reason?.reason instanceof Error ? reason.reason.message : "";
+    throw new Error(`作业加载失败，请下拉重试${detail ? `（${detail}）` : ""}`);
+  }
+  if (failedIdx.length > 0) {
+    console.warn(`[zju-client-Homework] ${failedIdx.length}/${courses.length} 门课程作业获取失败，返回部分结果`);
+  }
 
   // 3. 扁平化并按截止时间升序排列
-  return perCourse
-    .flat()
+  return results
+    .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
     .sort((a, b) => a.deadlineIso.localeCompare(b.deadlineIso));
 }
 

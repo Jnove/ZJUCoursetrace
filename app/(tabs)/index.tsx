@@ -1147,9 +1147,9 @@ export default function HomeScreen() {
             {/* Welcome */}
             <View style={{ alignItems: "center", gap: 6 }}>
               <Text style={{ fontSize: 28, fontWeight: "700", color: colors.foreground, fontFamily: ff }}>
-                欢迎回来
+                {"欢迎回来"}
               </Text>
-              <Text style={{ fontSize: 15, color: colors.muted, fontFamily: ff }}>{authState.username}</Text>
+              <Text style={{ fontSize: 15, color: colors.muted, fontFamily: ff }}>{authState.name ? authState.name : authState.username}</Text>
               {semesterInfo && (
                 <Text style={{ fontSize: 13, color: primaryColor, fontWeight: "600", fontFamily: ff }}>
                   {semesterInfo.schoolYear} {semesterInfo.semester}学期 第{semesterInfo.week}周

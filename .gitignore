@@ -70,7 +70,9 @@ package-lock.json
 .npmrc
 
 *.code-workspace
-release-note.md
+*.md
+!README.md
+!README-en.md
 
 #keystores
 *.keystore

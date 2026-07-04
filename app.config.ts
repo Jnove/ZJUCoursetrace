@@ -126,7 +126,7 @@ const config: ExpoConfig = {
     reactCompiler: true,
   },
   "extra": {
-  }
+  },
 };
 
 export default config;

@@ -59,9 +59,11 @@ No backend server required since v2.0.0. All requests to the ZJU academic system
 - Major GPA and overall GPA overview (with credit statistics)
 - Grade details: score distribution chart, per-course GPA progress bars, major/all toggle
 - Exam schedule: grouped by semester, showing exam time, location, seat number, and countdown
+- Homework: aggregates pending assignments across courses with deadlines, sorted by due date
 - Local data cache with silent background refresh
 
 **Notifications & Settings**
+- Shows the student's name after login (home welcome line and settings avatar), parsed from the CAS profile page and cached locally
 - Android status bar shows current or next course with live countdown; persistent yet silent
 - Dark / Light / System theme
 - Personalization: 15 accent colors, 3 corner radius styles, 5 course color palettes, 4 font families, all with live preview

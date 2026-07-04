@@ -154,14 +154,17 @@ function ThemeSegment() {
 }
 
 // ─── Profile card ──────────────────────────────────────────────────────────────
-function ProfileCard({ username }: { username: string | null }) {
+function ProfileCard({ username, name }: { username: string | null; name: string | null }) {
   const colors = useColors();
   const scheme = useColorScheme();
   const { primaryColor, cardRadius } = useTheme();
   const r = CARD_RADIUS_VALUES[cardRadius];
-  const initial = username
-    ? (username.match(/^\d+$/) ? username.slice(-2) : username.slice(0, 1).toUpperCase())
-    : "?";
+  // 头像取姓名后两个字；无姓名时回退到学号后两位 / 首字母
+  const initial = name
+    ? name.slice(-2)
+    : username
+      ? (username.match(/^\d+$/) ? username.slice(-2) : username.slice(0, 1).toUpperCase())
+      : "?";
   const { fontFamily } = useTheme();
   const ff = FONT_FAMILY_META[fontFamily].value;
   return (
@@ -181,9 +184,11 @@ function ProfileCard({ username }: { username: string | null }) {
       </View>
       <View style={{ flex: 1, gap: 3 }}>
         <Text style={{ fontSize: 17, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
-          {username ?? "未登录"}
+          { username ?? "未登录"}
         </Text>
-        <Text style={{ fontSize: 12, color: colors.muted }}>浙江大学统一身份认证</Text>
+        <Text style={{ fontSize: 12, color: colors.muted, fontFamily: ff }}>
+          {"浙江大学统一身份认证"}
+        </Text>
       </View>
       <View style={{
         paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8,
@@ -280,7 +285,7 @@ export default function SettingsScreen() {
         </Text>
 
         {/* Profile */}
-        {authState.userToken && <ProfileCard username={authState.username} />}
+        {authState.userToken && <ProfileCard username={authState.username} name={authState.name} />}
 
         {/* Appearance */}
         <SettingsSection title="外观">
