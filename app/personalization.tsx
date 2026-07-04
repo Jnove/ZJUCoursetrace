@@ -11,6 +11,8 @@ import {
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cardShadow } from "@/lib/_core/shadow";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { COURSE_PALETTES, PALETTE_ORDER, PaletteKey, assignColors } from "@/lib/course-palette";
@@ -79,6 +81,7 @@ function Preview({
   accentColor: string; radius: number; coursePaletteKey: PaletteKey;
 }) {
   const colors    = useColors();
+  const scheme    = useColorScheme();
   const palette   = COURSE_PALETTES[coursePaletteKey].colors;
   const cardR     = Math.max(radius - 2, 6);
   const MOCK = [
@@ -132,10 +135,8 @@ function Preview({
           return (
             <View style={{
               borderRadius: cardR, backgroundColor: colors.background,
-              overflow: "hidden", 
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: 0.06, shadowRadius: 5, elevation: 2,
+              overflow: "hidden",
+              ...cardShadow(scheme, { offsetY: 1, opacity: 0.06, radius: 5, elevation: 2 }),
             }}>
               <View style={{
                 position: "absolute", left: 0, top: 0, bottom: 0,
@@ -262,6 +263,7 @@ export default function PersonalizationScreen() {
   const { state, fetchScheduleBySemester, refreshAllSemesters, resetScheduleLoading } = useSchedule();
   const router  = useRouter();
   const colors  = useColors();
+  const scheme  = useColorScheme();
   const {
     primaryColor, setPrimaryColor,
     cardRadius,   setCardRadius,
@@ -549,8 +551,7 @@ export default function PersonalizationScreen() {
             backgroundColor: colors.background, borderRadius: rv,
             borderWidth: 0.5, borderColor: colors.border,
             overflow: "hidden",
-            shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.05, shadowRadius: 4, elevation: 1,
+            ...cardShadow(scheme, { offsetY: 1, opacity: 0.05, radius: 4, elevation: 1 }),
           }}>
             {PALETTE_ORDER.map((key, i) => (
               <PaletteCard

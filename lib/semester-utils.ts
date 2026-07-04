@@ -32,11 +32,16 @@ function getWeeksDiff(date1: Date, date2: Date): number {
 /**
  * 获取指定年份的元宵节日期（阳历）
  */
-function getLanternFestivalDate(year: number): Date {
-  // 农历正月十五
-  const lunar = Lunar.fromYmd(year, 1, 15);
-  const solar = lunar.getSolar();
-  return new Date(solar.getYear(), solar.getMonth() - 1, solar.getDay());
+function getLanternFestivalDate(year: number): Date | null {
+  // 农历正月十五。lunar-javascript 对超出支持范围的年份可能抛异常，
+  // 日历模式左右滑动可能到达很远的年份，这里必须容错，否则会闪退。
+  try {
+    const lunar = Lunar.fromYmd(year, 1, 15);
+    const solar = lunar.getSolar();
+    return new Date(solar.getYear(), solar.getMonth() - 1, solar.getDay());
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -67,11 +72,11 @@ export function getCurrentSemester(date: Date = new Date()): SemesterInfo | null
   const currentYearSept = getSeptemberMidMonday(year);
   const prevYearSept = getSeptemberMidMonday(year - 1);
   
-  // 计算各学期的起始周一
-  const springWeek1 = getMonday(currentYearLantern);
-  const summerWeek1 = new Date(springWeek1);
-  summerWeek1.setDate(summerWeek1.getDate() + 8 * 7); // 春八周后一周
-  
+  // 计算各学期的起始周一（元宵节缺失时春/夏学期无法判定，置空跳过）
+  const springWeek1 = currentYearLantern ? getMonday(currentYearLantern) : null;
+  const summerWeek1 = springWeek1 ? new Date(springWeek1) : null;
+  if (summerWeek1) summerWeek1.setDate(summerWeek1.getDate() + 8 * 7); // 春八周后一周
+
   const autumnWeek1 = currentYearSept;
   const winterWeek1 = new Date(autumnWeek1);
   winterWeek1.setDate(winterWeek1.getDate() + 8 * 7); // 秋八周后一周
@@ -109,27 +114,31 @@ export function getCurrentSemester(date: Date = new Date()): SemesterInfo | null
   }
   
   // 检查春学期（当前年）
-  const springWeeks = getWeeksDiff(springWeek1, currentMonday);
-  if (springWeeks >= 0 && springWeeks < 8) {
-    return {
-      schoolYear: `${year - 1}-${year}`,
-      semester: '春',
-      week: springWeeks + 1
-    };
+  if (springWeek1) {
+    const springWeeks = getWeeksDiff(springWeek1, currentMonday);
+    if (springWeeks >= 0 && springWeeks < 8) {
+      return {
+        schoolYear: `${year - 1}-${year}`,
+        semester: '春',
+        week: springWeeks + 1
+      };
+    }
   }
-  
+
   // 检查夏学期（当前年）
-  const summerWeeks = getWeeksDiff(summerWeek1, currentMonday);
-  if (summerWeeks >= 0 && summerWeeks < 8) {
-    return {
-      schoolYear: `${year - 1}-${year}`,
+  if (summerWeek1) {
+    const summerWeeks = getWeeksDiff(summerWeek1, currentMonday);
+    if (summerWeeks >= 0 && summerWeeks < 8) {
+      return {
+        schoolYear: `${year - 1}-${year}`,
+        semester: '夏',
+        week: summerWeeks + 1
+      };
+    } else if (summerWeeks === 8) return {
+      schoolYear: `${year - 1 }-${year}`,
       semester: '夏',
-      week: summerWeeks + 1
-    };
-  }else if (summerWeeks === 8) return {
-    schoolYear: `${year - 1 }-${year}`,
-    semester: '夏',
-    week: 9
+      week: 9
+    }
   }
   
   // 检查前一年的冬学期（跨年情况）

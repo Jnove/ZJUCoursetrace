@@ -1,7 +1,7 @@
 import {
   ScrollView, Text, View, TouchableOpacity,
   TextInput, ActivityIndicator, Animated, LayoutAnimation,
-  UIManager, Platform,
+  UIManager, Platform, AppState, type AppStateStatus,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuth } from "@/lib/auth-context";
@@ -16,7 +16,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PasswordInput } from "@/components/password-input";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
-import { setupNotificationChannel, updateCourseNotification, clearCourseNotification } from '@/lib/course-notification';
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cardShadow } from "@/lib/_core/shadow";
+import {
+  setupNotificationChannel,
+  updateCourseNotification,
+  clearCourseNotification,
+  setAppInBackground,
+  saveBgStateAndNotify,
+} from '@/lib/course-notification';
 import { loadActiveSemesters } from "@/lib/semester-loader";
 import Svg, {
   Path, Circle, Text as SvgText,
@@ -318,6 +326,7 @@ function PeriodBadge({ course }: { course: Course }) {
 // ─── Weather card (可展开) ────────────────────────────────────────────────────
 function WeatherCard({ data, radius }: { data: WeatherData; radius: number }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const { primaryColor } = useTheme();
   const [expanded, setExpanded] = useState(false);
   const tip = getWeatherTip(data);
@@ -334,9 +343,7 @@ function WeatherCard({ data, radius }: { data: WeatherData; radius: number }) {
         borderRadius: radius,
         backgroundColor: colors.background,
         overflow: "hidden",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06, shadowRadius: 5, elevation: 2,
+        ...cardShadow(scheme, { offsetY: 1, opacity: 0.06, radius: 5, elevation: 2 }),
       }}>
     <TouchableOpacity
       activeOpacity={0.9}
@@ -345,9 +352,7 @@ function WeatherCard({ data, radius }: { data: WeatherData; radius: number }) {
         borderRadius: radius,
         backgroundColor: colors.background,
         overflow: "hidden",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06, shadowRadius: 5, elevation: 2,
+        ...cardShadow(scheme, { offsetY: 1, opacity: 0.06, radius: 5, elevation: 2 }),
       }}
     >
       {/* ── 基础行 ── */}
@@ -709,6 +714,7 @@ function OngoingCard({ course, countdown, nowSec, radius }: {
   course: Course; countdown: number; nowSec: number; radius: number;
 }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const t = getCourseSeconds(course);
   const progress = t
     ? Math.min(1, Math.max(0, (nowSec - t.start) / (t.end - t.start)))
@@ -719,9 +725,7 @@ function OngoingCard({ course, countdown, nowSec, radius }: {
   return (
     <View style={{
       borderRadius: radius, backgroundColor: colors.background, overflow: "hidden",
-      shadowColor: course.color,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.22, shadowRadius: 12, elevation: 5,
+      ...cardShadow(scheme, { color: course.color, offsetY: 4, opacity: 0.22, radius: 12, elevation: 5 }),
     }}>
       <View style={{ height: 3, backgroundColor: course.color }} />
       <View style={{
@@ -775,13 +779,13 @@ function OngoingCard({ course, countdown, nowSec, radius }: {
 // ─── Next card ────────────────────────────────────────────────────────────────
 function NextCard({ course, countdown, radius }: { course: Course; countdown: number; radius: number; }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const { fontFamily } = useTheme();
   const ff = FONT_FAMILY_META[fontFamily].value;
   return (
     <View style={{
       borderRadius: radius, backgroundColor: colors.background, overflow: "hidden",
-      shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.08, shadowRadius: 8, elevation: 3,
+      ...cardShadow(scheme, { offsetY: 2, opacity: 0.08, radius: 8, elevation: 3 }),
     }}>
       <View style={{ height: 3, backgroundColor: course.color }} />
       <View style={{
@@ -828,14 +832,14 @@ function NextCard({ course, countdown, radius }: { course: Course; countdown: nu
 // ─── Plain course card ────────────────────────────────────────────────────────
 function CourseCard({ course, radius }: { course: Course; radius: number }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const { fontFamily } = useTheme();
   const ff = FONT_FAMILY_META[fontFamily].value;
-  
+
   return (
     <View style={{
       borderRadius: radius, backgroundColor: colors.background, overflow: "hidden",
-      shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.06, shadowRadius: 5, elevation: 2,
+      ...cardShadow(scheme, { offsetY: 1, opacity: 0.06, radius: 5, elevation: 2 }),
     }}>
       <View style={{
         position: "absolute", left: 0, top: 0, bottom: 0,
@@ -879,6 +883,7 @@ export default function HomeScreen() {
   const { state: scheduleState } = useSchedule();
   const router = useRouter();
   const colors = useColors();
+  const scheme = useColorScheme();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -1092,6 +1097,30 @@ export default function HomeScreen() {
     );
   }, [nowSeconds, ongoingCourse, nextCourse]);
 
+  // ── AppState 前台/后台切换（issue #3）────────────────────────────────────────
+  // 进入后台：标记 _isBg，立即写入课程截止时间戳并发一次精确通知，
+  //           后续由 expo-background-task 粗粒度刷新（约 15 分钟）。
+  // 回到前台：恢复每秒实时刷新。
+  // 依赖 ongoingCourse/nextCourse，确保闭包内课程数据是最新的。
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = nextAppState;
+
+      if (prev === 'active' && nextAppState !== 'active') {
+        setAppInBackground(true);
+        if (authState.userToken) {
+          saveBgStateAndNotify(ongoingCourse ?? null, nextCourse ?? null, Date.now());
+        }
+      } else if (prev !== 'active' && nextAppState === 'active') {
+        setAppInBackground(false);
+      }
+    };
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => sub.remove();
+  }, [authState.userToken, ongoingCourse, nextCourse]);
+
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) { setError("请输入学号和密码"); return; }
     setLoading(true); setError("");
@@ -1138,9 +1167,7 @@ export default function HomeScreen() {
                   backgroundColor: colors.background,
                   borderLeftWidth: 3, borderLeftColor: colors.primary,
                   paddingHorizontal: 16, paddingVertical: 14, gap: 6,
-                  shadowColor: "#000",
-                  shadowOffset: { width: 0, height: 1 },
-                  shadowOpacity: 0.05, shadowRadius: 5, elevation: 1,
+                  ...cardShadow(scheme, { offsetY: 1, opacity: 0.05, radius: 5, elevation: 1 }),
                 }}
               >
                 <Text style={{ fontSize: 14, color: colors.foreground, lineHeight: 22, letterSpacing: 0.3, fontFamily: ff }}>

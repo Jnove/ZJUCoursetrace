@@ -11,6 +11,8 @@ import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cardShadow } from "@/lib/_core/shadow";
 import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 import { useAuth } from "@/lib/auth-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -82,6 +84,7 @@ function filterHomeworks(homeworks: HomeworkInfo[], tab: TabKey): HomeworkInfo[]
 
 function HomeworkCard({ hw, radius }: { hw: HomeworkInfo; radius: number }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const past = isPast(hw.deadlineIso);
   const today = isToday(hw.deadlineIso);
   const { fontFamily } = useTheme();
@@ -111,11 +114,7 @@ function HomeworkCard({ hw, radius }: { hw: HomeworkInfo; radius: number }) {
         backgroundColor: colors.background,
         overflow: "hidden",
         marginBottom: 10,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 5,
-        elevation: 2,
+        ...cardShadow(scheme, { offsetY: 1, opacity: 0.06, radius: 5, elevation: 2 }),
         borderWidth: 0.5,
         borderColor: colors.border,
       }}

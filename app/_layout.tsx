@@ -26,8 +26,9 @@ Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: false,
     shouldSetBadge: false,
-    shouldShowBanner: true,  // 前台不弹横幅
-    shouldShowList: true,     // 保留在通知中心列表
+    // 课程通知每秒刷新，前台不弹横幅（否则会不停打断），仅保留在通知中心列表
+    shouldShowBanner: false,
+    shouldShowList: true,
   }),
 });
 

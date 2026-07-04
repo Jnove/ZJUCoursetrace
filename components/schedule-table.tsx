@@ -1,12 +1,16 @@
 import React from "react";
-import { View, Text, ScrollView, Pressable } from "react-native";
+import { View, Text, ScrollView, Pressable, useWindowDimensions } from "react-native";
 import { Course } from "@/lib/schedule-context";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cardShadow } from "@/lib/_core/shadow";
 import { RefreshControl } from "react-native-gesture-handler";
 import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 
 const HEADER_H   = 38;
 const TIME_COL_W = 34;
+// 手机竖屏下的最小列宽，保证可读性；平板/横屏时按屏宽平分铺满
+const MIN_COL_W  = 48;
 
 const PERIODS = [
   { number: 1,  startTime: "08:00", endTime: "08:45" },
@@ -58,8 +62,14 @@ export function ScheduleTable({
   radius = 5,
 }: ScheduleTableProps) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const { fontFamily } = useTheme();
   const ff = FONT_FAMILY_META[fontFamily].value;
+  const { width: screenW } = useWindowDimensions();
+
+  // 列宽按可用屏宽在 7 天间平分，平板/横屏铺满不留大片空白；
+  // 屏幕过窄时回退到最小列宽，横向 ScrollView 仍可滚动。
+  const COL_W = Math.max(MIN_COL_W, Math.floor((screenW - TIME_COL_W) / 7));
 
   const CELL_H = availableHeight > 200
     ? Math.max(44, Math.floor((availableHeight - HEADER_H) / PERIODS.length))
@@ -97,7 +107,7 @@ export function ScheduleTable({
 
           return (
             <View key={di} style={{
-              width: 50,
+              width: COL_W,
               height: TOTAL_COL_H,
               position: "relative",
               borderLeftWidth: 0.5,
@@ -208,9 +218,7 @@ export function ScheduleTable({
                           borderRadius: 5,
                           paddingHorizontal: 4, paddingVertical: 4,
                           overflow: "hidden",
-                          shadowColor: "#000",
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.12, shadowRadius: 2, elevation: 2,
+                          ...cardShadow(scheme, { offsetY: 1, opacity: 0.12, radius: 2, elevation: 2 }),
                         }}>
                           <Text style={{
                             fontSize: 11, fontWeight: "700", fontFamily: ff,

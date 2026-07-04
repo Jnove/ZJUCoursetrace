@@ -5,6 +5,8 @@ import {
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cardShadow } from "@/lib/_core/shadow";
 import { useAuth } from "@/lib/auth-context";
 import { useState, useEffect, useRef, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -221,6 +223,7 @@ function GpaCard({
   hidden:boolean; onToggle:()=>void; onPress:()=>void; stale:boolean; radius:number;
 }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const c1 = gpaColor(majorGpa, colors);
   const c2 = gpaColor(allGpa, colors);
   const { fontFamily } = useTheme();
@@ -229,7 +232,7 @@ function GpaCard({
   return (
     <TouchableOpacity activeOpacity={0.8} onPress={onPress} style={{
       borderRadius:radius, backgroundColor:colors.background, overflow:"hidden",
-      shadowColor:"#000", shadowOffset:{width:0,height:2}, shadowOpacity:0.08, shadowRadius:12, elevation:4,
+      ...cardShadow(scheme, { offsetY:2, opacity:0.08, radius:12, elevation:4 }),
     }}>
       {/* top stripe dual-color */}
       <View style={{flexDirection:"row",height:3}}>
@@ -334,6 +337,7 @@ function HomeworkSummaryCard({ homeworks, loading, error, onRetry, stale, radius
   const pending  = homeworks.filter(h=>!h.submitted && !hwPast(h.deadlineIso)).length;
   const today    = homeworks.filter(h=>!h.submitted && hwToday(h.deadlineIso)).length;
   const week = homeworks.filter(h => !h.submitted && hwWeek(h.deadlineIso)).length;
+  const scheme = useColorScheme();
   const { fontFamily } = useTheme();
   const ff = FONT_FAMILY_META[fontFamily].value;
 
@@ -344,8 +348,7 @@ function HomeworkSummaryCard({ homeworks, loading, error, onRetry, stale, radius
       disabled={loading && homeworks.length===0}
       style={{
         borderRadius:radius, backgroundColor:colors.background, overflow:"hidden",
-        shadowColor:HW_ACCENT, shadowOffset:{width:0,height:2},
-        shadowOpacity:0.1, shadowRadius:12, elevation:4,
+        ...cardShadow(scheme, { color:HW_ACCENT, offsetY:2, opacity:0.1, radius:12, elevation:4 }),
       }}
     >
       <View style={{height:3,backgroundColor:HW_ACCENT}}/>
@@ -427,6 +430,7 @@ function ExamCard({ exam, isPast=false, compact=false, radius=12 }: {
   exam:ExamInfo; isPast?:boolean; compact?:boolean; radius?:number;
 }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const accent = isPast ? PAST_COLOR : EXAM_ACCENT;
   const date   = parseExamDate(exam.examTime);
   const days = date ? daysUntil(date) : -999;
@@ -436,8 +440,7 @@ function ExamCard({ exam, isPast=false, compact=false, radius=12 }: {
   return (
     <View style={{
       borderRadius:radius, backgroundColor:colors.background, overflow:"hidden",
-      shadowColor:"#000", shadowOffset:{width:0,height:1},
-      shadowOpacity:isPast?0.03:0.06, shadowRadius:6, elevation:isPast?1:2,
+      ...cardShadow(scheme, { offsetY:1, opacity:isPast?0.03:0.06, radius:6, elevation:isPast?1:2 }),
       opacity:isPast?0.68:1,
       paddingLeft:compact?12:16, paddingRight:compact?12:14,
       paddingVertical:compact?9:12,

@@ -170,18 +170,19 @@ export function resolveEffectiveDate(
 ): Date | null {
   if (!cal) return date;
   const ds = toDateStr(date);
-  if (cal.holiday.includes(ds)) return null;
-  const ref = cal.exchange[ds];
+  // Remote calendar.json may be malformed / missing keys — guard every access.
+  if ((cal.holiday ?? []).includes(ds)) return null;
+  const ref = (cal.exchange ?? {})[ds];
   if (ref) return new Date(`${ref}T00:00:00`);
   return date;
 }
 
 export function isHoliday(cal: SemesterCalendar | null | undefined, date: Date): boolean {
   if (!cal) return false;
-  return cal.holiday.includes(toDateStr(date));
+  return (cal.holiday ?? []).includes(toDateStr(date));
 }
 
 export function getExchangeRef(cal: SemesterCalendar | null | undefined, date: Date): string | null {
   if (!cal) return null;
-  return cal.exchange[toDateStr(date)] ?? null;
+  return (cal.exchange ?? {})[toDateStr(date)] ?? null;
 }

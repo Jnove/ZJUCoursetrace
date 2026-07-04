@@ -1,5 +1,7 @@
 import { Modal, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useColors } from '@/hooks/use-colors';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { cardShadow } from '@/lib/_core/shadow';
 import { useTheme, CARD_RADIUS_VALUES } from '@/lib/theme-provider';
 import { IconSymbol } from './icon-symbol';
 
@@ -27,6 +29,7 @@ export function CustomModal({
   icon,
 }: CustomModalProps) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const { primaryColor, cardRadius } = useTheme();
   const radius = CARD_RADIUS_VALUES[cardRadius];
 
@@ -47,7 +50,7 @@ export function CustomModal({
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={[styles.card, { borderRadius: radius, backgroundColor: colors.surface }]}>
+        <View style={[styles.card, { borderRadius: radius, backgroundColor: colors.surface }, cardShadow(scheme, { offsetY: 2, opacity: 0.1, radius: 8, elevation: 5 })]}>
           {icon && <View style={styles.iconContainer}>{icon}</View>}
           {title && (
             <Text style={[styles.title, { color: colors.foreground }]}>
@@ -101,11 +104,6 @@ const styles = StyleSheet.create({
     maxWidth: 320,
     padding: 20,
     borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
   },
   iconContainer: {
     alignItems: 'center',

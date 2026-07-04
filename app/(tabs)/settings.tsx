@@ -13,6 +13,8 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuth } from "@/lib/auth-context";
 import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cardShadow } from "@/lib/_core/shadow";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import type { SFSymbols7_0 } from "sf-symbols-typescript";
@@ -76,6 +78,7 @@ function SettingsRow({
 
 function SettingsSection({ title, children }: { title?: string; children: React.ReactNode }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const { cardRadius } = useTheme();
   const r = CARD_RADIUS_VALUES[cardRadius];
   const { fontFamily } = useTheme();
@@ -95,8 +98,7 @@ function SettingsSection({ title, children }: { title?: string; children: React.
         borderRadius: r, overflow: "hidden",
         borderWidth: 0.5, borderColor: colors.border,
         backgroundColor: colors.background,
-        shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05, shadowRadius: 1, elevation: 0,
+        ...cardShadow(scheme, { offsetY: 1, opacity: 0.05, radius: 1, elevation: 0 }),
       }}>
         {children}
       </View>
@@ -107,6 +109,7 @@ function SettingsSection({ title, children }: { title?: string; children: React.
 // ─── Theme segmented control ───────────────────────────────────────────────────
 function ThemeSegment() {
   const colors = useColors();
+  const scheme = useColorScheme();
   const { themePreference, setThemePreference, primaryColor } = useTheme();
   const opts: { label: string; value: "light" | "dark" | "system"; icon: SFSymbols7_0 }[] = [
     { label: "浅色", value: "light",  icon: "sun.max" },
@@ -133,10 +136,7 @@ function ThemeSegment() {
               justifyContent: "center", gap: 5, paddingVertical: 8,
               borderRadius: 8,
               backgroundColor: active ? colors.background : "transparent",
-              shadowColor: active ? "#000" : "transparent",
-              shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: active ? 0.08 : 0,
-              shadowRadius: 3, elevation: active ? 1 : 0,
+              ...(active ? cardShadow(scheme, { offsetY: 1, opacity: 0.08, radius: 3, elevation: 1 }) : null),
             }}
           >
             <IconSymbol name={o.icon} size={15} color={active ? primaryColor : colors.muted} />
@@ -156,6 +156,7 @@ function ThemeSegment() {
 // ─── Profile card ──────────────────────────────────────────────────────────────
 function ProfileCard({ username }: { username: string | null }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const { primaryColor, cardRadius } = useTheme();
   const r = CARD_RADIUS_VALUES[cardRadius];
   const initial = username
@@ -169,8 +170,7 @@ function ProfileCard({ username }: { username: string | null }) {
       padding: 18, borderRadius: r,
       backgroundColor: colors.background,
       borderWidth: 0.5, borderColor: colors.border,
-      shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.07, shadowRadius: 8, elevation: 2,
+      ...cardShadow(scheme, { offsetY: 2, opacity: 0.07, radius: 8, elevation: 2 }),
     }}>
       <View style={{
         width: 52, height: 52, borderRadius: 26,

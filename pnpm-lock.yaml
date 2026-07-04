@@ -53,6 +53,9 @@ importers:
       expo-audio:
         specifier: ~1.1.1
         version: 1.1.1(expo-asset@12.0.12(expo@54.0.33)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3))(expo@54.0.33)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      expo-background-task:
+        specifier: ~1.0.10
+        version: 1.0.10(expo@54.0.33)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))
       expo-build-properties:
         specifier: ^1.0.10
         version: 1.0.10(expo@54.0.33)
@@ -3985,6 +3988,11 @@ packages:
       expo-asset: '*'
       react: '*'
       react-native: '*'
+
+  expo-background-task@1.0.10:
+    resolution: {integrity: sha512-EbPnuf52Ps/RJiaSFwqKGT6TkvMChv7bI0wF42eADbH3J2EMm5y5Qvj0oFmF1CBOwc3mUhqj63o7Pl6OLkGPZQ==}
+    peerDependencies:
+      expo: '*'
 
   expo-build-properties@1.0.10:
     resolution: {integrity: sha512-mFCZbrbrv0AP5RB151tAoRzwRJelqM7bCJzCkxpu+owOyH+p/rFC/q7H5q8B9EpVWj8etaIuszR+gKwohpmu1Q==}
@@ -11405,6 +11413,13 @@ snapshots:
       expo-asset: 12.0.12(expo@54.0.33)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3)
       react: 19.1.0
       react-native: 0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0)
+
+  expo-background-task@1.0.10(expo@54.0.33)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0)):
+    dependencies:
+      expo: 54.0.33(@babel/core@7.29.0)(@expo/metro-runtime@6.1.2)(expo-router@6.0.23)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3)
+      expo-task-manager: 14.0.9(expo@54.0.33)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))
+    transitivePeerDependencies:
+      - react-native
 
   expo-build-properties@1.0.10(expo@54.0.33):
     dependencies:

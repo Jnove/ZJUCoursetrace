@@ -13,6 +13,8 @@ import { useState, useEffect, useCallback } from "react";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cardShadow } from "@/lib/_core/shadow";
 import { useAuth } from "@/lib/auth-context";
 import {
   loadSession,
@@ -128,6 +130,7 @@ function CompactGpaCard({
   radius?: number;
 }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const gpaColor = getGpaColor(gpa, colors);
   const { fontFamily } = useTheme();
   const ff = FONT_FAMILY_META[fontFamily].value;
@@ -141,11 +144,7 @@ function CompactGpaCard({
           padding: 20,
           alignItems: "center",
           justifyContent: "center",
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.05,
-          shadowRadius: 8,
-          elevation: 2,
+          ...cardShadow(scheme, { offsetY: 2, opacity: 0.05, radius: 8, elevation: 2 }),
         }}
       >
         <ActivityIndicator size="small" color={colors.primary} />
@@ -173,11 +172,7 @@ function CompactGpaCard({
         borderRadius: radius,
         backgroundColor: colors.background,
         overflow: "hidden",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-        elevation: 2,
+        ...cardShadow(scheme, { offsetY: 2, opacity: 0.06, radius: 8, elevation: 2 }),
         borderWidth: 0.5,
         borderColor: colors.border,
       }}
@@ -239,6 +234,7 @@ function CompactGpaCard({
 // 分数分布卡片
 function ScoreDistributionCard({ grades, radius }: { grades: Grade[]; radius?: number }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const validGrades = grades.filter((g) => {
     if (g.score === null || g.score === undefined) return false;
     if (typeof g.score === "number") return true;
@@ -281,11 +277,7 @@ function ScoreDistributionCard({ grades, radius }: { grades: Grade[]; radius?: n
         backgroundColor: colors.background,
         borderRadius: radius,
         padding: 16,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 5,
-        elevation: 1,
+        ...cardShadow(scheme, { offsetY: 1, opacity: 0.05, radius: 5, elevation: 1 }),
         borderWidth: 0.5,
         borderColor: colors.border,
       }}
@@ -368,6 +360,7 @@ function ScoreDistributionCard({ grades, radius }: { grades: Grade[]; radius?: n
 // 课程条目
 function GradeItem({ grade, radius }: { grade: Grade; radius?: number }) {
   const colors = useColors();
+  const scheme = useColorScheme();
 
   let gpaColor = colors.muted;
   if (grade.gpaPoints !== null && grade.gpaPoints !== undefined) {
@@ -395,11 +388,7 @@ function GradeItem({ grade, radius }: { grade: Grade; radius?: number }) {
         paddingHorizontal: 16,
         paddingVertical: 14,
         marginBottom: 8,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 3,
-        elevation: 1,
+        ...cardShadow(scheme, { offsetY: 1, opacity: 0.04, radius: 3, elevation: 1 }),
         borderWidth: 0.5,
         borderColor: colors.border,
       }}
