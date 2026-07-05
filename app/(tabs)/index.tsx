@@ -9,7 +9,8 @@ import { useSchedule } from "@/lib/schedule-context";
 import { useRouter } from "expo-router";
 import { useState, useEffect, useCallback, useRef } from "react";
 import * as Haptics from "expo-haptics";
-import { getCurrentSemester, SemesterInfo } from "@/lib/semester-utils";
+import { getCurrentSemester, getNextSemesterStart, SemesterInfo, NextSemesterInfo } from "@/lib/semester-utils";
+import { loadCustomCourses, mergeCustomCourses } from "@/lib/custom-courses";
 import { Course } from "@/lib/schedule-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PasswordInput } from "@/components/password-input";
@@ -53,7 +54,11 @@ export default function HomeScreen() {
 
   const [todaysCourses, setTodaysCourses] = useState<Course[]>([]);
   const [tomorrowCourses, setTomorrowCourses] = useState<Course[]>([]);
-  const [semesterInfo, setSemesterInfo] = useState<SemesterInfo | null>(null);
+  // 同步初始化，避免学期内首屏闪现假期卡片
+  const [semesterInfo, setSemesterInfo] = useState<SemesterInfo | null>(() => getCurrentSemester(new Date()));
+  const [nextSem, setNextSem] = useState<NextSemesterInfo | null>(
+    () => (getCurrentSemester(new Date()) ? null : getNextSemesterStart(new Date())),
+  );
   const [nowSeconds, setNowSeconds] = useState(getNowSeconds);
 
   const { poem, poemLoading, poemCooldown, fetchPoem } = usePoem();
@@ -116,16 +121,23 @@ export default function HomeScreen() {
       const now  = new Date();
       const info = getCurrentSemester(now);
       setSemesterInfo(info);
-      if (!info) { setTodaysCourses([]); return true; }
+      if (!info) {
+        // 假期/学期间隙：显示距开学倒计时兜底
+        setNextSem(getNextSemesterStart(now));
+        setTodaysCourses([]);
+        return true;
+      }
+      setNextSem(null);
 
       const uname   = await AsyncStorage.getItem("username");
+      const custom  = await loadCustomCourses(uname);
       const cacheKey = await resolveCacheKey(info.schoolYear, info.semester, uname);
       console.log("今日课程尝试读取课程缓存，key =", cacheKey);
       const raw      = await AsyncStorage.getItem(cacheKey);
 
-      if (!raw) return false;
+      if (!raw && custom.length === 0) return false;
 
-      const all: Course[] = JSON.parse(raw);
+      const all = mergeCustomCourses<Course>(raw ? JSON.parse(raw) : [], custom);
       const todayDow = now.getDay() === 0 ? 7 : now.getDay();
       setTodaysCourses(filterCourses(all, todayDow, info.week, info.week % 2 === 1));
 
@@ -134,8 +146,8 @@ export default function HomeScreen() {
       const tInfo = getCurrentSemester(tomorrow);
       if (tInfo) {
         const tCacheKey = await resolveCacheKey(tInfo.schoolYear, tInfo.semester, uname);
-        const tRaw      = await AsyncStorage.getItem(tCacheKey) ?? raw;
-        const tAll: Course[] = JSON.parse(tRaw);
+        const tRaw      = (await AsyncStorage.getItem(tCacheKey)) ?? raw;
+        const tAll = mergeCustomCourses<Course>(tRaw ? JSON.parse(tRaw) : [], custom);
         const tomorrowDow = tomorrow.getDay() === 0 ? 7 : tomorrow.getDay();
         setTomorrowCourses(filterCourses(tAll, tomorrowDow, tInfo.week, tInfo.week % 2 === 1));
       }
@@ -319,8 +331,39 @@ export default function HomeScreen() {
             {/* Weather */}
             {weather && <WeatherCard data={weather} radius={r} />}
 
-            {/* Course section */}
+            {/* ── 假期/学期间隙兜底 ── */}
+            {!semesterInfo ? (
+              <View style={{
+                backgroundColor: colors.background, borderRadius: r,
+                paddingVertical: 28, paddingHorizontal: 20,
+                alignItems: "center", gap: 8,
+                ...cardShadow(scheme, { offsetY: 1, opacity: 0.06, radius: 5, elevation: 2 }),
+              }}>
+                <Text style={{ fontSize: 34 }}>🏖️</Text>
+                <Text style={{ fontSize: 17, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
+                  假期中
+                </Text>
+                {nextSem ? (
+                  <>
+                    <Text style={{ fontSize: 14, color: colors.muted, fontFamily: ff }}>
+                      距 {nextSem.semester}学期开学还有
+                    </Text>
+                    <Text style={{ fontSize: 32, fontWeight: "700", color: primaryColor, fontFamily: ff, fontVariant: ["tabular-nums"] }}>
+                      {nextSem.daysUntil} 天
+                    </Text>
+                    <Text style={{ fontSize: 12, color: colors.muted, fontFamily: ff }}>
+                      {nextSem.schoolYear} {nextSem.semester}学期 · {nextSem.startDate.getMonth() + 1}月{nextSem.startDate.getDate()}日
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={{ fontSize: 13, color: colors.muted, fontFamily: ff }}>
+                    好好休息，享受假期
+                  </Text>
+                )}
+              </View>
+            ) : (
             <View style={{ gap: 10 }}>
+              {/* Course section */}
               <Text style={{ fontSize: 16, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
                 {showTomorrow ? "明天的课程" : "今天的课程"}
               </Text>
@@ -374,6 +417,7 @@ export default function HomeScreen() {
                 </View>
               )}
             </View>
+            )}
 
             {/* View schedule button */}
             <TouchableOpacity

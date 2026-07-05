@@ -6,7 +6,7 @@
 
 import {
   View, Text, ScrollView, TouchableOpacity,
-  Alert, ActivityIndicator,
+  Alert, ActivityIndicator, Switch,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -16,10 +16,13 @@ import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { cardShadow } from "@/lib/_core/shadow";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SFSymbols7_0 } from "sf-symbols-typescript";
 import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { exportScheduleIcs } from "@/lib/ics-export";
+import { cancelAllReminders, REMINDER_PREF_KEY } from "@/lib/reminder-service";
+import { GRADE_NOTIFY_PREF_KEY } from "@/lib/grade-watcher";
 const isDiagEnabled = !!process.env.EXPO_PUBLIC_ENABLE_DIAG_LOG;
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
@@ -73,6 +76,44 @@ function SettingsRow({
         <IconSymbol name="chevron.right" size={15} color={colors.muted} />
       )}
     </TouchableOpacity>
+  );
+}
+
+function SettingsToggleRow({
+  icon, iconBg, label, sub, value, onValueChange, last = false,
+}: {
+  icon: SFSymbols7_0; iconBg: string; label: string; sub?: string;
+  value: boolean; onValueChange: (v: boolean) => void; last?: boolean;
+}) {
+  const colors = useColors();
+  const { primaryColor } = useTheme();
+  const { fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
+  return (
+    <View style={{
+      flexDirection: "row", alignItems: "center",
+      paddingHorizontal: 16, paddingVertical: 10, gap: 13,
+      backgroundColor: colors.background,
+      borderBottomWidth: last ? 0 : 0.5,
+      borderBottomColor: colors.border,
+    }}>
+      <View style={{
+        width: 34, height: 34, borderRadius: 8, backgroundColor: iconBg,
+        alignItems: "center", justifyContent: "center", flexShrink: 0,
+      }}>
+        <IconSymbol name={icon} size={18} color="#fff" />
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={{ fontSize: 15, color: colors.foreground, fontFamily: ff }}>{label}</Text>
+        {sub && <Text style={{ fontSize: 11, color: colors.muted, fontFamily: ff }}>{sub}</Text>}
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ true: primaryColor }}
+        thumbColor="#fff"
+      />
+    </View>
   );
 }
 
@@ -207,6 +248,38 @@ export default function SettingsScreen() {
   const colors   = useColors();
   const router   = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  // 通知开关（默认开启，"0" 表示关闭）
+  const [gradeNotify, setGradeNotify] = useState(true);
+  const [reminders, setReminders]     = useState(true);
+  useEffect(() => {
+    AsyncStorage.getItem(GRADE_NOTIFY_PREF_KEY).then(v => setGradeNotify(v !== "0")).catch(() => {});
+    AsyncStorage.getItem(REMINDER_PREF_KEY).then(v => setReminders(v !== "0")).catch(() => {});
+  }, []);
+
+  const toggleGradeNotify = async (v: boolean) => {
+    setGradeNotify(v);
+    await AsyncStorage.setItem(GRADE_NOTIFY_PREF_KEY, v ? "1" : "0").catch(() => {});
+  };
+  const toggleReminders = async (v: boolean) => {
+    setReminders(v);
+    await AsyncStorage.setItem(REMINDER_PREF_KEY, v ? "1" : "0").catch(() => {});
+    // 关闭时立即清掉已排的本地提醒；开启后下次拉取作业/考试时自动重排
+    if (!v) await cancelAllReminders();
+  };
+
+  const handleExportIcs = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      await exportScheduleIcs();
+    } catch (e) {
+      Alert.alert("导出失败", e instanceof Error ? e.message : "未知错误");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const r = CARD_RADIUS_VALUES[cardRadius];
   const version = Constants.expoConfig?.version ?? "1.1.0";
@@ -305,6 +378,46 @@ export default function SettingsScreen() {
             label="个性化"
             value="颜色与样式"
             onPress={() => router.push("/personalization")}
+            last
+          />
+        </SettingsSection>
+
+        {/* Schedule tools */}
+        <SettingsSection title="课表">
+          <SettingsRow
+            icon="plus.circle.fill"
+            iconBg="#10b981"
+            label="自定义课程"
+            value="实验课 / 社团等"
+            onPress={() => router.push("/custom-courses")}
+          />
+          <SettingsRow
+            icon="calendar"
+            iconBg="#f59e0b"
+            label="导出课表到日历"
+            value={exporting ? "导出中…" : ".ics"}
+            onPress={handleExportIcs}
+            last
+          />
+        </SettingsSection>
+
+        {/* Notifications */}
+        <SettingsSection title="通知">
+          <SettingsToggleRow
+            icon="bell.badge.fill"
+            iconBg="#ef4444"
+            label="出分提醒"
+            sub="后台定期检查，有新成绩时通知（约每 2 小时）"
+            value={gradeNotify}
+            onValueChange={toggleGradeNotify}
+          />
+          <SettingsToggleRow
+            icon="alarm.fill"
+            iconBg="#8b5cf6"
+            label="作业与考试提醒"
+            sub="截止 / 开考前 24 小时和 2 小时各提醒一次"
+            value={reminders}
+            onValueChange={toggleReminders}
             last
           />
         </SettingsSection>

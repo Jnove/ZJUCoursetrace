@@ -50,6 +50,12 @@ const MAPPING = {
 
   // Calendar
   "calendar":                              "calendar-month",
+
+  // Settings: custom courses / reminders
+  "plus.circle.fill":                      "plus-circle",
+  "bell.badge.fill":                       "bell-badge",
+  "alarm.fill":                            "alarm",
+  "trash.fill":                            "delete",
 } as IconMapping;
 
 export function IconSymbol({

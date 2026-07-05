@@ -16,6 +16,8 @@ import {
 } from "@/lib/zju-client";
 import { useRouter } from "expo-router";
 import { writeLog } from "@/lib/diagnostic-log";
+import { updateGradeSnapshot } from "@/lib/grade-watcher";
+import { syncExamReminders, syncHomeworkReminders } from "@/lib/reminder-service";
 import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 
 // ─── Cache ────────────────────────────────────────────────────────────────────
@@ -596,7 +598,7 @@ export default function AcademicScreen() {
       if (c) {
         setAllGpa(c.gpa); setAllCredits(c.totalCredits);
         setAllLoading(false); setAllError(null); setAllStale(true);
-        try { const s=await loadSession(); if(s){const r=await fetchGrade(s);setAllGpa(r.gpa);setAllCredits(r.totalCredits);await writeCache(k,r);} } catch{}
+        try { const s=await loadSession(); if(s){const r=await fetchGrade(s);setAllGpa(r.gpa);setAllCredits(r.totalCredits);await writeCache(k,r);updateGradeSnapshot(r.grades);} } catch{}
         finally{setAllStale(false);}
         return;
       }
@@ -606,6 +608,7 @@ export default function AcademicScreen() {
       const s = await loadSession(); if(!s){setAllError("请先登录");return;}
       const res = await fetchGrade(s);
       setAllGpa(res.gpa); setAllCredits(res.totalCredits); await writeCache(k,res);
+      updateGradeSnapshot(res.grades);
     } catch(e){setAllError(e instanceof Error?e.message:"获取全部绩点失败");}
     finally{setAllLoading(false);}
   },[]);
@@ -618,7 +621,7 @@ export default function AcademicScreen() {
       const c = await readCache<ExamInfo[]>(k);
       if (c) {
         setExams(c); setExamLoading(false); setExamError(null); setExamStale(true);
-        try { const s=await loadSession(); if(s){const r=await fetchExams(s);setExams(r);await writeCache(k,r);} } catch{}
+        try { const s=await loadSession(); if(s){const r=await fetchExams(s);setExams(r);await writeCache(k,r);syncExamReminders(r);} } catch{}
         finally{setExamStale(false);}
         return;
       }
@@ -627,6 +630,7 @@ export default function AcademicScreen() {
     try {
       const s = await loadSession(); if(!s){setExamError("请先登录");return;}
       const res = await fetchExams(s); setExams(res); await writeCache(k,res);
+      syncExamReminders(res);
     } catch(e){
       writeLog("ACADEMIC",`考试加载失败: ${e instanceof Error?e.message:String(e)}`,"error");
       setExamError(e instanceof Error?e.message:"获取考试信息失败");
@@ -641,7 +645,7 @@ export default function AcademicScreen() {
       const c = await readCache<HomeworkInfo[]>(k);
       if (c) {
         setHomeworks(c); setHomeworkLoading(false); setHomeworkError(null); setHomeworkStale(true);
-        try { const s=await loadSession(); if(s){const r=await fetchHomeworks(s);setHomeworks(r);await writeCache(k,r);} } catch{}
+        try { const s=await loadSession(); if(s){const r=await fetchHomeworks(s);setHomeworks(r);await writeCache(k,r);syncHomeworkReminders(r);} } catch{}
         finally{setHomeworkStale(false);}
         return;
       }
@@ -652,6 +656,7 @@ export default function AcademicScreen() {
       const res = await fetchHomeworks(s);
       writeLog("ACADEMIC",`作业: ${res.length} 项`,res.length===0?"warn":"info");
       setHomeworks(res); await writeCache(k,res);
+      syncHomeworkReminders(res);
     } catch(e){
       writeLog("ACADEMIC",`作业加载失败: ${e instanceof Error?e.message:String(e)}`,"error");
       setHomeworkError(e instanceof Error?e.message:"获取作业失败");

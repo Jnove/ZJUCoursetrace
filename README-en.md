@@ -46,6 +46,7 @@ No backend server required since v2.0.0. All requests to the ZJU academic system
 **Home screen**
 - Overview of today's courses with time, room, and teacher info
 - Live countdown progress bar for the ongoing course
+- During vacation / semester gaps, switches to a "N days until next semester" countdown
 - Daily random classical Chinese poetry
 - Live weather: auto-locates (GPS cache → IP fallback), shows temperature range, rain probability, and contextual tips; switches to tomorrow's forecast after 9 PM
 
@@ -54,6 +55,8 @@ No backend server required since v2.0.0. All requests to the ZJU academic system
 - Semester picker supporting multi-semester data switching
 - Odd/even week filtering
 - One-tap screenshot and share or save to gallery
+- Custom courses: manually add labs / club activities shown alongside the official timetable (stored locally only)
+- Export the timetable as an .ics calendar file for the system calendar (odd/even weeks handled)
 
 **Academic**
 - Major GPA and overall GPA overview (with credit statistics)
@@ -65,6 +68,8 @@ No backend server required since v2.0.0. All requests to the ZJU academic system
 **Notifications & Settings**
 - Shows the student's name after login (home welcome line and settings avatar), parsed from the CAS profile page and cached locally
 - Android status bar shows current or next course with live countdown; persistent yet silent
+- New-grade alerts: periodic background check (~every 2 hours) notifies when new grades are published
+- Homework / exam reminders: notified 24 hours and 2 hours before each deadline or exam; can be disabled in Settings
 - Dark / Light / System theme
 - Personalization: 15 accent colors, 3 corner radius styles, 5 course color palettes, 4 font families, all with live preview
 - In-app update detection: Android downloads and installs APK directly, iOS opens GitHub Releases
@@ -153,5 +158,5 @@ The APK download link will appear in your terminal and on the Expo dashboard onc
 - **Semester detection gaps** — dates that fall between semesters (e.g. exam weeks, holidays) return null and show no data on the home screen
 - **Slow GPS on non-GMS Android** — devices without Google Play Services have slow GPS cold-start; the app automatically falls back to IP-based location on first launch
 - **No persistent notification on iOS** — system limitation; course notifications on iOS can be dismissed by the user
-- **Coarse background countdown** — while the app is backgrounded the OS schedules wakeups only ~every 15 min (especially iOS), so the notification countdown can't tick every second; it resumes per-second refresh once foregrounded
+- **Coarse background countdown** — while the app is backgrounded the OS schedules wakeups only ~every 15 min (especially iOS), so the notification countdown can't tick every second; mitigated by pre-scheduled milestone updates (60/30/10/5 min before class and at class start, delivered on time by the system alarm); per-second refresh resumes once foregrounded
 - **CAS account lockout** — multiple failed password attempts may trigger CAPTCHA verification; unlock by visiting [zjuam.zju.edu.cn](https://zjuam.zju.edu.cn) in a browser

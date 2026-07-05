@@ -162,3 +162,45 @@ export function getCurrentSemester(date: Date = new Date()): SemesterInfo | null
   // 不在任何学期内
   return null;
 }
+
+/**
+ * 下一个学期的开学信息（用于假期间隙的首页兜底展示）。
+ * 返回下一个学期一周的周一日期；找不到（lunar 超范围等）返回 null。
+ */
+export interface NextSemesterInfo {
+  startDate: Date;     // 学期一周的周一
+  schoolYear: string;
+  semester: string;    // 秋 / 冬 / 春 / 夏
+  daysUntil: number;   // 距开学天数（按自然日）
+}
+
+export function getNextSemesterStart(date: Date = new Date()): NextSemesterInfo | null {
+  const candidates: { start: Date; schoolYear: string; semester: string }[] = [];
+
+  // 覆盖今年与明年的所有学期起点，取最近的未来一个
+  for (const year of [date.getFullYear(), date.getFullYear() + 1]) {
+    const lantern = getLanternFestivalDate(year);
+    if (lantern) {
+      const spring = getMonday(lantern);
+      candidates.push({ start: spring, schoolYear: `${year - 1}-${year}`, semester: "春" });
+      const summer = new Date(spring);
+      summer.setDate(summer.getDate() + 8 * 7);
+      candidates.push({ start: summer, schoolYear: `${year - 1}-${year}`, semester: "夏" });
+    }
+    const autumn = getSeptemberMidMonday(year);
+    candidates.push({ start: autumn, schoolYear: `${year}-${year + 1}`, semester: "秋" });
+    const winter = new Date(autumn);
+    winter.setDate(winter.getDate() + 8 * 7);
+    candidates.push({ start: winter, schoolYear: `${year}-${year + 1}`, semester: "冬" });
+  }
+
+  const today = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const future = candidates
+    .filter(c => c.start.getTime() > today.getTime())
+    .sort((a, b) => a.start.getTime() - b.start.getTime());
+  if (future.length === 0) return null;
+
+  const next = future[0];
+  const daysUntil = Math.ceil((next.start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  return { startDate: next.start, schoolYear: next.schoolYear, semester: next.semester, daysUntil };
+}
