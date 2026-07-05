@@ -45,7 +45,7 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="Academic"
+        name="academic"
         options={{
           title: "学业",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="graduationcap.fill" color={color} />,

@@ -77,18 +77,18 @@ No backend server required since v2.0.0. All requests to the ZJU academic system
 │   ├── (tabs)/
 │   │   ├── index.tsx              # Home (today's courses + poem + weather + login form)
 │   │   ├── schedule.tsx           # Timetable screen
-│   │   ├── Academic.tsx           # Academic (GPA + exams + homework)
+│   │   ├── academic.tsx           # Academic (GPA + exams + homework)
 │   │   └── settings.tsx           # Theme switching + logout
 │   ├── grade-detail.tsx           # Grade detail page
 │   ├── course-detail.tsx          # Course detail page
 │   ├── diagnostic-logs.tsx        # Diagnostic logs
 │   ├── personalization.tsx        # Personalization settings
-│   ├── about.tsx                  # About + update check
-│   └── courseDetailContent.tsx    # Course detail component
+│   └── about.tsx                  # About + update check
 │
 ├── components/
 │   ├── schedule-table.tsx         # Grid and list timetable renderer
-│   └── calendar-header.tsx        # Week navigation header
+│   ├── calendar-header.tsx        # Week navigation header
+│   └── course-detail-content.tsx  # Course detail component
 │
 ├── lib/
 │   ├── zju-client.ts              # CAS auth + all data requests (no server)

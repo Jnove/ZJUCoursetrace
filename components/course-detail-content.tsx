@@ -1,7 +1,6 @@
 import React from "react";
 import { View, Text } from "react-native";
-import { cn } from "@/lib/utils";
-import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
+import { useTheme, FONT_FAMILY_META } from "@/lib/theme-provider";
 
 interface CourseDetailContentProps {
   courseName: string;

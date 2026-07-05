@@ -8,7 +8,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScheduleTable } from "@/components/schedule-table";
 import { useSchedule } from "@/lib/schedule-context";
-import CourseDetailContent from "@/app/courseDetailContent";
+import CourseDetailContent from "@/components/course-detail-content";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";

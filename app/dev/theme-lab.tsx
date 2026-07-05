@@ -6,7 +6,7 @@ import { ThemedView } from "@/components/themed-view";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { SchemeColors, type ColorScheme } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
-import { useThemeContext } from "@/lib/theme-provider";
+import { useTheme } from "@/lib/theme-provider";
 
 type PaletteName = keyof typeof SchemeColors.light;
 
@@ -27,7 +27,7 @@ function ColorSwatch({ name, value }: { name: PaletteName; value: string }) {
 export default function ThemeLabScreen() {
   const [pressCount, setPressCount] = useState(0);
   const [lastAction, setLastAction] = useState<string>("None yet");
-  const { colorScheme, setColorScheme } = useThemeContext();
+  const { resolvedTheme: colorScheme, setThemePreference } = useTheme();
   const colors = useColors();
 
   const swatches = useMemo(
@@ -76,7 +76,7 @@ export default function ThemeLabScreen() {
                   },
                 ]}
                 onPress={() => {
-                  setColorScheme(scheme);
+                  setThemePreference(scheme);
                   setLastAction(`Applied ${scheme} globally`);
                 }}
               >

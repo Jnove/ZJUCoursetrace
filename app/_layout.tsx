@@ -1,5 +1,4 @@
 import "@/global.css";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useMemo, useState } from "react";
@@ -52,18 +51,6 @@ export default function RootLayout() {
     setFrame(metrics.frame);
   }, []);
 
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            refetchOnWindowFocus: false,
-            retry: 1,
-          },
-        },
-      }),
-  );
-
   const providerInitialMetrics = useMemo(() => {
     const metrics = initialWindowMetrics ?? { insets: initialInsets, frame: initialFrame };
     return {
@@ -78,18 +65,15 @@ export default function RootLayout() {
 
   const content = (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <ScheduleProvider>
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="oauth/callback" />
-              <Stack.Screen name="course-detail" />
-            </Stack>
-            <StatusBar style="auto" />
-          </ScheduleProvider>
-        </AuthProvider>
-      </QueryClientProvider>
+      <AuthProvider>
+        <ScheduleProvider>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="course-detail" />
+          </Stack>
+          <StatusBar style="auto" />
+        </ScheduleProvider>
+      </AuthProvider>
     </GestureHandlerRootView>
   );
 

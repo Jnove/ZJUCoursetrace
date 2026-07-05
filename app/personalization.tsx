@@ -133,7 +133,7 @@ function Preview({
         {MOCK.map((c, i) => {
           const blockColor = palette[i % palette.length];
           return (
-            <View style={{
+            <View key={i} style={{
               borderRadius: cardR, backgroundColor: colors.background,
               overflow: "hidden",
               ...cardShadow(scheme, { offsetY: 1, opacity: 0.06, radius: 5, elevation: 2 }),

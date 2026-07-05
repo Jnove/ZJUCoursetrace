@@ -106,13 +106,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // 应用主题到 NativeWind 和系统 Appearance
   useEffect(() => {
-    if (nativewindColorScheme) {
-      if (typeof nativewindColorScheme.set === 'function') {
-        nativewindColorScheme.set(resolvedTheme);
-      } else if (typeof nativewindColorScheme.setColorScheme === 'function') {
-        nativewindColorScheme.setColorScheme(resolvedTheme);
-      }
-    }
+    // nativewind 4.x：colorScheme.set() 同步全局深浅色
+    nativewindColorScheme?.set(resolvedTheme);
 
     // --- 控制移动端系统 Appearance ---
     if (Platform.OS !== 'web') {

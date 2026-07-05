@@ -75,19 +75,6 @@ const config: ExpoConfig = {
     "expo-asset",
     "expo-router",
     [
-      "expo-audio",
-      {
-        microphonePermission: "Allow $(PRODUCT_NAME) to access your microphone.",
-      },
-    ],
-    [
-      "expo-video",
-      {
-        supportsBackgroundPlayback: true,
-        supportsPictureInPicture: true,
-      },
-    ],
-    [
       "expo-splash-screen",
       {
         image: "./assets/images/splash-icon.png",
