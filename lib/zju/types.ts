@@ -66,3 +66,20 @@ export interface HomeworkInfo {
   deadlineIso: string;
   submitted: boolean;
 }
+
+export interface CoursewareFile {
+  id: number;            // upload id
+  referenceId: number;   // reference_id（开放下载走这个）
+  name: string;          // 清洗前的原始文件名
+  size: number;          // 字节；未知为 0
+  allowDownload: boolean;// false = 老师未开放
+}
+
+export interface HomeworkDetail {
+  id: number;
+  title: string;
+  bodyText: string;      // 已 htmlToPlainText
+  attachments: CoursewareFile[];
+  score: string | null;  // 得分，无则 null
+  comment: string | null;// 评语，无则 null
+}
