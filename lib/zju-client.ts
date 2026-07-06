@@ -47,6 +47,7 @@ export {
 
 export {
   fetchHomeworks,
+  fetchHomeworkDetail,
   listMyCourses,
   resolveCourseId,
   fetchCourseFiles,

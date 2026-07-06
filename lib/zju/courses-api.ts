@@ -8,8 +8,8 @@ import { xhrGet, xhrPost, zPostJson, zGetCourse, xhrGetBinary } from "./http";
 import { rsaEncrypt } from "./rsa";
 import { loadCredentials, parseCasForm, buildFormBody } from "./cas";
 import { fmtHwDdl } from "./parsers";
-import { flattenActivitiesToFiles, sanitizeFileName } from "./courses-parsers";
-import type { ZjuSession, HomeworkInfo, CoursewareFile } from "./types";
+import { flattenActivitiesToFiles, sanitizeFileName, parseHomeworkDetail } from "./courses-parsers";
+import type { ZjuSession, HomeworkInfo, CoursewareFile, HomeworkDetail } from "./types";
 
 // ─── Homework (courses.zju.edu.cn) ────────────────────────────────────────────
 
@@ -209,6 +209,12 @@ export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo
   return results
     .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
     .sort((a, b) => a.deadlineIso.localeCompare(b.deadlineIso));
+}
+
+/** 单个作业详情（正文/附件/得分/评语）。会话失效抛 __COURSES_EXPIRED__。 */
+export async function fetchHomeworkDetail(homeworkId: number): Promise<HomeworkDetail> {
+  const text = await zGetCourse(`${COURSES_BASE}/api/course/activities/${homeworkId}`);
+  return parseHomeworkDetail(JSON.parse(text));
 }
 
 // ─── Courseware (courses.zju.edu.cn) ──────────────────────────────────────────
