@@ -246,7 +246,7 @@ function PaletteCard({
           backgroundColor: primaryColor,
           alignItems: "center", justifyContent: "center",
         }}>
-          <Text style={{ fontSize: 13, color: "#fff", fontWeight: "700", fontFamily: ff }}>✓</Text>
+          <IconSymbol name="checkmark" size={13} color="#fff" />
         </View>
       ) : (
         <View style={{

@@ -232,7 +232,7 @@ function UpdateCard() {
             backgroundColor: rgba(colors.success, 0.12),
             alignItems: "center", justifyContent: "center",
           }}>
-            <Text style={{ fontSize: 20, color: colors.success, fontFamily: ff }}>✓</Text>
+            <IconSymbol name="checkmark" size={20} color={colors.success} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 15, fontWeight: "500", color: colors.foreground, fontFamily: ff }}>已是最新版本</Text>

@@ -11,6 +11,7 @@ export type Poem = { content: string; origin: string; author: string };
 export function usePoem() {
   const [poem, setPoem] = useState<Poem | null>(null);
   const [poemLoading, setPoemLoading] = useState(false);
+  const [poemInitLoading, setPoemInitLoading] = useState(true); // 首次加载中（骨架屏用）
   const [poemCooldown, setPoemCooldown] = useState(0); // 剩余冷却秒数
   const poemCooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -43,11 +44,12 @@ export function usePoem() {
     fetch("https://v1.jinrishici.com/all.json")
       .then(r => r.json())
       .then(d => setPoem({ content: d.content, origin: d.origin, author: d.author }))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setPoemInitLoading(false));
     return () => {
       if (poemCooldownRef.current) clearInterval(poemCooldownRef.current);
     };
   }, []);
 
-  return { poem, poemLoading, poemCooldown, fetchPoem };
+  return { poem, poemLoading, poemInitLoading, poemCooldown, fetchPoem };
 }

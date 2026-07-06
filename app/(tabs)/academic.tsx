@@ -112,9 +112,7 @@ function nearestFuture(exams: ExamInfo[]) {
 }
 
 // ─── Tokens ───────────────────────────────────────────────────────────────────
-const HW_ACCENT   = "#7c3aed";   // violet-700
-const EXAM_ACCENT = "#ea580c";   // orange-600
-const PAST_COLOR  = "#6b7280";   // gray-500
+// 作业紫 = colors.violet、考试橙 = colors.orange、已结束灰 = colors.muted（随深浅色切换）
 const GPA_KEY     = "pref_gpa_hidden";
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
@@ -350,10 +348,10 @@ function HomeworkSummaryCard({ homeworks, loading, error, onRetry, stale, radius
       disabled={loading && homeworks.length===0}
       style={{
         borderRadius:radius, backgroundColor:colors.background, overflow:"hidden",
-        ...cardShadow(scheme, { color:HW_ACCENT, offsetY:2, opacity:0.1, radius:12, elevation:4 }),
+        ...cardShadow(scheme, { color:colors.violet, offsetY:2, opacity:0.1, radius:12, elevation:4 }),
       }}
     >
-      <View style={{height:3,backgroundColor:HW_ACCENT}}/>
+      <View style={{height:3,backgroundColor:colors.violet}}/>
 
       <View style={{padding:18,gap:14}}>
         {/* header */}
@@ -372,7 +370,7 @@ function HomeworkSummaryCard({ homeworks, loading, error, onRetry, stale, radius
 
         {loading && homeworks.length===0 ? (
           <View style={{alignItems:"center", paddingVertical:12}}>
-            <ActivityIndicator color={HW_ACCENT}/>
+            <ActivityIndicator color={colors.violet}/>
           </View>
         ) : error && homeworks.length===0 ? (
           <TouchableOpacity onPress={onRetry}>
@@ -390,8 +388,8 @@ function HomeworkSummaryCard({ homeworks, loading, error, onRetry, stale, radius
               />
               <StatBox
                 label="待提交作业" value={pending}
-                color={pending>0 ? HW_ACCENT : colors.success}
-                bg={rgba(pending>0 ? HW_ACCENT : colors.success, 0.07)}
+                color={pending>0 ? colors.violet : colors.success}
+                bg={rgba(pending>0 ? colors.violet : colors.success, 0.07)}
                 highlight={pending>0} radius={radius}
               />
             </View>
@@ -421,10 +419,10 @@ function HomeworkSummaryCard({ homeworks, loading, error, onRetry, stale, radius
 
 function DaysBadge({ days }: { days:number }) {
   const colors = useColors();
-  if (days<0) return <Pill label="已结束" color={PAST_COLOR} bg={rgba(PAST_COLOR,0.1)}/>;
+  if (days<0) return <Pill label="已结束" color={colors.muted} bg={rgba(colors.muted,0.1)}/>;
   if (days===0) return <Pill label="今天" color={colors.error} bg={rgba(colors.error,0.12)}/>;
   if (days===1) return <Pill label="明天" color={colors.warning} bg={rgba(colors.warning,0.12)}/>;
-  const c = days<=7 ? colors.warning : EXAM_ACCENT;
+  const c = days<=7 ? colors.warning : colors.orange;
   return <Pill label={`${days} 天后`} color={c} bg={rgba(c,0.1)}/>;
 }
 
@@ -433,7 +431,7 @@ function ExamCard({ exam, isPast=false, compact=false, radius=12 }: {
 }) {
   const colors = useColors();
   const scheme = useColorScheme();
-  const accent = isPast ? PAST_COLOR : EXAM_ACCENT;
+  const accent = isPast ? colors.muted : colors.orange;
   const date   = parseExamDate(exam.examTime);
   const days = date ? daysUntil(date) : -999;
   const { fontFamily } = useTheme();
@@ -730,7 +728,7 @@ export default function AcademicScreen() {
             {(pendingHw>0||todayHw>0||totalExams>0) && (
               <View style={{flexDirection:"row",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
                 {pendingHw>0 && (
-                  <Pill label={`${pendingHw} 项作业待交`} color={HW_ACCENT} bg={rgba(HW_ACCENT,0.1)}/>
+                  <Pill label={`${pendingHw} 项作业待交`} color={colors.violet} bg={rgba(colors.violet,0.1)}/>
                 )}
                 {todayHw>0 && (
                   <Pill label={`今日 ${todayHw} 项截止`} color={colors.error} bg={rgba(colors.error,0.1)}/>
@@ -767,7 +765,7 @@ export default function AcademicScreen() {
           {/* ── Exams ────────────────────────────────────────────────────── */}
           {examLoading ? (
             <View style={{backgroundColor:colors.background,borderRadius:r,padding:24,alignItems:"center"}}>
-              <ActivityIndicator color={EXAM_ACCENT}/>
+              <ActivityIndicator color={colors.orange}/>
             </View>
           ) : examError ? (
             <View style={{
@@ -808,7 +806,7 @@ export default function AcademicScreen() {
                     <View style={{gap:14}}>
                       {past.map(g=>(
                         <View key={g.key} style={{gap:8,opacity:0.7}}>
-                          <Text style={{fontSize:13, fontWeight:"500", color:PAST_COLOR, fontFamily: ff}}>{g.displayName}</Text>
+                          <Text style={{fontSize:13, fontWeight:"500", color:colors.muted, fontFamily: ff}}>{g.displayName}</Text>
                           {g.exams.map((e:ExamInfo,i:number)=><ExamCard key={i} exam={e} isPast compact radius={r}/>)}
                         </View>
                       ))}

@@ -220,6 +220,19 @@ export function computeGPA(grades: Grade[]): { gpa: number; totalCredits: number
   return { gpa, totalCredits };
 }
 
+/**
+ * 提取成绩条目的学期。优先显式字段（xnxqdm_display / xn+xq），
+ * 兜底从选课课号 xkkh 解析——格式 "(2025-2026-1)-XXX…"，1=秋冬、2=春夏。
+ */
+function gradeSemester(e: any): string | undefined {
+  if (e.xnxqdm_display) return String(e.xnxqdm_display);
+  const termLabel = (t: string) => (t === "1" ? "秋冬" : t === "2" ? "春夏" : t);
+  if (e.xn && e.xq != null) return `${e.xn} ${termLabel(String(e.xq))}`;
+  const m = String(e.xkkh ?? "").match(/^\((\d{4}-\d{4})-([12])\)/);
+  if (m) return `${m[1]} ${termLabel(m[2])}`;
+  return undefined;
+}
+
 export function parseGrades(text: string, isMajor: boolean): Grade[] {
   const m = text.match(/(?<="items":)(\[[\s\S]*?\])(?=,"limit")/);
   if (!m) return [];
@@ -228,7 +241,7 @@ export function parseGrades(text: string, isMajor: boolean): Grade[] {
     courseCode: String(e.kch ?? ""), courseName: String(e.kcmc ?? ""),
     credit: parseFloat(String(e.xf ?? "0")) || 0, score: (e.cj), gpaPoints: toNum(e.jd),
     courseType: e.kcxzdm_display ?? e.kclbmc ?? undefined,
-    semester: e.xnxqdm_display ?? undefined, isMajor,
+    semester: gradeSemester(e), isMajor,
   }));
 }
 

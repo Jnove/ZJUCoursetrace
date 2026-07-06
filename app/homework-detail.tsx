@@ -22,7 +22,7 @@ import { ErrorCard } from "@/components/common/error-card";
 import { EmptyState } from "@/components/common/empty-state";
 import { LoadingView } from "@/components/common/loading-view";
 
-const HW_COLOR = "#8b5cf6";
+// 作业紫用 colors.violet（随深浅色切换，与学业页一致）
 
 function hexToRgba(hex: string, alpha: number): string {
   const c = hex.replace("#", "").slice(0, 6);
@@ -90,9 +90,9 @@ function HomeworkCard({ hw, radius }: { hw: HomeworkInfo; radius: number }) {
   const { fontFamily } = useTheme();
   const ff = FONT_FAMILY_META[fontFamily].value;
 
-  let accentColor = HW_COLOR;
+  let accentColor = colors.violet;
   let tagLabel = "待提交";
-  let tagBg = hexToRgba(HW_COLOR, 0.12);
+  let tagBg = hexToRgba(colors.violet, 0.12);
   if (hw.submitted) {
     accentColor = colors.success;
     tagLabel = "已提交";
@@ -377,7 +377,7 @@ export default function HomeworkDetailScreen() {
           contentContainerStyle={{ padding: 16, flexGrow: 1 }}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={HW_COLOR} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.violet} />
           }
           ListEmptyComponent={<EmptyState message={`暂无${tabLabel}作业`} />}
         />

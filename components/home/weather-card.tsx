@@ -173,18 +173,6 @@ function WeatherStat({
   );
 }
 
-// ─── Weather icon → emoji map (for SVG text rendering) ───────────────────────
-const WEATHER_EMOJI: Record<string, string> = {
-  "sun.max.fill":       "☀",
-  "cloud.sun.fill":     "⛅",
-  "cloud.fill":         "☁",
-  "cloud.fog.fill":     "🌫",
-  "cloud.drizzle.fill": "🌦",
-  "cloud.rain.fill":    "🌧",
-  "cloud.snow.fill":    "❄",
-  "cloud.bolt.fill":    "⛈",
-};
-
 /**
  * Catmull-Rom 样条 → Cubic Bezier 转换，生成经过所有控制点的光滑 SVG 路径。
  * 相邻控制点切线由前后两点决定，自然不振荡。
@@ -236,8 +224,7 @@ function HourlyChart({
   //  └─ TIME_Y = 183     时间标签
   //     H = 192
 
-  const H          = 192;
-  const ICON_Y     = 15;
+  const H          = 192;   // 顶部 0–20px 区域放天气矢量图标（SVG 外叠加）
   const CURVE_TOP  = 30;
   const CURVE_BOT  = 108;
   const HUM_TOP    = 116;   // 100% 对应的 y
@@ -270,6 +257,7 @@ function HourlyChart({
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingVertical: 4 }}
     >
+      <View style={{ width: W, height: H }}>
       <Svg width={W} height={H}>
         <Defs>
           <LinearGradient id="tGrad2" x1="0" y1="0" x2="0" y2="1">
@@ -329,17 +317,9 @@ function HourlyChart({
           const tempY  = getTempY(h.temp);
           const humTop = getHumY(h.humidity);        // 柱顶 y（数值越大 y 越小）
           const showLabel = i % 3 === 0;
-          const emoji  = WEATHER_EMOJI[h.icon] ?? '·';
 
           return (
             <G key={i}>
-              {/* 天气 emoji（每 3 小时） */}
-              {showLabel && (
-                <SvgText x={x} y={ICON_Y} fontSize="13" textAnchor="middle" fill={colors.foreground}>
-                  {emoji}
-                </SvgText>
-              )}
-
               {/* 温度标签（曲线上方） */}
               <SvgText
                 x={x} y={tempY - 6}
@@ -397,6 +377,17 @@ function HourlyChart({
           );
         })}
       </Svg>
+
+      {/* 天气图标（每 3 小时）：矢量图标叠在 SVG 图表上方，替代原 emoji 文本 */}
+      {hourly.map((h, i) => {
+        if (i % 3 !== 0) return null;
+        return (
+          <View key={`icon-${i}`} style={{ position: "absolute", left: getX(i) - 8, top: 0 }}>
+            <IconSymbol name={h.icon as any} size={16} color={colors.foreground} />
+          </View>
+        );
+      })}
+      </View>
     </ScrollView>
   );
 }

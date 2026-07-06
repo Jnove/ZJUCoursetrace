@@ -56,6 +56,14 @@ const MAPPING = {
   "bell.badge.fill":                       "bell-badge",
   "alarm.fill":                            "alarm",
   "trash.fill":                            "delete",
+
+  // Misc symbols (原 emoji/字符替换)
+  "checkmark":                             "check",
+  "xmark":                                 "close",
+  "beach.umbrella.fill":                   "beach",
+  "party.popper.fill":                     "party-popper",
+  "exclamationmark.triangle.fill":         "alert",
+  "wrench.fill":                           "wrench",
 } as IconMapping;
 
 export function IconSymbol({

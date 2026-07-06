@@ -174,6 +174,35 @@ export interface NextSemesterInfo {
   daysUntil: number;   // 距开学天数（按自然日）
 }
 
+/**
+ * 指定学期的一周周一（.ics 多学期导出等场景）。
+ * schoolYear 形如 "2025-2026"；semester 含 秋/冬/春/夏 之一（"秋冬"/"春夏" 取起始学期）。
+ * 元宵节超出 lunar 支持范围等无法推算时返回 null。
+ */
+export function getSemesterStartDate(schoolYear: string, semester: string): Date | null {
+  const m = schoolYear.match(/^(\d{4})/);
+  if (!m) return null;
+  const startYear = parseInt(m[1]);
+
+  if (semester.includes("秋") || semester.includes("冬")) {
+    const autumn = getSeptemberMidMonday(startYear);
+    if (semester.includes("秋")) return autumn;
+    const winter = new Date(autumn);
+    winter.setDate(winter.getDate() + 8 * 7);
+    return winter;
+  }
+  if (semester.includes("春") || semester.includes("夏")) {
+    const lantern = getLanternFestivalDate(startYear + 1);
+    if (!lantern) return null;
+    const spring = getMonday(lantern);
+    if (semester.includes("春")) return spring;
+    const summer = new Date(spring);
+    summer.setDate(summer.getDate() + 8 * 7);
+    return summer;
+  }
+  return null;
+}
+
 export function getNextSemesterStart(date: Date = new Date()): NextSemesterInfo | null {
   const candidates: { start: Date; schoolYear: string; semester: string }[] = [];
 

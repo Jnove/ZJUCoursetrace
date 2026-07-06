@@ -85,10 +85,10 @@ export function ScheduleTable({
           <View style={{ height: HEADER_H }} />
           {PERIODS.map(p => (
             <View key={p.number} style={{ height: CELL_H, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ fontSize: 8, color: colors.muted, opacity: 0.6, marginTop: 1, fontFamily: ff }}>
+              <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 8, color: colors.muted, opacity: 0.6, marginTop: 1, fontFamily: ff }}>
                 {p.startTime}
               </Text>
-              <Text style={{ fontSize: 10, color: colors.muted, fontWeight: "600", fontFamily: ff }}>
+              <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 10, color: colors.muted, fontWeight: "600", fontFamily: ff }}>
                 {p.number}
               </Text>
             </View>
@@ -120,7 +120,7 @@ export function ScheduleTable({
                 borderBottomWidth: 0.5, borderBottomColor: colors.border,
                 backgroundColor: colors.surface,
               }}>
-                <Text style={{ fontSize: 12, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
+                <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 12, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
                   {day}
                 </Text>
               </View>
@@ -166,14 +166,14 @@ export function ScheduleTable({
                         paddingHorizontal: 4, paddingVertical: 4,
                         overflow: "hidden",
                       }}>
-                        <Text style={{
+                        <Text maxFontSizeMultiplier={1.2} style={{
                           fontSize: 11, fontWeight: "700", fontFamily: ff,
                           color: colors.foreground, lineHeight: 14,
                         }} numberOfLines={maxSpan >= 2 ? 4 : 2}>
                           {cs[0].name}
                         </Text>
                         {maxSpan >= 2 && (
-                          <Text style={{
+                          <Text maxFontSizeMultiplier={1.2} style={{
                             fontSize: 10, color: colors.muted, fontFamily: ff,
                             marginTop: 2, lineHeight: 13,
                           }} numberOfLines={2}>
@@ -186,7 +186,7 @@ export function ScheduleTable({
                             backgroundColor: cs[0].color,
                             borderRadius: radius, paddingHorizontal: 2.5, paddingVertical: 1,
                           }}>
-                            <Text style={{ fontSize: 8, color: "#fff", fontWeight: "800", fontFamily: ff }}>
+                            <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 8, color: "#fff", fontWeight: "800", fontFamily: ff }}>
                               {getWeekLabel(cs[0].isSingleWeek)}
                             </Text>
                           </View>
@@ -220,7 +220,7 @@ export function ScheduleTable({
                           overflow: "hidden",
                           ...cardShadow(scheme, { offsetY: 1, opacity: 0.12, radius: 2, elevation: 2 }),
                         }}>
-                          <Text style={{
+                          <Text maxFontSizeMultiplier={1.2} style={{
                             fontSize: 11, fontWeight: "700", fontFamily: ff,
                             color: colors.foreground, lineHeight: 14,
                           }} numberOfLines={maxSpan >= 2 ? 3 : 2}>
@@ -231,7 +231,7 @@ export function ScheduleTable({
                             backgroundColor: cs[0].color,
                             borderRadius: 3, paddingHorizontal: 3, paddingVertical: 1,
                           }}>
-                            <Text style={{ fontSize: 9, color: "#fff", fontWeight: "800", fontFamily: ff }}>
+                            <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 9, color: "#fff", fontWeight: "800", fontFamily: ff }}>
                               +{cs.length - 1}
                             </Text>
                           </View>

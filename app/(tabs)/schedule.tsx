@@ -10,6 +10,7 @@ import { ScheduleTable } from "@/components/schedule-table";
 import { useSchedule } from "@/lib/schedule-context";
 import CourseDetailContent from "@/components/course-detail-content";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { CelebrationIllustration } from "@/components/ui/illustrations";
 import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { cardShadow } from "@/lib/_core/shadow";
@@ -20,7 +21,7 @@ import * as MediaLibrary from "expo-media-library";
 import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 import { writeLog } from "@/lib/diagnostic-log";
 import { loadActiveSemesters } from "@/lib/semester-loader";
-import { getCurrentSemester } from "@/lib/semester-utils";
+import { getCurrentSemester, getNextSemesterStart } from "@/lib/semester-utils";
 import {
   loadCalendarData,
   resolveEffectiveDate,
@@ -39,6 +40,38 @@ interface SemesterOption {
 }
 
 function semesterKey(y: string, t: string) { return `${y}|${t}`; }
+
+/**
+ * 默认学期：当前学期；假期中则取下一学期。按学年 + 学期名（秋/冬/春/夏）在
+ * 学期列表里匹配，匹配不到（如新学期教务还没建课表）返回 undefined 交给回退逻辑。
+ */
+function findDefaultSemester(all: SemesterOption[]): SemesterOption | undefined {
+  const now = new Date();
+  const target = getCurrentSemester(now) ?? getNextSemesterStart(now);
+  if (!target) return undefined;
+  return all.find(s =>
+    (s.yearValue.includes(target.schoolYear) || s.yearText.includes(target.schoolYear)) &&
+    (s.termValue.includes(target.semester) || s.termText.includes(target.semester)),
+  );
+}
+
+/** 学期选择器分组：按学年聚合，年份新的在前，学期按秋冬春夏排。 */
+const TERM_ORDER = ["秋", "冬", "春", "夏"];
+function groupSemestersByYear(all: SemesterOption[]): { year: string; items: SemesterOption[] }[] {
+  const m = new Map<string, SemesterOption[]>();
+  for (const s of all) {
+    if (!m.has(s.yearText)) m.set(s.yearText, []);
+    m.get(s.yearText)!.push(s);
+  }
+  return Array.from(m.entries())
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([year, items]) => ({
+      year,
+      items: items.sort(
+        (a, b) => TERM_ORDER.findIndex(t => a.termText.includes(t)) - TERM_ORDER.findIndex(t => b.termText.includes(t)),
+      ),
+    }));
+}
 function parseKey(key: string): [string, string] {
   const idx = key.indexOf("|");
   return idx === -1 ? [key, ""] : [key.slice(0, idx), key.slice(idx + 1)];
@@ -433,7 +466,7 @@ function CalendarMode({
     ? `${exchRefDate.getMonth()+1}月${exchRefDate.getDate()}日（周${CN_WEEKDAYS[exchRefDate.getDay()===0?6:exchRefDate.getDay()-1]}）`
     : null;
 
-  const STATUS_COLOR = selIsHol ? colors.error : selExchRef ? "#f97316" : selIsWknd ? rgba(colors.muted,0.7) : primaryColor;
+  const STATUS_COLOR = selIsHol ? colors.error : selExchRef ? colors.orange : selIsWknd ? rgba(colors.muted,0.7) : primaryColor;
 
   const goToToday = useCallback(() => {
     const n = new Date();
@@ -564,7 +597,7 @@ function CalendarMode({
                   } else if (day.isHol) {
                     numColor = colors.error;
                   } else if (day.exchRef) {
-                    numColor = "#1616f9";
+                    numColor = colors.orange;
                   } else if (isWknd) {
                     numColor = rgba(colors.foreground, 0.3);
                   } else {
@@ -585,7 +618,7 @@ function CalendarMode({
                         borderColor: bubbleBorder,
                         alignItems: "center", justifyContent: "center",
                       }}>
-                        <Text style={{ fontSize: 15, fontWeight: numWeight, color: numColor, fontFamily: ff }}>
+                        <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 15, fontWeight: numWeight, color: numColor, fontFamily: ff }}>
                           {day.date.getDate()}
                         </Text>
                         <View style={{
@@ -593,9 +626,9 @@ function CalendarMode({
                           borderRadius: r, paddingHorizontal: 2.5, paddingVertical: 1,
                         }}>
                           {day.isHol ? (
-                            <Text style={{ fontSize: 9, color: numColor, fontWeight: "700", fontFamily: ff }}>假</Text>
+                            <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 9, color: numColor, fontWeight: "700", fontFamily: ff }}>假</Text>
                           ) : day.exchRef ? (
-                            <Text style={{ fontSize: 9, color: numColor, fontWeight: "700", fontFamily: ff }}>补</Text>
+                            <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 9, color: numColor, fontWeight: "700", fontFamily: ff }}>补</Text>
                           ) : null}
                         </View>
                       </View>
@@ -652,7 +685,7 @@ function CalendarMode({
           {[
             { color: primaryColor, label: "今日" },
             { color: colors.error,  label: "假期" },
-            { color: "#f97316",     label: "调休补班" },
+            { color: colors.orange, label: "调休补班" },
           ].map(item => (
             <View key={item.label} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
               <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: item.color }} />
@@ -706,11 +739,11 @@ function CalendarMode({
               <View style={{
                 flexDirection: "row", alignItems: "center", gap: 8,
                 paddingHorizontal: 12, paddingVertical: 7,
-                borderRadius: r, backgroundColor: rgba("#f97316", 0.08),
-                borderWidth: 0.5, borderColor: rgba("#f97316", 0.22),
+                borderRadius: r, backgroundColor: rgba(colors.orange, 0.08),
+                borderWidth: 0.5, borderColor: rgba(colors.orange, 0.22),
               }}>
-                <IconSymbol name="clock.fill" size={13} color="#f97316" />
-                <Text style={{ fontSize: 12, color: "#f97316", fontWeight: "500", flex: 1, fontFamily: ff }}>
+                <IconSymbol name="clock.fill" size={13} color={colors.orange} />
+                <Text style={{ fontSize: 12, color: colors.orange, fontWeight: "500", flex: 1, fontFamily: ff }}>
                   今日调休补班，按 {exchLabel} 课表上课
                 </Text>
               </View>
@@ -719,7 +752,7 @@ function CalendarMode({
 
           {selIsHol ? (
             <View style={{ paddingVertical: 22, alignItems: "center", gap: 6 }}>
-              <Text style={{ fontSize: 26, fontFamily: ff }}>🎉</Text>
+              <CelebrationIllustration size={46} />
               <Text style={{ fontSize: 13, color: colors.muted, fontWeight: "500", fontFamily: ff }}>放假，好好休息</Text>
             </View>
           ) : selIsWknd ? (
@@ -857,7 +890,9 @@ export default function ScheduleScreen() {
             setAllCourses(combined);
           })();
 
-          let def = restoredKey ? all.find(s => semesterKey(s.yearValue, s.termValue) === restoredKey) : undefined;
+          // 默认优先当前学期（假期则下一学期），其次上次选择，最后列表第一项
+          let def = findDefaultSemester(all);
+          if (!def && restoredKey) def = all.find(s => semesterKey(s.yearValue, s.termValue) === restoredKey);
           if (!def) def = all[0];
           if (def) {
             const key = semesterKey(def.yearValue, def.termValue);
@@ -988,7 +1023,7 @@ export default function ScheduleScreen() {
                     <Text style={{ fontSize: 14, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
                       {loadingSemesters ? "加载中..." : selectedLabel}
                     </Text>
-                    <Text style={{ fontSize: 12, color: colors.muted, fontFamily: ff }}>{showSemesterPicker ? "▲" : "▼"}</Text>
+                    <IconSymbol name={showSemesterPicker ? "chevron.up" : "chevron.down"} size={15} color={colors.muted} />
                   </TouchableOpacity>
 
                   <TouchableOpacity onPress={handleDownload} disabled={isDownloading}
@@ -1011,24 +1046,41 @@ export default function ScheduleScreen() {
                           {loadingSemesters ? "正在加载学期列表..." : "暂无学期数据"}
                         </Text>
                       </View>
-                    ) : semesters.map((s, i) => {
-                      const key = semesterKey(s.yearValue, s.termValue);
-                      const active = selectedSemester === key;
-                      return (
-                        <TouchableOpacity key={i} onPress={() => handleSemesterChange(s.yearValue, s.termValue)}
-                          style={{
-                            flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-                            paddingHorizontal: 14, paddingVertical: 12,
-                            borderTopWidth: i ? 0.5 : 0, borderTopColor: colors.border,
-                            backgroundColor: active ? `${colors.primary}15` : "transparent",
+                    ) : (
+                      /* 按学年分组：一行一个学年，学期做成胶囊，学期再多也不用长列表里翻 */
+                      <ScrollView style={{ maxHeight: 300 }} nestedScrollEnabled>
+                        {groupSemestersByYear(semesters).map((g, gi) => (
+                          <View key={g.year} style={{
+                            flexDirection: "row", alignItems: "center", gap: 10,
+                            paddingHorizontal: 14, paddingVertical: 9,
+                            borderTopWidth: gi ? 0.5 : 0, borderTopColor: colors.border,
                           }}>
-                          <Text style={{ fontSize: 14, fontWeight: active ? "600" : "400", color: active ? primaryColor : colors.foreground, fontFamily: ff }}>
-                            {s.label}
-                          </Text>
-                          {active && <Text style={{ fontSize: 14, color: primaryColor, fontFamily: ff }}>✓</Text>}
-                        </TouchableOpacity>
-                      );
-                    })}
+                            <Text style={{ width: 82, fontSize: 12, fontWeight: "600", color: colors.muted, fontFamily: ff }}>
+                              {g.year}
+                            </Text>
+                            <View style={{ flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                              {g.items.map(s => {
+                                const key = semesterKey(s.yearValue, s.termValue);
+                                const active = selectedSemester === key;
+                                return (
+                                  <TouchableOpacity key={key} onPress={() => handleSemesterChange(s.yearValue, s.termValue)}
+                                    hitSlop={{ top: 4, bottom: 4 }}
+                                    style={{
+                                      paddingHorizontal: 14, paddingVertical: 6, borderRadius: 100,
+                                      backgroundColor: active ? primaryColor : colors.surface,
+                                      borderWidth: active ? 0 : 0.5, borderColor: colors.border,
+                                    }}>
+                                    <Text style={{ fontSize: 13, fontWeight: active ? "600" : "400", color: active ? "#fff" : colors.foreground, fontFamily: ff }}>
+                                      {s.termText}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        ))}
+                      </ScrollView>
+                    )}
                   </View>
                 )}
               </>
@@ -1038,6 +1090,7 @@ export default function ScheduleScreen() {
               <View style={{ flexDirection: "row", backgroundColor: colors.background, borderRadius: r, borderWidth: 0.5, borderColor: colors.border, overflow: "hidden" }}>
                 {(["grid", "calendar"] as const).map(m => (
                   <TouchableOpacity key={m} onPress={() => setViewMode(m)}
+                    hitSlop={{ top: 6, bottom: 6 }}
                     style={{ paddingHorizontal: 10, paddingVertical: 8, backgroundColor: viewMode === m ? primaryColor : "transparent" }}>
                     <IconSymbol name={m === "grid" ? "square.grid.2x2" : "calendar"} size={16} color={viewMode === m ? "#fff" : colors.muted} />
                   </TouchableOpacity>
@@ -1051,6 +1104,7 @@ export default function ScheduleScreen() {
                     const active = filterType === f;
                     return (
                       <TouchableOpacity key={f} onPress={() => setFilterType(f)}
+                        hitSlop={{ top: 6, bottom: 6 }}
                         style={{ flex: 1, paddingVertical: 8, borderRadius: r, alignItems: "center", backgroundColor: active ? primaryColor : colors.background, borderWidth: active ? 0 : 0.5, borderColor: colors.border }}>
                         <Text style={{ fontSize: 13, fontWeight: active ? "600" : "400", color: active ? "#fff" : colors.foreground, fontFamily: ff }}>{label}</Text>
                       </TouchableOpacity>
@@ -1107,7 +1161,7 @@ export default function ScheduleScreen() {
             style={{ width:"85%", maxWidth:360, backgroundColor:colors.background, borderRadius:16, padding:20, ...cardShadow(scheme, { offsetY:8, opacity:0.16, radius:20, elevation:10 }) }}>
             <View style={{ flexDirection:"row", justifyContent:"flex-end", marginBottom:4 }}>
               <TouchableOpacity onPress={() => setDetailVisible(false)} style={{ padding:4 }}>
-                <Text style={{ fontSize:18, color:colors.muted, fontFamily: ff }}>✕</Text>
+                <IconSymbol name="xmark" size={18} color={colors.muted} />
               </TouchableOpacity>
             </View>
             {selectedCourse && (
@@ -1131,7 +1185,7 @@ export default function ScheduleScreen() {
             <View style={{ flexDirection:"row", alignItems:"center", justifyContent:"space-between", paddingHorizontal:18, paddingVertical:14, borderBottomWidth:0.5, borderBottomColor:colors.border }}>
               <Text style={{ fontSize:15, fontWeight:"600", color:colors.foreground, fontFamily: ff }}>该时段 {overlappingCourses.length} 门课程</Text>
               <TouchableOpacity onPress={() => setOverlapVisible(false)} style={{ padding:2 }}>
-                <Text style={{ fontSize:16, color:colors.muted, fontFamily: ff }}>✕</Text>
+                <IconSymbol name="xmark" size={16} color={colors.muted} />
               </TouchableOpacity>
             </View>
             {overlappingCourses.map((c, i) => (

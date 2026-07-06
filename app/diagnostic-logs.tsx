@@ -39,16 +39,19 @@ const TAG_LABELS: Record<LogTag, string> = {
 };
 
 type LevelStyle = { label: string; bg: string; text: string };
-const LEVEL_CONFIG: Record<LogLevel, LevelStyle> = {
-  info:  { label: "INFO",  bg: "rgba(107,114,128,0.13)", text: "#6b7280" },
-  warn:  { label: "WARN",  bg: "rgba(245,158,11,0.15)",  text: "#d97706" },
-  error: { label: "ERROR", bg: "rgba(239,68,68,0.15)",   text: "#ef4444" },
-};
+// 级别色取主题 token，深色模式下自动换亮一档的变体
+function levelConfig(colors: ReturnType<typeof useColors>): Record<LogLevel, LevelStyle> {
+  return {
+    info:  { label: "INFO",  bg: hexToRgba(colors.muted, 0.13),   text: colors.muted },
+    warn:  { label: "WARN",  bg: hexToRgba(colors.warning, 0.15), text: colors.warning },
+    error: { label: "ERROR", bg: hexToRgba(colors.error, 0.15),   text: colors.error },
+  };
+}
 
 type Filter = "all" | "anomaly" | LogTag;
 const FILTER_DEFS: { key: Filter; label: string }[] = [
   { key: "all",      label: "全部"    },
-  { key: "anomaly",  label: "⚠ 异常"  },
+  { key: "anomaly",  label: "异常"    },
   { key: "SCHEDULE", label: "课表"    },
   { key: "ACADEMIC", label: "学业"    },
   { key: "SESSION",  label: "会话"    },
@@ -72,12 +75,12 @@ function hexToRgba(hex: string, a: number) {
 function LogItem({ entry }: { entry: LogEntry }) {
   const colors  = useColors();
   const [open, setOpen] = useState(false);
-  const lvl     = LEVEL_CONFIG[entry.level];
+  const lvl     = levelConfig(colors)[entry.level];
   const hasData = !!entry.data && Object.keys(entry.data).length > 0;
 
   const rowBg =
-    entry.level === "error" ? hexToRgba("#ef4444", 0.04) :
-    entry.level === "warn"  ? hexToRgba("#f59e0b", 0.04) :
+    entry.level === "error" ? hexToRgba(colors.error, 0.04) :
+    entry.level === "warn"  ? hexToRgba(colors.warning, 0.04) :
     "transparent";
 
   return (
@@ -123,9 +126,7 @@ function LogItem({ entry }: { entry: LogEntry }) {
         </View>
 
         {hasData && (
-          <Text style={{ fontSize: 10, color: colors.muted, marginLeft: "auto" }}>
-            {open ? "▲" : "▼"}
-          </Text>
+          <IconSymbol name={open ? "chevron.up" : "chevron.down"} size={12} color={colors.muted} style={{ marginLeft: "auto" }} />
         )}
       </View>
 
@@ -270,22 +271,26 @@ export default function DiagnosticLogsScreen() {
 
         {warnCount > 0 && (
           <View style={{
+            flexDirection: "row", alignItems: "center", gap: 3,
             paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5,
-            backgroundColor: "rgba(245,158,11,0.14)",
+            backgroundColor: hexToRgba(colors.warning, 0.14),
           }}>
-            <Text style={{ fontSize: 11, fontWeight: "600", color: "#d97706" }}>
-              ⚠ {warnCount} 警告
+            <IconSymbol name="exclamationmark.triangle.fill" size={11} color={colors.warning} />
+            <Text style={{ fontSize: 11, fontWeight: "600", color: colors.warning }}>
+              {warnCount} 警告
             </Text>
           </View>
         )}
 
         {errorCount > 0 && (
           <View style={{
+            flexDirection: "row", alignItems: "center", gap: 3,
             paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5,
-            backgroundColor: "rgba(239,68,68,0.13)",
+            backgroundColor: hexToRgba(colors.error, 0.13),
           }}>
-            <Text style={{ fontSize: 11, fontWeight: "600", color: "#ef4444" }}>
-              ✕ {errorCount} 错误
+            <IconSymbol name="xmark" size={11} color={colors.error} />
+            <Text style={{ fontSize: 11, fontWeight: "600", color: colors.error }}>
+              {errorCount} 错误
             </Text>
           </View>
         )}

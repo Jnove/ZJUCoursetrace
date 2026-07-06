@@ -5,7 +5,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  FlatList,
+  SectionList,
   useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -28,6 +28,34 @@ import { CommonNavBar } from "@/components/common/nav-bar";
 import { ErrorCard } from "@/components/common/error-card";
 import { EmptyState } from "@/components/common/empty-state";
 import { LoadingView } from "@/components/common/loading-view";
+
+/**
+ * 按学期分组（21）：semester 是教务返回的展示串（如 "2025-2026学年秋冬学期"），
+ * 直接按串分组；排序 = 起始年份降序，同学年内按 夏>春>冬>秋（新学期在前）。
+ */
+function groupGradesBySemester(grades: Grade[]): { title: string; data: Grade[] }[] {
+  const m = new Map<string, Grade[]>();
+  for (const g of grades) {
+    const k = g.semester?.trim() || "其他";
+    if (!m.has(k)) m.set(k, []);
+    m.get(k)!.push(g);
+  }
+  const yearOf = (s: string) => { const mm = s.match(/(\d{4})/); return mm ? parseInt(mm[1]) : -1; };
+  const termRank = (s: string) =>
+    s.includes("夏") ? 3 : s.includes("春") ? 2 : s.includes("冬") ? 1 : s.includes("秋") ? 0 : -1;
+  return Array.from(m.entries())
+    .sort((a, b) => (yearOf(b[0]) - yearOf(a[0])) || (termRank(b[0]) - termRank(a[0])))
+    .map(([title, data]) => ({ title, data }));
+}
+
+/** 学期均绩：学分加权，只算有绩点的课 */
+function semesterGpa(grades: Grade[]): number | null {
+  let pts = 0, credits = 0;
+  for (const g of grades) {
+    if (g.gpaPoints != null && g.credit > 0) { pts += g.gpaPoints * g.credit; credits += g.credit; }
+  }
+  return credits > 0 ? pts / credits : null;
+}
 
 // 辅助函数
 function hexToRgba(hex: string, alpha: number): string {
@@ -267,7 +295,7 @@ function ScoreDistributionCard({ grades, radius }: { grades: Grade[]; radius?: n
     { label: "90分以上", min: 90, max: 101, color: colors.success },
     { label: "80–89分", min: 80, max: 90, color: colors.primary },
     { label: "70–79分", min: 70, max: 80, color: colors.warning },
-    { label: "60–69分", min: 60, max: 70, color: "#f97316" },
+    { label: "60–69分", min: 60, max: 70, color: colors.orange },
     { label: "60分以下", min: 0, max: 60, color: colors.error },
   ];
 
@@ -457,7 +485,8 @@ function GradeItem({ grade, radius }: { grade: Grade; radius?: number }) {
 
 export default function GradeDetailScreen() {
   const router = useRouter();
-  const { cardRadius } = useTheme();
+  const { cardRadius, fontFamily } = useTheme();
+  const ff = FONT_FAMILY_META[fontFamily].value;
   const { state: authState } = useAuth();
   const colors = useColors();
   const r = CARD_RADIUS_VALUES[cardRadius];
@@ -625,6 +654,7 @@ export default function GradeDetailScreen() {
   }
 
   const currentGrades = activeTab === "major" ? majorGrades : allGrades;
+  const gradeSections = groupGradesBySemester(currentGrades);
   const currentGpa = activeTab === "major" ? majorGpa : allGpa;
   const currentTotalCredits = activeTab === "major" ? majorTotalCredits : allTotalCredits;
   const currentLoading = activeTab === "major" ? majorLoading : allLoading;
@@ -645,10 +675,29 @@ export default function GradeDetailScreen() {
     <ScreenContainer className="flex-1 bg-surface">
       <CommonNavBar title="成绩详情" />
       <GradeTabBar activeTab={activeTab} onTabChange={setActiveTab} />
-      <FlatList
-        data={currentGrades}
+      <SectionList
+        sections={gradeSections}
         keyExtractor={(item, index) => `${item.courseName}-${index}`}
+        stickySectionHeadersEnabled={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        renderSectionHeader={({ section }) => {
+          // 旧缓存还没解析出学期时只有一个"其他"组——不显示组头，等静默刷新后自然分组
+          if (gradeSections.length === 1 && section.title === "其他") return null;
+          const gpa = semesterGpa(section.data);
+          return (
+            <View style={{
+              flexDirection: "row", alignItems: "baseline", justifyContent: "space-between",
+              marginTop: 6, marginBottom: 8, paddingHorizontal: 2,
+            }}>
+              <Text style={{ fontSize: 13, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
+                {section.title}
+              </Text>
+              <Text style={{ fontSize: 11, color: colors.muted, fontFamily: ff }}>
+                {section.data.length} 门{gpa != null ? ` · 均绩 ${gpa.toFixed(2)}` : ""}
+              </Text>
+            </View>
+          );
+        }}
         ListHeaderComponent={
           <View style={{ paddingHorizontal: 16, marginBottom: 16, gap: 16 }}>
             <CompactGpaCard

@@ -8,7 +8,7 @@
 [![Release](https://img.shields.io/github/v/release/Jnove/ZJUCoursetrace?style=flat-square&label=release)](https://github.com/Jnove/ZJUCoursetrace/releases/latest)
 [![Download APK](https://img.shields.io/github/downloads/Jnove/ZJUCoursetrace/total?style=flat-square&label=APK%20downloads&color=brightgreen&logo=android)](https://github.com/Jnove/ZJUCoursetrace/releases/download/v2.2.0/ZJUCoursetrace.v2.0.0.apk)
 
-A Zhejiang University course schedule app for iOS, Android, and Web. Since v2.0.0, the backend server has been completely removed — all authentication and data requests are handled client-side.
+A Zhejiang University course schedule app for iOS and Android. Since v2.0.0, the backend server has been completely removed — all authentication and data requests are handled client-side (which means the Web build cannot log in due to browser CORS restrictions; it is for development preview only).
 
 ## Statement
 
@@ -52,15 +52,15 @@ No backend server required since v2.0.0. All requests to the ZJU academic system
 
 **Timetable**
 - Weekly grid view and daily list view, switchable with one tap
-- Semester picker supporting multi-semester data switching
+- Semester picker grouped by school year, defaulting to the current semester (or the next one during vacation)
 - Odd/even week filtering
 - One-tap screenshot and share or save to gallery
 - Custom courses: manually add labs / club activities shown alongside the official timetable (stored locally only)
-- Export the timetable as an .ics calendar file for the system calendar (odd/even weeks handled)
+- Export the timetable as an .ics calendar file (odd/even weeks handled, multiple semesters selectable): Android opens the system calendar import directly, iOS uses the share sheet
 
 **Academic**
 - Major GPA and overall GPA overview (with credit statistics)
-- Grade details: score distribution chart, per-course GPA progress bars, major/all toggle
+- Grade details: score distribution chart, per-course GPA progress bars, major/all toggle, grouped by semester with per-semester GPA
 - Exam schedule: grouped by semester, showing exam time, location, seat number, and countdown
 - Homework: aggregates pending assignments across courses with deadlines, sorted by due date
 - Local data cache with silent background refresh
@@ -70,7 +70,7 @@ No backend server required since v2.0.0. All requests to the ZJU academic system
 - Android status bar shows current or next course with live countdown; persistent yet silent
 - New-grade alerts: periodic background check (~every 2 hours) notifies when new grades are published
 - Homework / exam reminders: notified 24 hours and 2 hours before each deadline or exam; can be disabled in Settings
-- Dark / Light / System theme
+- Dark / Light / System theme, plus an AMOLED pure-black dark variant (saves power on OLED screens)
 - Personalization: 15 accent colors, 3 corner radius styles, 5 course color palettes, 4 font families, all with live preview
 - In-app update detection: Android downloads and installs APK directly, iOS opens GitHub Releases
 - Offline support: schedules cached locally, loads instantly on reopen
@@ -159,4 +159,5 @@ The APK download link will appear in your terminal and on the Expo dashboard onc
 - **Slow GPS on non-GMS Android** — devices without Google Play Services have slow GPS cold-start; the app automatically falls back to IP-based location on first launch
 - **No persistent notification on iOS** — system limitation; course notifications on iOS can be dismissed by the user
 - **Coarse background countdown** — while the app is backgrounded the OS schedules wakeups only ~every 15 min (especially iOS), so the notification countdown can't tick every second; mitigated by pre-scheduled milestone updates (60/30/10/5 min before class and at class start, delivered on time by the system alarm); per-second refresh resumes once foregrounded
+- **No login on Web** — CAS authentication relies on the native cookie jar to carry sessions across origins; browsers block this via CORS, so the Web build is for development preview only
 - **CAS account lockout** — multiple failed password attempts may trigger CAPTCHA verification; unlock by visiting [zjuam.zju.edu.cn](https://zjuam.zju.edu.cn) in a browser

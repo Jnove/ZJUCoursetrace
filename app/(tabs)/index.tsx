@@ -28,6 +28,8 @@ import { loadActiveSemesters } from "@/lib/semester-loader";
 import { useTheme, CARD_RADIUS_VALUES, FONT_FAMILY_META } from "@/lib/theme-provider";
 import { WeatherCard } from "@/components/home/weather-card";
 import { OngoingCard, NextCard, CourseCard } from "@/components/home/course-cards";
+import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
+import { VacationIllustration } from "@/components/ui/illustrations";
 import { usePoem } from "@/hooks/use-poem";
 import { fetchWeather, type WeatherData } from "@/lib/weather";
 import {
@@ -61,9 +63,10 @@ export default function HomeScreen() {
   );
   const [nowSeconds, setNowSeconds] = useState(getNowSeconds);
 
-  const { poem, poemLoading, poemCooldown, fetchPoem } = usePoem();
+  const { poem, poemLoading, poemInitLoading, poemCooldown, fetchPoem } = usePoem();
 
   const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(true);
   const [, setWeatherError] = useState<string | null>(null);
   const { cardRadius } = useTheme();
   const r = CARD_RADIUS_VALUES[cardRadius];
@@ -84,7 +87,8 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchWeather()
       .then(data => { if (data) setWeather(data); })
-      .catch(e => setWeatherError(e instanceof Error ? e.message : '天气获取失败'));
+      .catch(e => setWeatherError(e instanceof Error ? e.message : '天气获取失败'))
+      .finally(() => setWeatherLoading(false));
   }, []);
 
   // resolveCacheKey
@@ -291,6 +295,12 @@ export default function HomeScreen() {
             </View>
 
             {/* ── 诗词（点击可刷新，5 秒冷却）─────────────────────────────── */}
+            {!poem && poemInitLoading && (
+              <SkeletonCard radius={r} style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
+                <Skeleton width="82%" height={15} />
+                <Skeleton width="45%" height={12} />
+              </SkeletonCard>
+            )}
             {poem && (
               <TouchableOpacity
                 activeOpacity={poemCooldown > 0 ? 1 : 0.75}
@@ -329,6 +339,16 @@ export default function HomeScreen() {
             )}
 
             {/* Weather */}
+            {!weather && weatherLoading && (
+              <SkeletonCard radius={r} style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, gap: 12 }}>
+                <Skeleton width={32} height={32} radius={16} />
+                <View style={{ flex: 1, gap: 8 }}>
+                  <Skeleton width="55%" height={14} />
+                  <Skeleton width="35%" height={11} />
+                </View>
+                <Skeleton width={56} height={24} radius={8} />
+              </SkeletonCard>
+            )}
             {weather && <WeatherCard data={weather} radius={r} />}
 
             {/* ── 假期/学期间隙兜底 ── */}
@@ -339,7 +359,7 @@ export default function HomeScreen() {
                 alignItems: "center", gap: 8,
                 ...cardShadow(scheme, { offsetY: 1, opacity: 0.06, radius: 5, elevation: 2 }),
               }}>
-                <Text style={{ fontSize: 34 }}>🏖️</Text>
+                <VacationIllustration size={56} />
                 <Text style={{ fontSize: 17, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
                   假期中
                 </Text>

@@ -38,8 +38,7 @@ type RuntimePalette = SchemePaletteItem & {
   border: string;
 };
 
-function buildRuntimePalette(scheme: ColorScheme): RuntimePalette {
-  const base = SchemeColors[scheme];
+function buildRuntimePalette(base: SchemePaletteItem): RuntimePalette {
   return {
     ...base,
     text: base.foreground,
@@ -53,11 +52,24 @@ function buildRuntimePalette(scheme: ColorScheme): RuntimePalette {
 }
 
 export const Colors = {
-  light: buildRuntimePalette("light"),
-  dark: buildRuntimePalette("dark"),
+  light: buildRuntimePalette(SchemeColors.light),
+  dark: buildRuntimePalette(SchemeColors.dark),
 } satisfies Record<ColorScheme, RuntimePalette>;
 
 export type ThemeColorPalette = (typeof Colors)[ColorScheme];
+
+/**
+ * AMOLED 纯黑深色档：页面底色纯黑（OLED 熄灭像素省电），卡片微抬一档保持层次。
+ * 深色阴影本就走 shadow.ts 的浅色描边（rim）方案，纯黑下依然可见，无需另行处理。
+ */
+export const AmoledSchemeColors: SchemePaletteItem = {
+  ...SchemeColors.dark,
+  background: "#101113", // 卡片底：接近黑但与纯黑页面可区分
+  surface: "#000000",    // 页面底：纯黑
+  border: "#2a2d31",
+};
+
+export const AmoledColors: RuntimePalette = buildRuntimePalette(AmoledSchemeColors);
 
 export const Fonts = Platform.select({
   ios: {

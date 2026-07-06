@@ -15,7 +15,9 @@ import { Platform } from "react-native";
 import { fetchGrade, loadSession, type Grade } from "@/lib/zju-client";
 
 export const GRADE_NOTIFY_PREF_KEY = "pref_grade_notify";
-const SNAPSHOT_KEY_PREFIX = "gradeSnapshot_";
+// v2：semester 字段改为从 xkkh 解析后快照键全部变化，换前缀让老快照作废、
+// 首轮静默重建（否则升级后所有已出分课程会被误判为"新出分"轰炸一条通知）
+const SNAPSHOT_KEY_PREFIX = "gradeSnapshot2_";
 const LAST_CHECK_KEY = "grade_check_ts";
 const CHECK_INTERVAL_MS = 2 * 3600 * 1000; // 后台检查节流：2 小时
 

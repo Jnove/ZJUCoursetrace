@@ -3,7 +3,7 @@ import { Appearance, View, useColorScheme as useSystemColorScheme } from "react-
 import { colorScheme as nativewindColorScheme, vars } from "nativewind";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
-import { SchemeColors, type ColorScheme } from "@/constants/theme";
+import { AmoledSchemeColors, SchemeColors, type ColorScheme } from "@/constants/theme";
 import { COURSE_PALETTES, DEFAULT_PALETTE_KEY, PaletteKey } from "@/lib/course-palette";
 import { updateActivePalette } from "@/lib/course-palette";
 import { 
@@ -44,6 +44,9 @@ type ThemeContextValue = {
   themePreference: ThemePreference;
   setThemePreference: (pref: ThemePreference) => void;
   resolvedTheme: 'light' | 'dark';
+  /** AMOLED 纯黑深色档（仅深色模式下生效） */
+  amoledDark: boolean;
+  setAmoledDark: (on: boolean) => Promise<void>;
   primaryColor: string;
   setPrimaryColor: (color: string | null) => Promise<void>;
   cardRadius: CardRadius;
@@ -65,6 +68,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [cardRadius, setCardRadiusState] = useState<CardRadius>('medium');
   const [coursePaletteKey, setCoursePaletteKeyState] = useState<PaletteKey>(DEFAULT_PALETTE_KEY);
   const [fontFamily, setFontFamilyState] = useState<FontFamily>("system");
+  const [amoledDark, setAmoledDarkState] = useState(false);
 
   // 加载保存的偏好
   useEffect(() => {
@@ -92,7 +96,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       if (savedFont && savedFont in FONT_FAMILY_META) {
         setFontFamilyState(savedFont as FontFamily);
       }
-      
+
+      setAmoledDarkState((await AsyncStorage.getItem("amoled-dark")) === "1");
+
     };
     loadPreferences();
   }, []);
@@ -103,6 +109,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // 主色逻辑：有自定义用自定义，否则使用当前主题的默认主色
   const primaryColor = customPrimaryColor ?? SchemeColors[resolvedTheme].primary;
+
+  // 当前生效的基础色板：深色 + AMOLED 开关 → 纯黑档
+  const activePalette =
+    resolvedTheme === "dark" && amoledDark ? AmoledSchemeColors : SchemeColors[resolvedTheme];
 
   // 应用主题到 NativeWind 和系统 Appearance
   useEffect(() => {
@@ -124,12 +134,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       const root = document.documentElement;
       root.dataset.theme = resolvedTheme;
       root.classList.toggle("dark", resolvedTheme === "dark");
-      const palette = SchemeColors[resolvedTheme];
-      Object.entries(palette).forEach(([token, value]) => {
+      Object.entries(activePalette).forEach(([token, value]) => {
         root.style.setProperty(`--color-${token}`, value);
       });
     }
-  }, [resolvedTheme, themePreference]);
+  }, [resolvedTheme, themePreference, activePalette]);
 
   const setThemePreference = async (pref: ThemePreference) => {
     setThemePreferenceState(pref);
@@ -160,16 +169,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.setItem("font-family", f);
   };
 
+  const setAmoledDark = async (on: boolean) => {
+    setAmoledDarkState(on);
+    await AsyncStorage.setItem("amoled-dark", on ? "1" : "0");
+  };
+
   const themeVariables = vars({
     "color-primary": primaryColor,
-    "color-background": SchemeColors[resolvedTheme].background,
-    "color-surface": SchemeColors[resolvedTheme].surface,
-    "color-foreground": SchemeColors[resolvedTheme].foreground,
-    "color-muted": SchemeColors[resolvedTheme].muted,
-    "color-border": SchemeColors[resolvedTheme].border,
-    "color-success": SchemeColors[resolvedTheme].success,
-    "color-warning": SchemeColors[resolvedTheme].warning,
-    "color-error": SchemeColors[resolvedTheme].error,
+    "color-background": activePalette.background,
+    "color-surface": activePalette.surface,
+    "color-foreground": activePalette.foreground,
+    "color-muted": activePalette.muted,
+    "color-border": activePalette.border,
+    "color-success": activePalette.success,
+    "color-warning": activePalette.warning,
+    "color-error": activePalette.error,
   });
 
   return (
@@ -178,6 +192,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         themePreference,
         setThemePreference,
         resolvedTheme,
+        amoledDark,
+        setAmoledDark,
         primaryColor,
         setPrimaryColor,
         cardRadius,

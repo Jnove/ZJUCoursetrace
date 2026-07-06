@@ -6,7 +6,7 @@
 
 import {
   View, Text, ScrollView, TouchableOpacity,
-  Alert, ActivityIndicator, Switch,
+  Alert, ActivityIndicator, Switch, Modal,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -20,7 +20,7 @@ import { useEffect, useState } from "react";
 import type { SFSymbols7_0 } from "sf-symbols-typescript";
 import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { exportScheduleIcs } from "@/lib/ics-export";
+import { exportScheduleIcs, listExportableSemesters, type ExportSemester } from "@/lib/ics-export";
 import { cancelAllReminders, REMINDER_PREF_KEY } from "@/lib/reminder-service";
 import { GRADE_NOTIFY_PREF_KEY } from "@/lib/grade-watcher";
 const isDiagEnabled = !!process.env.EXPO_PUBLIC_ENABLE_DIAG_LOG;
@@ -244,11 +244,14 @@ function ProfileCard({ username, name }: { username: string | null; name: string
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const { state: authState, signOut } = useAuth();
-  const { primaryColor, cardRadius }  = useTheme();
+  const { primaryColor, cardRadius, amoledDark, setAmoledDark } = useTheme();
   const colors   = useColors();
   const router   = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportPickerVisible, setExportPickerVisible] = useState(false);
+  const [exportSemesters, setExportSemesters] = useState<ExportSemester[]>([]);
+  const [exportChecked, setExportChecked] = useState<Record<string, boolean>>({});
 
   // 通知开关（默认开启，"0" 表示关闭）
   const [gradeNotify, setGradeNotify] = useState(true);
@@ -269,11 +272,34 @@ export default function SettingsScreen() {
     if (!v) await cancelAllReminders();
   };
 
+  // 点击「导出课表到日历」→ 弹出学期多选；只有一个可导出学期时直接导出
   const handleExportIcs = async () => {
     if (exporting) return;
+    try {
+      const list = await listExportableSemesters();
+      if (list.length === 0) {
+        Alert.alert("暂无可导出的课表", "请先在课表页加载一次课表");
+        return;
+      }
+      if (list.length === 1) {
+        await doExport([list[0]]);
+        return;
+      }
+      const init: Record<string, boolean> = {};
+      const hasCurrent = list.some(s => s.isCurrent);
+      list.forEach((s, i) => { init[`${s.yearValue}|${s.termValue}`] = hasCurrent ? s.isCurrent : i === 0; });
+      setExportSemesters(list);
+      setExportChecked(init);
+      setExportPickerVisible(true);
+    } catch (e) {
+      Alert.alert("导出失败", e instanceof Error ? e.message : "未知错误");
+    }
+  };
+
+  const doExport = async (targets: { yearValue: string; termValue: string }[]) => {
     setExporting(true);
     try {
-      await exportScheduleIcs();
+      await exportScheduleIcs(targets);
     } catch (e) {
       Alert.alert("导出失败", e instanceof Error ? e.message : "未知错误");
     } finally {
@@ -372,6 +398,14 @@ export default function SettingsScreen() {
             </Text>
             <ThemeSegment />
           </View>
+          <SettingsToggleRow
+            icon="moon.fill"
+            iconBg="#1c1c1e"
+            label="纯黑深色模式"
+            sub="深色模式下页面底色改为纯黑，OLED 屏更省电"
+            value={amoledDark}
+            onValueChange={setAmoledDark}
+          />
           <SettingsRow
             icon="pencil"
             iconBg={primaryColor}
@@ -493,6 +527,81 @@ export default function SettingsScreen() {
           <Text>🔧 CAS 调试</Text>
         </TouchableOpacity>*/}
       </ScrollView>
+
+      {/* 导出学期多选弹窗 */}
+      <Modal transparent visible={exportPickerVisible} animationType="fade" onRequestClose={() => setExportPickerVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center", padding: 24 }}>
+          <View style={{
+            width: "100%", maxWidth: 340, borderRadius: r + 4,
+            backgroundColor: colors.background, overflow: "hidden",
+            borderWidth: 0.5, borderColor: colors.border,
+          }}>
+            <View style={{ paddingHorizontal: 18, paddingTop: 18, paddingBottom: 10 }}>
+              <Text style={{ fontSize: 16, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
+                选择要导出的学期
+              </Text>
+              <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4, fontFamily: ff }}>
+                可多选，导出为一个 .ics 文件
+              </Text>
+            </View>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {exportSemesters.map(s => {
+                const key = `${s.yearValue}|${s.termValue}`;
+                const checked = !!exportChecked[key];
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    onPress={() => setExportChecked(prev => ({ ...prev, [key]: !prev[key] }))}
+                    activeOpacity={0.7}
+                    style={{
+                      flexDirection: "row", alignItems: "center", gap: 12,
+                      paddingHorizontal: 18, paddingVertical: 13,
+                      borderTopWidth: 0.5, borderTopColor: colors.border,
+                    }}
+                  >
+                    <View style={{
+                      width: 21, height: 21, borderRadius: 11,
+                      alignItems: "center", justifyContent: "center",
+                      backgroundColor: checked ? primaryColor : "transparent",
+                      borderWidth: checked ? 0 : 1.5, borderColor: colors.border,
+                    }}>
+                      {checked && <IconSymbol name="checkmark" size={13} color="#fff" />}
+                    </View>
+                    <Text style={{ flex: 1, fontSize: 14, color: colors.foreground, fontFamily: ff }}>
+                      {s.label}
+                    </Text>
+                    {s.isCurrent && (
+                      <Text style={{ fontSize: 11, color: primaryColor, fontWeight: "600", fontFamily: ff }}>当前</Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <View style={{ flexDirection: "row", borderTopWidth: 0.5, borderTopColor: colors.border }}>
+              <TouchableOpacity
+                onPress={() => setExportPickerVisible(false)}
+                style={{ flex: 1, paddingVertical: 14, alignItems: "center" }}
+              >
+                <Text style={{ fontSize: 15, color: colors.muted, fontFamily: ff }}>取消</Text>
+              </TouchableOpacity>
+              <View style={{ width: 0.5, backgroundColor: colors.border }} />
+              <TouchableOpacity
+                disabled={!Object.values(exportChecked).some(Boolean)}
+                onPress={() => {
+                  const targets = exportSemesters.filter(s => exportChecked[`${s.yearValue}|${s.termValue}`]);
+                  setExportPickerVisible(false);
+                  doExport(targets);
+                }}
+                style={{ flex: 1, paddingVertical: 14, alignItems: "center", opacity: Object.values(exportChecked).some(Boolean) ? 1 : 0.4 }}
+              >
+                <Text style={{ fontSize: 15, fontWeight: "600", color: primaryColor, fontFamily: ff }}>
+                  导出（{Object.values(exportChecked).filter(Boolean).length}）
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
