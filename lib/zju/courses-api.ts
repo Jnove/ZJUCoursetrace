@@ -2,12 +2,14 @@
  * courses.zju.edu.cn(TronClass) 业务：作业列表/详情、课件浏览与下载。
  * 与 api.ts(教务/zdbk) 分离——courses 是独立子系统。
  */
+import * as FileSystem from "expo-file-system/legacy";
 import { CAS_BASE, COURSES_BASE, SERVICE_URL, DATA_HDR, randomUA } from "./config";
-import { xhrGet, xhrPost, zPostJson, zGetCourse } from "./http";
+import { xhrGet, xhrPost, zPostJson, zGetCourse, xhrGetBinary } from "./http";
 import { rsaEncrypt } from "./rsa";
 import { loadCredentials, parseCasForm, buildFormBody } from "./cas";
 import { fmtHwDdl } from "./parsers";
-import type { ZjuSession, HomeworkInfo } from "./types";
+import { flattenActivitiesToFiles, sanitizeFileName } from "./courses-parsers";
+import type { ZjuSession, HomeworkInfo, CoursewareFile } from "./types";
 
 // ─── Homework (courses.zju.edu.cn) ────────────────────────────────────────────
 
@@ -207,4 +209,73 @@ export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo
   return results
     .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
     .sort((a, b) => a.deadlineIso.localeCompare(b.deadlineIso));
+}
+
+// ─── Courseware (courses.zju.edu.cn) ──────────────────────────────────────────
+
+const MY_COURSES_PAYLOAD = {
+  fields: "id,name",
+  page: 1,
+  page_size: 1000,
+  conditions: { status: ["ongoing", "notStarted"], keyword: "", classify_type: "recently_started", display_studio_list: false },
+  showScorePassedStatus: false,
+};
+
+/** 列出「我的课程」(TronClass id + name)。会话失效抛 __COURSES_EXPIRED__。 */
+export async function listMyCourses(): Promise<{ id: number; name: string }[]> {
+  const text = await zPostJson(`${COURSES_BASE}/api/my-courses`, MY_COURSES_PAYLOAD);
+  const parsed = JSON.parse(text);
+  return (parsed.courses ?? []).map((c: any) => ({ id: c.id as number, name: String(c.name ?? "") }));
+}
+
+/** 按课程名匹配 TronClass 课程 id（课表数据无此 id，需在此解析）。 */
+export async function resolveCourseId(courseName: string): Promise<{ id: number; name: string } | null> {
+  const courses = await listMyCourses();
+  const exact = courses.find((c) => c.name === courseName);
+  if (exact) return exact;
+  const norm = (s: string) => s.replace(/[（(].*?[)）]/g, "").trim();
+  return courses.find((c) => norm(c.name) === norm(courseName)) ?? null;
+}
+
+/** 某课程的课件文件（扁平化 activities.uploads）。 */
+export async function fetchCourseFiles(courseId: number): Promise<CoursewareFile[]> {
+  const text = await zGetCourse(`${COURSES_BASE}/api/courses/${courseId}/activities`);
+  const activities = JSON.parse(text).activities ?? [];
+  return flattenActivitiesToFiles(activities);
+}
+
+/**
+ * 下载单个课件到本地缓存目录，返回本地 fileUri。
+ * 已开放：reference/{referenceId}/blob；失败且 allowPreview → 降级 uploads/{id}/blob。
+ * 会话失效（落到 zjuam）抛 __COURSES_EXPIRED__；未开放且不允许预览抛用户可读错误。
+ */
+export async function downloadCourseFile(
+  file: CoursewareFile,
+  courseId: number,
+  allowPreview: boolean
+): Promise<string> {
+  const tryUrls: string[] = [`${COURSES_BASE}/api/uploads/reference/${file.referenceId}/blob`];
+  if (allowPreview) tryUrls.push(`${COURSES_BASE}/api/uploads/${file.id}/blob`);
+
+  let base64 = "";
+  let lastErr: unknown = null;
+  for (const url of tryUrls) {
+    try {
+      const res = await xhrGetBinary(url);
+      if (res.finalUrl.includes("zjuam.zju.edu.cn")) throw new Error("__COURSES_EXPIRED__");
+      base64 = res.base64;
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+      if (e instanceof Error && e.message === "__COURSES_EXPIRED__") throw e;
+    }
+  }
+  if (lastErr) throw new Error(file.allowDownload ? "课件下载失败，请重试" : "老师未开放该课件下载");
+
+  const dir = `${FileSystem.documentDirectory}courseware/${courseId}/`;
+  await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
+  const fileUri = `${dir}${sanitizeFileName(file.name)}`;
+  await FileSystem.writeAsStringAsync(fileUri, base64, { encoding: FileSystem.EncodingType.Base64 });
+  return fileUri;
 }
