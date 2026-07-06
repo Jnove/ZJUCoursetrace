@@ -41,8 +41,11 @@ export {
   fetchExams,
   fetchStudentName,
   loadStoredStudentName,
-  fetchHomeworks,
 } from "./zju/api";
+
+export {
+  fetchHomeworks,
+} from "./zju/courses-api";
 
 export {
   parseKbList,
