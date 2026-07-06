@@ -3,6 +3,8 @@
  * 不 import react-native —— 供 vitest 在 node 下直接运行。
  */
 
+import type { CoursewareFile } from "./types";
+
 /** 文件名清洗：取路径末段，去掉文件系统非法字符，防路径穿越。 */
 export function sanitizeFileName(name: string): string {
   const base = (name ?? "").split(/[\\/]/).pop() ?? "";
@@ -30,4 +32,25 @@ export function htmlToPlainText(html: string): string {
     .filter((line, i, arr) => !(line === "" && arr[i - 1] === ""))
     .join("\n")
     .trim();
+}
+
+/** activities[].uploads[] → 去重的 CoursewareFile[]（字段缺省安全默认）。 */
+export function flattenActivitiesToFiles(activities: any[]): CoursewareFile[] {
+  const seen = new Set<number>();
+  const out: CoursewareFile[] = [];
+  for (const act of activities ?? []) {
+    for (const up of act?.uploads ?? []) {
+      const id = up?.id;
+      if (typeof id !== "number" || seen.has(id)) continue;
+      seen.add(id);
+      out.push({
+        id,
+        referenceId: typeof up?.reference_id === "number" ? up.reference_id : id,
+        name: String(up?.name ?? ""),
+        size: typeof up?.size === "number" ? up.size : 0,
+        allowDownload: up?.allow_download !== false,
+      });
+    }
+  }
+  return out;
 }

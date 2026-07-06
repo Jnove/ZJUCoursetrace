@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeFileName, htmlToPlainText } from "./courses-parsers";
+import { sanitizeFileName, htmlToPlainText, flattenActivitiesToFiles } from "./courses-parsers";
 
 describe("sanitizeFileName", () => {
   it("strips path separators to prevent traversal", () => {
@@ -36,5 +36,36 @@ describe("htmlToPlainText", () => {
   });
   it("handles empty/nullish", () => {
     expect(htmlToPlainText("")).toBe("");
+  });
+});
+
+describe("flattenActivitiesToFiles", () => {
+  it("flattens uploads across activities and maps fields", () => {
+    const activities = [
+      { uploads: [{ id: 1, reference_id: 11, name: "a.pdf", size: 100, allow_download: true }] },
+      { uploads: [{ id: 2, reference_id: 22, name: "b.ppt", size: 200, allow_download: false }] },
+    ];
+    expect(flattenActivitiesToFiles(activities)).toEqual([
+      { id: 1, referenceId: 11, name: "a.pdf", size: 100, allowDownload: true },
+      { id: 2, referenceId: 22, name: "b.ppt", size: 200, allowDownload: false },
+    ]);
+  });
+  it("dedupes by upload id and skips entries without id", () => {
+    const activities = [
+      { uploads: [{ id: 1, reference_id: 11, name: "a.pdf" }, { id: 1, reference_id: 11, name: "a.pdf" }] },
+      { uploads: [{ reference_id: 9, name: "no-id" }] },
+    ];
+    const out = flattenActivitiesToFiles(activities);
+    expect(out).toHaveLength(1);
+    expect(out[0].id).toBe(1);
+  });
+  it("defaults allowDownload=true and size=0 when missing", () => {
+    const out = flattenActivitiesToFiles([{ uploads: [{ id: 5, reference_id: 5, name: "x" }] }]);
+    expect(out[0].allowDownload).toBe(true);
+    expect(out[0].size).toBe(0);
+  });
+  it("handles empty / malformed input", () => {
+    expect(flattenActivitiesToFiles([])).toEqual([]);
+    expect(flattenActivitiesToFiles([{}])).toEqual([]);
   });
 });
