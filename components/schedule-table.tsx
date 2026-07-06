@@ -1,12 +1,16 @@
 import React from "react";
-import { View, Text, ScrollView, Pressable } from "react-native";
+import { View, Text, ScrollView, Pressable, useWindowDimensions } from "react-native";
 import { Course } from "@/lib/schedule-context";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cardShadow } from "@/lib/_core/shadow";
 import { RefreshControl } from "react-native-gesture-handler";
 import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 
 const HEADER_H   = 38;
 const TIME_COL_W = 34;
+// 手机竖屏下的最小列宽，保证可读性；平板/横屏时按屏宽平分铺满
+const MIN_COL_W  = 48;
 
 const PERIODS = [
   { number: 1,  startTime: "08:00", endTime: "08:45" },
@@ -58,8 +62,14 @@ export function ScheduleTable({
   radius = 5,
 }: ScheduleTableProps) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const { fontFamily } = useTheme();
   const ff = FONT_FAMILY_META[fontFamily].value;
+  const { width: screenW } = useWindowDimensions();
+
+  // 列宽按可用屏宽在 7 天间平分，平板/横屏铺满不留大片空白；
+  // 屏幕过窄时回退到最小列宽，横向 ScrollView 仍可滚动。
+  const COL_W = Math.max(MIN_COL_W, Math.floor((screenW - TIME_COL_W) / 7));
 
   const CELL_H = availableHeight > 200
     ? Math.max(44, Math.floor((availableHeight - HEADER_H) / PERIODS.length))
@@ -75,10 +85,10 @@ export function ScheduleTable({
           <View style={{ height: HEADER_H }} />
           {PERIODS.map(p => (
             <View key={p.number} style={{ height: CELL_H, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ fontSize: 8, color: colors.muted, opacity: 0.6, marginTop: 1, fontFamily: ff }}>
+              <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 8, color: colors.muted, opacity: 0.6, marginTop: 1, fontFamily: ff }}>
                 {p.startTime}
               </Text>
-              <Text style={{ fontSize: 10, color: colors.muted, fontWeight: "600", fontFamily: ff }}>
+              <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 10, color: colors.muted, fontWeight: "600", fontFamily: ff }}>
                 {p.number}
               </Text>
             </View>
@@ -97,7 +107,7 @@ export function ScheduleTable({
 
           return (
             <View key={di} style={{
-              width: 50,
+              width: COL_W,
               height: TOTAL_COL_H,
               position: "relative",
               borderLeftWidth: 0.5,
@@ -110,7 +120,7 @@ export function ScheduleTable({
                 borderBottomWidth: 0.5, borderBottomColor: colors.border,
                 backgroundColor: colors.surface,
               }}>
-                <Text style={{ fontSize: 12, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
+                <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 12, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
                   {day}
                 </Text>
               </View>
@@ -156,14 +166,14 @@ export function ScheduleTable({
                         paddingHorizontal: 4, paddingVertical: 4,
                         overflow: "hidden",
                       }}>
-                        <Text style={{
+                        <Text maxFontSizeMultiplier={1.2} style={{
                           fontSize: 11, fontWeight: "700", fontFamily: ff,
                           color: colors.foreground, lineHeight: 14,
                         }} numberOfLines={maxSpan >= 2 ? 4 : 2}>
                           {cs[0].name}
                         </Text>
                         {maxSpan >= 2 && (
-                          <Text style={{
+                          <Text maxFontSizeMultiplier={1.2} style={{
                             fontSize: 10, color: colors.muted, fontFamily: ff,
                             marginTop: 2, lineHeight: 13,
                           }} numberOfLines={2}>
@@ -176,7 +186,7 @@ export function ScheduleTable({
                             backgroundColor: cs[0].color,
                             borderRadius: radius, paddingHorizontal: 2.5, paddingVertical: 1,
                           }}>
-                            <Text style={{ fontSize: 8, color: "#fff", fontWeight: "800", fontFamily: ff }}>
+                            <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 8, color: "#fff", fontWeight: "800", fontFamily: ff }}>
                               {getWeekLabel(cs[0].isSingleWeek)}
                             </Text>
                           </View>
@@ -208,11 +218,9 @@ export function ScheduleTable({
                           borderRadius: 5,
                           paddingHorizontal: 4, paddingVertical: 4,
                           overflow: "hidden",
-                          shadowColor: "#000",
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.12, shadowRadius: 2, elevation: 2,
+                          ...cardShadow(scheme, { offsetY: 1, opacity: 0.12, radius: 2, elevation: 2 }),
                         }}>
-                          <Text style={{
+                          <Text maxFontSizeMultiplier={1.2} style={{
                             fontSize: 11, fontWeight: "700", fontFamily: ff,
                             color: colors.foreground, lineHeight: 14,
                           }} numberOfLines={maxSpan >= 2 ? 3 : 2}>
@@ -223,7 +231,7 @@ export function ScheduleTable({
                             backgroundColor: cs[0].color,
                             borderRadius: 3, paddingHorizontal: 3, paddingVertical: 1,
                           }}>
-                            <Text style={{ fontSize: 9, color: "#fff", fontWeight: "800", fontFamily: ff }}>
+                            <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 9, color: "#fff", fontWeight: "800", fontFamily: ff }}>
                               +{cs.length - 1}
                             </Text>
                           </View>

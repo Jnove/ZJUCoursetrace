@@ -18,6 +18,7 @@ import {
 import { assignColors, ColorableItem, COURSE_PALETTES } from "@/lib/course-palette";
 import { useTheme } from "@/lib/theme-provider";
 import { writeLog } from "@/lib/diagnostic-log";
+import { loadCustomCourses, mergeCustomCourses, subscribeCustomCourses } from "@/lib/custom-courses";
 
 // ─── Types 
 
@@ -108,6 +109,14 @@ async function buildSession(): Promise<ZjuSession> {
   return { username, jsessionId: "native", routeCookie: null };
 }
 
+// ─── Custom-course merge ──────────────────────────────────────────────────────
+// 缓存里只存抓取到的课程；自定义课程在 dispatch 前合并（带自己的颜色）。
+async function withCustom(courses: Course[]): Promise<Course[]> {
+  const username = await AsyncStorage.getItem("username");
+  const custom = await loadCustomCourses(username);
+  return mergeCustomCourses(courses, custom) as Course[];
+}
+
 // ─── Provider ─────────────────────────────────────────────────────────────────
 export function ScheduleProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(scheduleReducer, initialState);
@@ -129,7 +138,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
           const rawCourses: RawCourse[] = JSON.parse(raw);
           const palette = COURSE_PALETTES[coursePaletteKey].colors;
           const colored = assignColors(rawCourses as ColorableItem[], palette) as Course[];
-          dispatch({ type: "SET_COURSES", payload: colored });
+          dispatch({ type: "SET_COURSES", payload: await withCustom(colored) });
         }
       } catch (e) {
         console.warn("重新着色失败", e);
@@ -137,6 +146,28 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     };
     reColor();
   }, [coursePaletteKey]);
+
+  // 自定义课程增删后，从当前学期缓存重载并重新合并
+  useEffect(() => {
+    return subscribeCustomCourses(async () => {
+      try {
+        const username = await AsyncStorage.getItem("username");
+        if (!username) return;
+        const lastKey = await AsyncStorage.getItem(`lastSelectedSemester_${username}`);
+        if (!lastKey || !lastKey.includes("|")) {
+          // 还没有抓取过课表：只显示自定义课程
+          dispatch({ type: "SET_COURSES", payload: await withCustom([]) });
+          return;
+        }
+        const [yearValue, termValue] = parseStoredKey(lastKey);
+        const raw = await AsyncStorage.getItem(`schedule_${yearValue}_${termValue}`);
+        const base: Course[] = raw ? JSON.parse(raw) : [];
+        dispatch({ type: "SET_COURSES", payload: await withCustom(base) });
+      } catch (e) {
+        console.warn("自定义课程重载失败", e);
+      }
+    });
+  }, []);
 
   const scheduleContext: ScheduleContextType = {
     state,
@@ -156,7 +187,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
             const [yearValue, termValue] = parseStoredKey(lastKey);
             const raw = await AsyncStorage.getItem(`schedule_${yearValue}_${termValue}`);
             if (raw) {
-              dispatch({ type: "SET_COURSES", payload: JSON.parse(raw) });
+              dispatch({ type: "SET_COURSES", payload: await withCustom(JSON.parse(raw)) });
               dispatch({ type: "SET_ERROR", payload: null });
               loadedFromCache = true;
             }
@@ -179,7 +210,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
         const cacheKey = `schedule_${currentYearValue}_${currentTermValue}`;
         await AsyncStorage.setItem(cacheKey, JSON.stringify(converted));
-        dispatch({ type: "SET_COURSES", payload: converted });
+        dispatch({ type: "SET_COURSES", payload: await withCustom(converted) });
         dispatch({ type: "SET_ERROR", payload: null });
       } catch (error) {
         if (!loadedFromCache)
@@ -199,9 +230,10 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
           if (raw) {
             const courses: Course[] = JSON.parse(raw);
             if (courses.length > 0) {
-              dispatch({ type: "SET_COURSES", payload: courses });
+              const merged = await withCustom(courses);
+              dispatch({ type: "SET_COURSES", payload: merged });
               dispatch({ type: "SET_LOADING", payload: false });
-              return courses;
+              return merged;
             }
           }
         } catch (e) { /* ... */ }
@@ -219,9 +251,9 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
         if (requestId === latestRequestIdRef.current) {
           if (converted.length > 0) {
-            // ✅ 有数据才更新界面和缓存
+            // ✅ 有数据才更新界面和缓存（缓存只存抓取数据，不含自定义课程）
             await AsyncStorage.setItem(cacheKey, JSON.stringify(converted));
-            dispatch({ type: "SET_COURSES", payload: converted });
+            dispatch({ type: "SET_COURSES", payload: await withCustom(converted) });
             dispatch({ type: "SET_ERROR", payload: null });
           } else {
             // ✅ 空结果：报错提示，不清空现有课程

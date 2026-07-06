@@ -11,6 +11,8 @@ import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cardShadow } from "@/lib/_core/shadow";
 import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 import { useAuth } from "@/lib/auth-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -20,7 +22,7 @@ import { ErrorCard } from "@/components/common/error-card";
 import { EmptyState } from "@/components/common/empty-state";
 import { LoadingView } from "@/components/common/loading-view";
 
-const HW_COLOR = "#8b5cf6";
+// 作业紫用 colors.violet（随深浅色切换，与学业页一致）
 
 function hexToRgba(hex: string, alpha: number): string {
   const c = hex.replace("#", "").slice(0, 6);
@@ -82,14 +84,15 @@ function filterHomeworks(homeworks: HomeworkInfo[], tab: TabKey): HomeworkInfo[]
 
 function HomeworkCard({ hw, radius }: { hw: HomeworkInfo; radius: number }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const past = isPast(hw.deadlineIso);
   const today = isToday(hw.deadlineIso);
   const { fontFamily } = useTheme();
   const ff = FONT_FAMILY_META[fontFamily].value;
 
-  let accentColor = HW_COLOR;
+  let accentColor = colors.violet;
   let tagLabel = "待提交";
-  let tagBg = hexToRgba(HW_COLOR, 0.12);
+  let tagBg = hexToRgba(colors.violet, 0.12);
   if (hw.submitted) {
     accentColor = colors.success;
     tagLabel = "已提交";
@@ -111,11 +114,7 @@ function HomeworkCard({ hw, radius }: { hw: HomeworkInfo; radius: number }) {
         backgroundColor: colors.background,
         overflow: "hidden",
         marginBottom: 10,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 5,
-        elevation: 2,
+        ...cardShadow(scheme, { offsetY: 1, opacity: 0.06, radius: 5, elevation: 2 }),
         borderWidth: 0.5,
         borderColor: colors.border,
       }}
@@ -378,7 +377,7 @@ export default function HomeworkDetailScreen() {
           contentContainerStyle={{ padding: 16, flexGrow: 1 }}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={HW_COLOR} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.violet} />
           }
           ListEmptyComponent={<EmptyState message={`暂无${tabLabel}作业`} />}
         />

@@ -10,6 +10,8 @@ import {
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cardShadow } from "@/lib/_core/shadow";
 import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 import { useRouter } from "expo-router";
 import { useState, useCallback, useEffect } from "react";
@@ -81,6 +83,7 @@ function InfoRow({
 
 function Section({ title, children }: { title?: string; children: React.ReactNode }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const { cardRadius } = useTheme();
   const rv = CARD_RADIUS_VALUES[cardRadius];
   const { fontFamily } = useTheme();
@@ -99,8 +102,7 @@ function Section({ title, children }: { title?: string; children: React.ReactNod
       <View style={{
         borderRadius: rv, overflow: "hidden",
         borderWidth: 0.5, borderColor: colors.border,
-        shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05, shadowRadius: 4, elevation: 1,
+        ...cardShadow(scheme, { offsetY: 1, opacity: 0.05, radius: 4, elevation: 1 }),
       }}>
         {children}
       </View>
@@ -119,6 +121,7 @@ type UpdatePhase =
 
 function UpdateCard() {
   const colors = useColors();
+  const scheme = useColorScheme();
   const { primaryColor, cardRadius } = useTheme();
   const rv = CARD_RADIUS_VALUES[cardRadius];
   const [u, setU] = useState<UpdatePhase>({ phase: "idle" });
@@ -184,10 +187,10 @@ function UpdateCard() {
     <View style={{
       borderRadius: rv, overflow: "hidden",
       backgroundColor: colors.background,
+      // 阴影/elevation 先展开，随后由显式 border 覆盖描边，保留更新状态的强调色边框
+      ...cardShadow(scheme, { offsetY: 1, opacity: 0.05, radius: 4, elevation: 2 }),
       borderWidth: showBorder ? 1 : 0.5,
       borderColor: showBorder ? accent : colors.border,
-      shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
     }}>
 
       {/* Idle / checking */}
@@ -229,7 +232,7 @@ function UpdateCard() {
             backgroundColor: rgba(colors.success, 0.12),
             alignItems: "center", justifyContent: "center",
           }}>
-            <Text style={{ fontSize: 20, color: colors.success, fontFamily: ff }}>✓</Text>
+            <IconSymbol name="checkmark" size={20} color={colors.success} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 15, fontWeight: "500", color: colors.foreground, fontFamily: ff }}>已是最新版本</Text>

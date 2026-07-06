@@ -3,6 +3,8 @@
  * Full implementation lives in lib/_core/theme.ts.
  */
 export {
+  AmoledColors,
+  AmoledSchemeColors,
   Colors,
   Fonts,
   SchemeColors,

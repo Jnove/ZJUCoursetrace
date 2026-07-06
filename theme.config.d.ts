@@ -8,6 +8,8 @@ export const themeColors: {
   success: { light: string; dark: string };
   warning: { light: string; dark: string };
   error: { light: string; dark: string };
+  violet: { light: string; dark: string };
+  orange: { light: string; dark: string };
 };
 
 declare const themeConfig: {

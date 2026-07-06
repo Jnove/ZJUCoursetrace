@@ -8,9 +8,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScheduleTable } from "@/components/schedule-table";
 import { useSchedule } from "@/lib/schedule-context";
-import CourseDetailContent from "@/app/courseDetailContent";
+import CourseDetailContent from "@/components/course-detail-content";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { CelebrationIllustration } from "@/components/ui/illustrations";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cardShadow } from "@/lib/_core/shadow";
 import { Course } from "@/lib/schedule-context";
 import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
@@ -18,7 +21,7 @@ import * as MediaLibrary from "expo-media-library";
 import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 import { writeLog } from "@/lib/diagnostic-log";
 import { loadActiveSemesters } from "@/lib/semester-loader";
-import { getCurrentSemester } from "@/lib/semester-utils";
+import { getCurrentSemester, getNextSemesterStart } from "@/lib/semester-utils";
 import {
   loadCalendarData,
   resolveEffectiveDate,
@@ -37,6 +40,38 @@ interface SemesterOption {
 }
 
 function semesterKey(y: string, t: string) { return `${y}|${t}`; }
+
+/**
+ * 默认学期：当前学期；假期中则取下一学期。按学年 + 学期名（秋/冬/春/夏）在
+ * 学期列表里匹配，匹配不到（如新学期教务还没建课表）返回 undefined 交给回退逻辑。
+ */
+function findDefaultSemester(all: SemesterOption[]): SemesterOption | undefined {
+  const now = new Date();
+  const target = getCurrentSemester(now) ?? getNextSemesterStart(now);
+  if (!target) return undefined;
+  return all.find(s =>
+    (s.yearValue.includes(target.schoolYear) || s.yearText.includes(target.schoolYear)) &&
+    (s.termValue.includes(target.semester) || s.termText.includes(target.semester)),
+  );
+}
+
+/** 学期选择器分组：按学年聚合，年份新的在前，学期按秋冬春夏排。 */
+const TERM_ORDER = ["秋", "冬", "春", "夏"];
+function groupSemestersByYear(all: SemesterOption[]): { year: string; items: SemesterOption[] }[] {
+  const m = new Map<string, SemesterOption[]>();
+  for (const s of all) {
+    if (!m.has(s.yearText)) m.set(s.yearText, []);
+    m.get(s.yearText)!.push(s);
+  }
+  return Array.from(m.entries())
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([year, items]) => ({
+      year,
+      items: items.sort(
+        (a, b) => TERM_ORDER.findIndex(t => a.termText.includes(t)) - TERM_ORDER.findIndex(t => b.termText.includes(t)),
+      ),
+    }));
+}
 function parseKey(key: string): [string, string] {
   const idx = key.indexOf("|");
   return idx === -1 ? [key, ""] : [key.slice(0, idx), key.slice(idx + 1)];
@@ -53,21 +88,9 @@ function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 
-/**
- * Find the SemesterCalendar that governs a given date.
- *
- * Priority:
- *   1. The semester the date naturally falls inside (via getCurrentSemester).
- *   2. If the date is outside every semester (e.g. a makeup day in week 9),
- *      scan every SemesterCalendar in calData and return the first one that
- *      lists this date in its `exchange` map or `holiday` array.
- *      This handles the case where a 调休 makeup date falls after the last
- *      official week of the semester.
- */
 function getSemCal(date: Date, calData: CalendarData | null): { selcal: SemesterCalendar | null,sem: string | null} {
   if (!calData) return { selcal: null, sem: null };
 
-  // 1. Normal path — date is inside a recognised semester
   const info = getCurrentSemester(date);
   if (info) {
     const key = semesterInfoToCalendarKey(info.schoolYear, info.semester);
@@ -75,11 +98,13 @@ function getSemCal(date: Date, calData: CalendarData | null): { selcal: Semester
     if (cal) return { selcal: cal, sem: key };
   }
 
-  // 2. Fallback — scan all semesters for an explicit entry matching this date
   const ds = toDateStr(date);
   for (const semKey of Object.keys(calData)) {
-    if (Object.keys(calData[semKey].exchange).includes(ds) || calData[semKey].holiday.includes(ds) ) {
-      return { selcal: calData[semKey], sem: semKey };
+    const entry = calData[semKey];
+    if (!entry) continue;
+    // 远程 calendar.json 可能字段缺失，逐项兜底，避免日历滑动时闪退
+    if (Object.keys(entry.exchange ?? {}).includes(ds) || (entry.holiday ?? []).includes(ds)) {
+      return { selcal: entry, sem: semKey };
     }
   }
 
@@ -108,10 +133,8 @@ function computeCoursesForDate(
   const effDow = effective.getDay() === 0 ? 7 : effective.getDay();
   const { week } = effInfo;
   const isOddWeek = week % 2 === 1;
-  //console.log(toDateStr(date), semester, effDow);
   return all
     .filter(c => {
-      //console.log(c.semester);
       if (c.dayOfWeek !== effDow) return false;
       if (week < c.weekStart || week > c.weekEnd) return false;
       if ((c.semester?.split(' ')[0] !== dateSemester.schoolYear || c.semester?.split(' ')[1] !== dateSemester.semester) || (!exchRef && dateSemester.week === 9 ))return false;
@@ -134,7 +157,7 @@ interface DayCell {
   isHol: boolean;
   exchRef: string | null;
   courses: Course[];
-  isOtherMonth: boolean; // 本月视图中显示的上/下月日期
+  isOtherMonth: boolean;
 }
 
 function CalendarMode({
@@ -149,6 +172,7 @@ function CalendarMode({
   r: number;
 }) {
   const colors = useColors();
+  const scheme = useColorScheme();
   const { primaryColor } = useTheme();
   const { width: sw } = useWindowDimensions();
 
@@ -169,9 +193,14 @@ function CalendarMode({
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
   const [calData, setCalData]           = useState<CalendarData | null>(null);
 
-  // Animated values
+  // ── Animated values ──────────────────────────────────────────────────────────
+  // collapseAnim 驱动 height/pill 宽度（布局属性）→ 必须 useNativeDriver:false。
+  // translateAnim 只驱动 transform.translateY → 全程 useNativeDriver:true，放到 UI 线程，
+  // 避免收起时行平移在 JS 线程卡顿（issue #4）。两者所有动画的 driver 必须各自保持一致。
   const collapseAnim = useRef(new Animated.Value(0)).current;
   const translateAnim = useRef(new Animated.Value(0)).current;
+
+  // Ref mirrors for use inside pan responder closure
   const monthSlideX = useRef(new Animated.Value(0)).current;
   const monthAlpha  = useRef(new Animated.Value(1)).current;
 
@@ -181,21 +210,29 @@ function CalendarMode({
   const weekRowRef        = useRef(0);
   const cellHRef          = useRef(cellH);
   const fullGridHRef      = useRef(0);
+  const isCollapsedRef    = useRef(false);
   const changeMonthRef    = useRef<(dir: "prev" | "next") => void>(() => {});
+  const changeWeekRef     = useRef<(dir: "prev" | "next") => void>(() => {});
+  const selectedDateRef   = useRef(selectedDate);
+  const displayMonthRef   = useRef(viewMonth);
+  const onSelectRef       = useRef(onCoursePress); // We'll use a separate select ref
+
+  // Separate ref for date selection (not course press)
+  const selectDateRef = useRef<(d: Date) => void>(() => {});
 
   useEffect(() => { cellHRef.current = cellH; }, [cellH]);
+  useEffect(() => { weekRowRef.current = selectedWeekRow; }); // updated after selectedWeekRow computed
+  useEffect(() => { selectedDateRef.current = selectedDate; }, [selectedDate]);
+  useEffect(() => { displayMonthRef.current = viewMonth; }, [viewMonth]);
+  // 折叠状态镜像到 ref，供手势闭包读取。以 isWeekView 为唯一真相，避免手动赋值遗漏导致
+  // 收起状态下左右滑仍切换月份（issue #5）。
+  useEffect(() => { isCollapsedRef.current = isWeekView; }, [isWeekView]);
 
+  // Track animValue for gesture release snapping
   useEffect(() => {
     const id = collapseAnim.addListener(({ value }) => { animValueRef.current = value; });
     return () => collapseAnim.removeListener(id);
   }, [collapseAnim]);
-
-  useEffect(() => {
-    const id = collapseAnim.addListener(({ value }) => {
-      translateAnim.setValue(-value * weekRowRef.current * cellHRef.current);
-    });
-    return () => collapseAnim.removeListener(id);
-  }, [collapseAnim, translateAnim]);
 
   useEffect(() => {
     loadCalendarData().then(d => setCalData(d)).catch(() => {});
@@ -213,9 +250,8 @@ function CalendarMode({
     const courseMap = new Map<string, Course[]>();
     const days: DayCell[] = [];
 
-    // 前月末尾填充：让第一行的周一~周六显示上月日期（标记 isOtherMonth）
     if (offset > 0) {
-      const prevMonthLastDay = new Date(y, m, 0).getDate(); // 上月最后一天
+      const prevMonthLastDay = new Date(y, m, 0).getDate();
       for (let i = 0; i < offset; i++) {
         const d    = prevMonthLastDay - offset + 1 + i;
         const date = new Date(y, m - 1, d);
@@ -239,7 +275,7 @@ function CalendarMode({
       courseMap.set(dateStr, cs);
       days.push({ date, dateStr, isToday: dateStr === todayStr, isHol, exchRef, courses: cs, isOtherMonth: false });
     }
-    // 后月头部填充
+
     let nextMonthDay = 1;
     while (days.length % 7 !== 0) {
       const date    = new Date(y, m + 1, nextMonthDay++);
@@ -265,6 +301,7 @@ function CalendarMode({
   const FULL_GRID_H = weeks.length * cellH;
   const ONE_WEEK_H  = cellH;
 
+  // Keep refs in sync
   useEffect(() => { weekRowRef.current = selectedWeekRow; }, [selectedWeekRow]);
   useEffect(() => { fullGridHRef.current = FULL_GRID_H; }, [FULL_GRID_H]);
 
@@ -275,6 +312,10 @@ function CalendarMode({
     }),
   [collapseAnim, FULL_GRID_H, ONE_WEEK_H]);
 
+  // ── Animation effect: driven by isWeekView / selectedWeekRow ────────────────
+  // collapseAnim 驱动 height（布局属性，只能走 JS 线程 useNativeDriver:false）。
+  // translateAnim 只驱动 transform.translateY，改用原生驱动放到 UI 线程，
+  // 当选中日期不在第一行、收起时需要同时平移网格，避免 JS 线程卡顿（issue #4）。
   useEffect(() => {
     const target = isWeekView ? 1 : 0;
     const targetTY = isWeekView ? -selectedWeekRow * cellH : 0;
@@ -288,13 +329,15 @@ function CalendarMode({
     ]).start();
   }, [isWeekView, selectedWeekRow, cellH, collapseAnim, translateAnim]);
 
-  const changeMonth = useCallback((dir: "prev" | "next") => {
+  // ── 通用横向滑动过渡：淡出 → 应用变更 → 回弹淡入 ──────────────────────────
+  // 月视图切月、周视图切周共用，保证收起状态下左右滑有明确的“切换星期”反馈（issue #5）。
+  const runSlide = useCallback((dir: "prev" | "next", apply: () => void) => {
     const outX = dir === "next" ? -sw * 0.28 : sw * 0.28;
     Animated.parallel([
       Animated.timing(monthAlpha,  { toValue: 0, duration: 110, useNativeDriver: true }),
       Animated.timing(monthSlideX, { toValue: outX, duration: 140, useNativeDriver: true }),
     ]).start(() => {
-      setViewMonth(m => new Date(m.getFullYear(), m.getMonth() + (dir === "next" ? 1 : -1), 1));
+      apply();
       monthSlideX.setValue(-outX * 0.35);
       Animated.parallel([
         Animated.spring(monthAlpha,  { toValue: 1, useNativeDriver: true, overshootClamping: true }),
@@ -303,8 +346,31 @@ function CalendarMode({
     });
   }, [sw, monthAlpha, monthSlideX]);
 
-  useEffect(() => { changeMonthRef.current = changeMonth; }, [changeMonth]);
+  const changeMonth = useCallback((dir: "prev" | "next") => {
+    runSlide(dir, () =>
+      setViewMonth(m => new Date(m.getFullYear(), m.getMonth() + (dir === "next" ? 1 : -1), 1)),
+    );
+  }, [runSlide]);
 
+  // ── Change week: advance/retreat selected date by 7 days ────────────────────
+  const changeWeek = useCallback((dir: "prev" | "next") => {
+    runSlide(dir, () => {
+      const delta = dir === "next" ? 7 : -7;
+      const next = new Date(selectedDateRef.current);
+      next.setDate(next.getDate() + delta);
+      setSelectedDate(next);
+      // Also sync viewMonth if we crossed a month boundary
+      const nextMonth = new Date(next.getFullYear(), next.getMonth(), 1);
+      if (nextMonth.getTime() !== displayMonthRef.current.getTime()) {
+        setViewMonth(nextMonth);
+      }
+    });
+  }, [runSlide]);
+
+  useEffect(() => { changeMonthRef.current = changeMonth; }, [changeMonth]);
+  useEffect(() => { changeWeekRef.current  = changeWeek;  }, [changeWeek]);
+
+  // ── Pan responder ────────────────────────────────────────────────────────────
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -327,20 +393,37 @@ function CalendarMode({
         if (range <= 0) return;
         const delta  = -g.dy / range;
         const newVal = Math.max(0, Math.min(1, gestureStartAnim.current + delta));
+        // Drive both animated values directly — no listener conflict
         collapseAnim.setValue(newVal);
+        translateAnim.setValue(-newVal * weekRowRef.current * cellHRef.current);
       },
       onPanResponderRelease: (_, g) => {
         const dir = gestureDir.current;
         gestureDir.current = null;
         if (dir === "h" && Math.abs(g.dx) > 50) {
-          changeMonthRef.current(g.dx < 0 ? "next" : "prev");
-          Animated.spring(collapseAnim, {
-            toValue: animValueRef.current > 0.5 ? 1 : 0,
-            useNativeDriver: false, tension: 70, friction: 12,
-          }).start();
+          // FIX: when collapsed, swipe changes week; when expanded, swipe changes month
+          if (isCollapsedRef.current) {
+            changeWeekRef.current(g.dx < 0 ? "next" : "prev");
+          } else {
+            changeMonthRef.current(g.dx < 0 ? "next" : "prev");
+          }
+          // Snap collapse state to wherever it currently is
+          const snapToWeek = animValueRef.current > 0.42;
+          const targetTY = snapToWeek ? -weekRowRef.current * cellHRef.current : 0;
+          Animated.parallel([
+            Animated.spring(collapseAnim, {
+              toValue: snapToWeek ? 1 : 0,
+              useNativeDriver: false, tension: 70, friction: 12,
+            }),
+            Animated.spring(translateAnim, {
+              toValue: targetTY,
+              useNativeDriver: true, tension: 70, friction: 12,
+            }),
+          ]).start();
         } else {
           const snapToWeek = animValueRef.current > 0.42;
           setIsWeekView(snapToWeek);
+          isCollapsedRef.current = snapToWeek;
           const targetTY = snapToWeek ? -weekRowRef.current * cellHRef.current : 0;
           Animated.parallel([
             Animated.spring(collapseAnim, {
@@ -354,9 +437,15 @@ function CalendarMode({
       },
       onPanResponderTerminate: () => {
         const snapToWeek = animValueRef.current > 0.42;
-        Animated.spring(collapseAnim, {
-          toValue: snapToWeek ? 1 : 0, useNativeDriver: false, tension: 70, friction: 12,
-        }).start();
+        const targetTY = snapToWeek ? -weekRowRef.current * cellHRef.current : 0;
+        Animated.parallel([
+          Animated.spring(collapseAnim, {
+            toValue: snapToWeek ? 1 : 0, useNativeDriver: false, tension: 70, friction: 12,
+          }),
+          Animated.spring(translateAnim, {
+            toValue: targetTY, useNativeDriver: true, tension: 70, friction: 12,
+          }),
+        ]).start();
       },
     })
   ).current;
@@ -377,12 +466,21 @@ function CalendarMode({
     ? `${exchRefDate.getMonth()+1}月${exchRefDate.getDate()}日（周${CN_WEEKDAYS[exchRefDate.getDay()===0?6:exchRefDate.getDay()-1]}）`
     : null;
 
-  const STATUS_COLOR = selIsHol ? colors.error : selExchRef ? "#f97316" : selIsWknd ? rgba(colors.muted,0.7) : primaryColor;
+  const STATUS_COLOR = selIsHol ? colors.error : selExchRef ? colors.orange : selIsWknd ? rgba(colors.muted,0.7) : primaryColor;
 
   const goToToday = useCallback(() => {
     const n = new Date();
     setViewMonth(new Date(n.getFullYear(), n.getMonth(), 1));
     setSelectedDate(n);
+  }, []);
+
+  // Toggle button also needs to update isCollapsedRef
+  const handleToggleCollapse = useCallback(() => {
+    setIsWeekView(v => {
+      const next = !v;
+      isCollapsedRef.current = next;
+      return next;
+    });
   }, []);
 
   const pillW = collapseAnim.interpolate({ inputRange: [0, 1], outputRange: [32, 20] });
@@ -457,8 +555,7 @@ function CalendarMode({
           </TouchableOpacity>
         </View>
 
-        {/* 星期行 + 可折叠网格：整体受月份滑动动画驱动 */}
-        {/* 外层用 native driver（opacity + translateX），内层用 JS driver（height） */}
+        {/* 星期行 + 可折叠网格 */}
         <Animated.View style={{ opacity: monthAlpha, transform: [{ translateX: monthSlideX }] }}>
           <View style={{ flexDirection: "row", paddingHorizontal: HPAD, marginBottom: 4 }}>
             {CN_WEEKDAYS.map((d, i) => (
@@ -475,6 +572,7 @@ function CalendarMode({
 
           {/* 可折叠网格 */}
           <Animated.View style={{ height: animatedGridH, overflow: "hidden", paddingHorizontal: HPAD }}>
+            {/* translateAnim drives the inner grid upward so the selected row stays visible */}
             <Animated.View style={{ transform: [{ translateY: translateAnim }] }}>
             {weeks.map((week, wi) => (
               <View key={wi} style={{ flexDirection: "row" }}>
@@ -499,7 +597,7 @@ function CalendarMode({
                   } else if (day.isHol) {
                     numColor = colors.error;
                   } else if (day.exchRef) {
-                    numColor = "#1616f9";
+                    numColor = colors.orange;
                   } else if (isWknd) {
                     numColor = rgba(colors.foreground, 0.3);
                   } else {
@@ -520,18 +618,17 @@ function CalendarMode({
                         borderColor: bubbleBorder,
                         alignItems: "center", justifyContent: "center",
                       }}>
-                        <Text style={{ fontSize: 15, fontWeight: numWeight, color: numColor, fontFamily: ff }}>
+                        <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 15, fontWeight: numWeight, color: numColor, fontFamily: ff }}>
                           {day.date.getDate()}
                         </Text>
                         <View style={{
                           position: "absolute", top: 1, right: 1,
-                          //backgroundColor: color,
                           borderRadius: r, paddingHorizontal: 2.5, paddingVertical: 1,
                         }}>
                           {day.isHol ? (
-                            <Text style={{ fontSize: 9, color: numColor, fontWeight: "700", fontFamily: ff }}>假</Text>
+                            <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 9, color: numColor, fontWeight: "700", fontFamily: ff }}>假</Text>
                           ) : day.exchRef ? (
-                            <Text style={{ fontSize: 9, color: numColor, fontWeight: "700", fontFamily: ff }}>补</Text>
+                            <Text maxFontSizeMultiplier={1.2} style={{ fontSize: 9, color: numColor, fontWeight: "700", fontFamily: ff }}>补</Text>
                           ) : null}
                         </View>
                       </View>
@@ -558,11 +655,11 @@ function CalendarMode({
             ))}
           </Animated.View>
           </Animated.View>
-        </Animated.View> {/* end monthSlideX wrapper */}
+        </Animated.View>
 
         {/* 折叠手柄 */}
         <TouchableOpacity
-          onPress={() => setIsWeekView(v => !v)}
+          onPress={handleToggleCollapse}
           hitSlop={{ top: 8, bottom: 8, left: 60, right: 60 }}
           style={{ alignItems: "center", paddingTop: 8, paddingBottom: 2 }}
         >
@@ -573,7 +670,7 @@ function CalendarMode({
         </TouchableOpacity>
       </View>
 
-      {/* 详情区域（独立 ScrollView，带刷新控件） */}
+      {/* 详情区域 */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 40 }}
@@ -588,7 +685,7 @@ function CalendarMode({
           {[
             { color: primaryColor, label: "今日" },
             { color: colors.error,  label: "假期" },
-            { color: "#f97316",     label: "调休补班" },
+            { color: colors.orange, label: "调休补班" },
           ].map(item => (
             <View key={item.label} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
               <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: item.color }} />
@@ -605,8 +702,7 @@ function CalendarMode({
           backgroundColor: colors.background,
           overflow: "hidden",
           borderWidth: 0.5, borderColor: colors.border,
-          shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.07, shadowRadius: 10, elevation: 3,
+          ...cardShadow(scheme, { offsetY: 2, opacity: 0.07, radius: 10, elevation: 3 }),
         }}>
           <View style={{
             paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14,
@@ -643,11 +739,11 @@ function CalendarMode({
               <View style={{
                 flexDirection: "row", alignItems: "center", gap: 8,
                 paddingHorizontal: 12, paddingVertical: 7,
-                borderRadius: r, backgroundColor: rgba("#f97316", 0.08),
-                borderWidth: 0.5, borderColor: rgba("#f97316", 0.22),
+                borderRadius: r, backgroundColor: rgba(colors.orange, 0.08),
+                borderWidth: 0.5, borderColor: rgba(colors.orange, 0.22),
               }}>
-                <IconSymbol name="clock.fill" size={13} color="#f97316" />
-                <Text style={{ fontSize: 12, color: "#f97316", fontWeight: "500", flex: 1, fontFamily: ff }}>
+                <IconSymbol name="clock.fill" size={13} color={colors.orange} />
+                <Text style={{ fontSize: 12, color: colors.orange, fontWeight: "500", flex: 1, fontFamily: ff }}>
                   今日调休补班，按 {exchLabel} 课表上课
                 </Text>
               </View>
@@ -656,7 +752,7 @@ function CalendarMode({
 
           {selIsHol ? (
             <View style={{ paddingVertical: 22, alignItems: "center", gap: 6 }}>
-              <Text style={{ fontSize: 26, fontFamily: ff }}>🎉</Text>
+              <CelebrationIllustration size={46} />
               <Text style={{ fontSize: 13, color: colors.muted, fontWeight: "500", fontFamily: ff }}>放假，好好休息</Text>
             </View>
           ) : selIsWknd ? (
@@ -734,6 +830,7 @@ function CalendarMode({
 export default function ScheduleScreen() {
   const { state, fetchScheduleBySemester, refreshAllSemesters, resetScheduleLoading } = useSchedule();
   const colors = useColors();
+  const scheme = useColorScheme();
   const { primaryColor } = useTheme();
   const [semesters, setSemesters]               = useState<SemesterOption[]>([]);
   const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
@@ -750,7 +847,6 @@ export default function ScheduleScreen() {
   const [overlappingCourses, setOverlappingCourses] = useState<Course[]>([]);
   const [overlapVisible, setOverlapVisible]     = useState(false);
 
-  // 所有学期课程合并，供日历模式跨学期显示使用
   const [allCourses, setAllCourses] = useState<Course[]>([]);
 
   const { cardRadius } = useTheme();
@@ -779,7 +875,6 @@ export default function ScheduleScreen() {
         if (all && all.length > 0) {
           setSemesters(all);
 
-          // 后台加载所有学期缓存并合并，供日历模式跨学期展示
           (async () => {
             const combined: Course[] = [];
             for (const s of all) {
@@ -794,7 +889,10 @@ export default function ScheduleScreen() {
             }
             setAllCourses(combined);
           })();
-          let def = restoredKey ? all.find(s => semesterKey(s.yearValue, s.termValue) === restoredKey) : undefined;
+
+          // 默认优先当前学期（假期则下一学期），其次上次选择，最后列表第一项
+          let def = findDefaultSemester(all);
+          if (!def && restoredKey) def = all.find(s => semesterKey(s.yearValue, s.termValue) === restoredKey);
           if (!def) def = all[0];
           if (def) {
             const key = semesterKey(def.yearValue, def.termValue);
@@ -819,7 +917,6 @@ export default function ScheduleScreen() {
     if (u) await AsyncStorage.setItem(`lastSelectedSemester_${u}`, key);
     await fetchScheduleBySemester(yv, tv);
 
-    // 重新合并所有学期缓存（新学期可能刚刚落盘）
     const combined: Course[] = [];
     for (const s of semesters) {
       try {
@@ -839,7 +936,6 @@ export default function ScheduleScreen() {
       if (!all.length) { Alert.alert("提示", "学期列表未加载"); return; }
       const { success, failedCount } = await refreshAllSemesters(all);
   
-      // ✅ 区分"部分失败"和"全部成功"
       if (failedCount > 0) {
         Alert.alert(
           "刷新完成",
@@ -853,6 +949,7 @@ export default function ScheduleScreen() {
     const [yv, tv] = parseKey(selectedSemester);
     await handleSemesterChange(yv, tv);
   };
+
   const handleDownload = async () => {
     if (!captureViewRef.current) return;
     try {
@@ -910,7 +1007,6 @@ export default function ScheduleScreen() {
             gap: 10, backgroundColor: colors.surface,
             borderBottomWidth: 0.5, borderBottomColor: colors.border,
           }}>
-            {/* 学期选择器：仅网格模式显示（日历模式展示全部学期） */}
             {viewMode === "grid" && (
               <>
                 <View style={{ flexDirection: "row", gap: 8 }}>
@@ -927,7 +1023,7 @@ export default function ScheduleScreen() {
                     <Text style={{ fontSize: 14, fontWeight: "600", color: colors.foreground, fontFamily: ff }}>
                       {loadingSemesters ? "加载中..." : selectedLabel}
                     </Text>
-                    <Text style={{ fontSize: 12, color: colors.muted, fontFamily: ff }}>{showSemesterPicker ? "▲" : "▼"}</Text>
+                    <IconSymbol name={showSemesterPicker ? "chevron.up" : "chevron.down"} size={15} color={colors.muted} />
                   </TouchableOpacity>
 
                   <TouchableOpacity onPress={handleDownload} disabled={isDownloading}
@@ -950,24 +1046,41 @@ export default function ScheduleScreen() {
                           {loadingSemesters ? "正在加载学期列表..." : "暂无学期数据"}
                         </Text>
                       </View>
-                    ) : semesters.map((s, i) => {
-                      const key = semesterKey(s.yearValue, s.termValue);
-                      const active = selectedSemester === key;
-                      return (
-                        <TouchableOpacity key={i} onPress={() => handleSemesterChange(s.yearValue, s.termValue)}
-                          style={{
-                            flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-                            paddingHorizontal: 14, paddingVertical: 12,
-                            borderTopWidth: i ? 0.5 : 0, borderTopColor: colors.border,
-                            backgroundColor: active ? `${colors.primary}15` : "transparent",
+                    ) : (
+                      /* 按学年分组：一行一个学年，学期做成胶囊，学期再多也不用长列表里翻 */
+                      <ScrollView style={{ maxHeight: 300 }} nestedScrollEnabled>
+                        {groupSemestersByYear(semesters).map((g, gi) => (
+                          <View key={g.year} style={{
+                            flexDirection: "row", alignItems: "center", gap: 10,
+                            paddingHorizontal: 14, paddingVertical: 9,
+                            borderTopWidth: gi ? 0.5 : 0, borderTopColor: colors.border,
                           }}>
-                          <Text style={{ fontSize: 14, fontWeight: active ? "600" : "400", color: active ? primaryColor : colors.foreground, fontFamily: ff }}>
-                            {s.label}
-                          </Text>
-                          {active && <Text style={{ fontSize: 14, color: primaryColor, fontFamily: ff }}>✓</Text>}
-                        </TouchableOpacity>
-                      );
-                    })}
+                            <Text style={{ width: 82, fontSize: 12, fontWeight: "600", color: colors.muted, fontFamily: ff }}>
+                              {g.year}
+                            </Text>
+                            <View style={{ flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                              {g.items.map(s => {
+                                const key = semesterKey(s.yearValue, s.termValue);
+                                const active = selectedSemester === key;
+                                return (
+                                  <TouchableOpacity key={key} onPress={() => handleSemesterChange(s.yearValue, s.termValue)}
+                                    hitSlop={{ top: 4, bottom: 4 }}
+                                    style={{
+                                      paddingHorizontal: 14, paddingVertical: 6, borderRadius: 100,
+                                      backgroundColor: active ? primaryColor : colors.surface,
+                                      borderWidth: active ? 0 : 0.5, borderColor: colors.border,
+                                    }}>
+                                    <Text style={{ fontSize: 13, fontWeight: active ? "600" : "400", color: active ? "#fff" : colors.foreground, fontFamily: ff }}>
+                                      {s.termText}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        ))}
+                      </ScrollView>
+                    )}
                   </View>
                 )}
               </>
@@ -977,6 +1090,7 @@ export default function ScheduleScreen() {
               <View style={{ flexDirection: "row", backgroundColor: colors.background, borderRadius: r, borderWidth: 0.5, borderColor: colors.border, overflow: "hidden" }}>
                 {(["grid", "calendar"] as const).map(m => (
                   <TouchableOpacity key={m} onPress={() => setViewMode(m)}
+                    hitSlop={{ top: 6, bottom: 6 }}
                     style={{ paddingHorizontal: 10, paddingVertical: 8, backgroundColor: viewMode === m ? primaryColor : "transparent" }}>
                     <IconSymbol name={m === "grid" ? "square.grid.2x2" : "calendar"} size={16} color={viewMode === m ? "#fff" : colors.muted} />
                   </TouchableOpacity>
@@ -990,6 +1104,7 @@ export default function ScheduleScreen() {
                     const active = filterType === f;
                     return (
                       <TouchableOpacity key={f} onPress={() => setFilterType(f)}
+                        hitSlop={{ top: 6, bottom: 6 }}
                         style={{ flex: 1, paddingVertical: 8, borderRadius: r, alignItems: "center", backgroundColor: active ? primaryColor : colors.background, borderWidth: active ? 0 : 0.5, borderColor: colors.border }}>
                         <Text style={{ fontSize: 13, fontWeight: active ? "600" : "400", color: active ? "#fff" : colors.foreground, fontFamily: ff }}>{label}</Text>
                       </TouchableOpacity>
@@ -997,7 +1112,7 @@ export default function ScheduleScreen() {
                   })}
                 </View>
               ) : (
-                <Text style={{ fontSize: 11, color: colors.muted, flex: 1, fontFamily: ff }}>左右滑换月 · 上下滑收起</Text>
+                <Text style={{ fontSize: 11, color: colors.muted, flex: 1, fontFamily: ff }}>左右滑切换 · 上下滑收起</Text>
               )}
             </View>
           </View>
@@ -1043,10 +1158,10 @@ export default function ScheduleScreen() {
       <Modal visible={detailVisible} transparent animationType="fade" onRequestClose={() => setDetailVisible(false)}>
         <Pressable style={{ flex:1, backgroundColor:"rgba(0,0,0,0.38)", justifyContent:"center", alignItems:"center" }} onPress={() => setDetailVisible(false)}>
           <Pressable onPress={e => e.stopPropagation()}
-            style={{ width:"85%", maxWidth:360, backgroundColor:colors.background, borderRadius:16, padding:20, shadowColor:"#000", shadowOffset:{width:0,height:8}, shadowOpacity:0.16, shadowRadius:20, elevation:10 }}>
+            style={{ width:"85%", maxWidth:360, backgroundColor:colors.background, borderRadius:16, padding:20, ...cardShadow(scheme, { offsetY:8, opacity:0.16, radius:20, elevation:10 }) }}>
             <View style={{ flexDirection:"row", justifyContent:"flex-end", marginBottom:4 }}>
               <TouchableOpacity onPress={() => setDetailVisible(false)} style={{ padding:4 }}>
-                <Text style={{ fontSize:18, color:colors.muted, fontFamily: ff }}>✕</Text>
+                <IconSymbol name="xmark" size={18} color={colors.muted} />
               </TouchableOpacity>
             </View>
             {selectedCourse && (
@@ -1066,11 +1181,11 @@ export default function ScheduleScreen() {
       <Modal visible={overlapVisible} transparent animationType="fade" onRequestClose={() => setOverlapVisible(false)}>
         <Pressable style={{ flex:1, backgroundColor:"rgba(0,0,0,0.38)", justifyContent:"center", alignItems:"center" }} onPress={() => setOverlapVisible(false)}>
           <Pressable onPress={e => e.stopPropagation()}
-            style={{ width:"78%", maxWidth:300, backgroundColor:colors.background, borderRadius:16, overflow:"hidden", shadowColor:"#000", shadowOffset:{width:0,height:8}, shadowOpacity:0.16, shadowRadius:20, elevation:10 }}>
+            style={{ width:"78%", maxWidth:300, backgroundColor:colors.background, borderRadius:16, overflow:"hidden", ...cardShadow(scheme, { offsetY:8, opacity:0.16, radius:20, elevation:10 }) }}>
             <View style={{ flexDirection:"row", alignItems:"center", justifyContent:"space-between", paddingHorizontal:18, paddingVertical:14, borderBottomWidth:0.5, borderBottomColor:colors.border }}>
               <Text style={{ fontSize:15, fontWeight:"600", color:colors.foreground, fontFamily: ff }}>该时段 {overlappingCourses.length} 门课程</Text>
               <TouchableOpacity onPress={() => setOverlapVisible(false)} style={{ padding:2 }}>
-                <Text style={{ fontSize:16, color:colors.muted, fontFamily: ff }}>✕</Text>
+                <IconSymbol name="xmark" size={16} color={colors.muted} />
               </TouchableOpacity>
             </View>
             {overlappingCourses.map((c, i) => (

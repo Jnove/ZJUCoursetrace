@@ -19,7 +19,7 @@ const env = {
 const config: ExpoConfig = {
   name: env.appName,
   slug: env.appSlug,
-  version: "2.0.1",
+  version: "2.0.2",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: env.scheme,
@@ -29,7 +29,10 @@ const config: ExpoConfig = {
     supportsTablet: true,
     bundleIdentifier: env.iosBundleId,
     "infoPlist": {
-      "ITSAppUsesNonExemptEncryption": false
+      "ITSAppUsesNonExemptEncryption": false,
+      // expo-background-task（后台刷新课程通知）所需的后台模式与任务标识
+      "UIBackgroundModes": ["processing"],
+      "BGTaskSchedulerPermittedIdentifiers": ["com.expo.modules.backgroundtask.processing"]
     }
   },
   android: {
@@ -72,19 +75,6 @@ const config: ExpoConfig = {
     "expo-asset",
     "expo-router",
     [
-      "expo-audio",
-      {
-        microphonePermission: "Allow $(PRODUCT_NAME) to access your microphone.",
-      },
-    ],
-    [
-      "expo-video",
-      {
-        supportsBackgroundPlayback: true,
-        supportsPictureInPicture: true,
-      },
-    ],
-    [
       "expo-splash-screen",
       {
         image: "./assets/images/splash-icon.png",
@@ -115,6 +105,7 @@ const config: ExpoConfig = {
     ["expo-notifications", {
       "androidMode": "default"
     }],
+    "expo-background-task",
     // ["expo-gaode-map", { "androidKey": "", "iosKey": "" }]
   ],
   experiments: {
@@ -122,7 +113,7 @@ const config: ExpoConfig = {
     reactCompiler: true,
   },
   "extra": {
-  }
+  },
 };
 
 export default config;

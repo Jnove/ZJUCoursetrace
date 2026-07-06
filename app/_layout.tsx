@@ -1,5 +1,4 @@
 import "@/global.css";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useMemo, useState } from "react";
@@ -26,8 +25,9 @@ Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: false,
     shouldSetBadge: false,
-    shouldShowBanner: true,  // 前台不弹横幅
-    shouldShowList: true,     // 保留在通知中心列表
+    // 课程通知每秒刷新，前台不弹横幅（否则会不停打断），仅保留在通知中心列表
+    shouldShowBanner: false,
+    shouldShowList: true,
   }),
 });
 
@@ -51,18 +51,6 @@ export default function RootLayout() {
     setFrame(metrics.frame);
   }, []);
 
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            refetchOnWindowFocus: false,
-            retry: 1,
-          },
-        },
-      }),
-  );
-
   const providerInitialMetrics = useMemo(() => {
     const metrics = initialWindowMetrics ?? { insets: initialInsets, frame: initialFrame };
     return {
@@ -77,18 +65,15 @@ export default function RootLayout() {
 
   const content = (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <ScheduleProvider>
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="oauth/callback" />
-              <Stack.Screen name="course-detail" />
-            </Stack>
-            <StatusBar style="auto" />
-          </ScheduleProvider>
-        </AuthProvider>
-      </QueryClientProvider>
+      <AuthProvider>
+        <ScheduleProvider>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="course-detail" />
+          </Stack>
+          <StatusBar style="auto" />
+        </ScheduleProvider>
+      </AuthProvider>
     </GestureHandlerRootView>
   );
 
