@@ -756,7 +756,7 @@ export default function AcademicScreen() {
       const c = await readCache<HomeworkInfo[]>(k);
       if (c) {
         setHomeworks(c); setHomeworkLoading(false); setHomeworkError(null); setHomeworkStale(true);
-        try { const s=await loadSession(); if(s){const r=await fetchHomeworks(s);setHomeworks(r);await writeCache(k,r);syncHomeworkReminders(r);} } catch{}
+        try { const s=await loadSession(); if(s){const r=await withRelogin(s, () => fetchHomeworks(s));setHomeworks(r);await writeCache(k,r);syncHomeworkReminders(r);} } catch{}
         finally{setHomeworkStale(false);}
         return;
       }
@@ -764,7 +764,7 @@ export default function AcademicScreen() {
     setHomeworkLoading(true); setHomeworkError(null);
     try {
       const s = await loadSession(); if(!s){setHomeworkError("请先登录");return;}
-      const res = await fetchHomeworks(s);
+      const res = await withRelogin(s, () => fetchHomeworks(s));
       writeLog("ACADEMIC",`作业: ${res.length} 项`,res.length===0?"warn":"info");
       setHomeworks(res); await writeCache(k,res);
       syncHomeworkReminders(res);

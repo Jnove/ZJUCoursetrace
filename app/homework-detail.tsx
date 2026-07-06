@@ -16,7 +16,7 @@ import { cardShadow } from "@/lib/_core/shadow";
 import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
 import { useAuth } from "@/lib/auth-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { loadSession, fetchHomeworks, HomeworkInfo } from "@/lib/zju-client";
+import { loadSession, withRelogin, fetchHomeworks, HomeworkInfo } from "@/lib/zju-client";
 import { CommonNavBar } from "@/components/common/nav-bar";
 import { ErrorCard } from "@/components/common/error-card";
 import { EmptyState } from "@/components/common/empty-state";
@@ -298,7 +298,7 @@ export default function HomeworkDetailScreen() {
         try {
           const session = await loadSession();
           if (session) {
-            const fresh = await fetchHomeworks(session);
+            const fresh = await withRelogin(session, () => fetchHomeworks(session));
             setHomeworks(fresh);
             await AsyncStorage.setItem(cacheKey, JSON.stringify(fresh));
           }
@@ -315,7 +315,7 @@ export default function HomeworkDetailScreen() {
         setError("请先登录");
         return;
       }
-      const result = await fetchHomeworks(session);
+      const result = await withRelogin(session, () => fetchHomeworks(session));
       setHomeworks(result);
       await AsyncStorage.setItem(cacheKey, JSON.stringify(result));
     } catch (e) {
