@@ -256,9 +256,12 @@ export default function SettingsScreen() {
   // 通知开关（默认开启，"0" 表示关闭）
   const [gradeNotify, setGradeNotify] = useState(true);
   const [reminders, setReminders]     = useState(true);
+  // 未开放课件下载（默认关闭，"1" 表示开启）
+  const [coursewarePreview, setCoursewarePreview] = useState(false);
   useEffect(() => {
     AsyncStorage.getItem(GRADE_NOTIFY_PREF_KEY).then(v => setGradeNotify(v !== "0")).catch(() => {});
     AsyncStorage.getItem(REMINDER_PREF_KEY).then(v => setReminders(v !== "0")).catch(() => {});
+    AsyncStorage.getItem("pref_courseware_preview").then(v => setCoursewarePreview(v === "1")).catch(() => {});
   }, []);
 
   const toggleGradeNotify = async (v: boolean) => {
@@ -270,6 +273,10 @@ export default function SettingsScreen() {
     await AsyncStorage.setItem(REMINDER_PREF_KEY, v ? "1" : "0").catch(() => {});
     // 关闭时立即清掉已排的本地提醒；开启后下次拉取作业/考试时自动重排
     if (!v) await cancelAllReminders();
+  };
+  const toggleCoursewarePreview = async (v: boolean) => {
+    setCoursewarePreview(v);
+    await AsyncStorage.setItem("pref_courseware_preview", v ? "1" : "0").catch(() => {});
   };
 
   // 点击「导出课表到日历」→ 弹出学期多选；只有一个可导出学期时直接导出
@@ -358,6 +365,11 @@ export default function SettingsScreen() {
               if (toRemove.length > 0) {
                 if (toRemove.filter(k => k === "zju_session_vs")) console.log("[session cleaned]");
                 await AsyncStorage.multiRemove(toRemove);
+              }
+              const username = await AsyncStorage.getItem("username");
+              if (username) {
+                const { clearCoursewareCache } = await import("@/lib/courseware-cache");
+                await clearCoursewareCache(username);
               }
               Alert.alert("完成", `已清除 ${toRemove.length} 项缓存数据`);
             } catch (e) {
@@ -452,6 +464,14 @@ export default function SettingsScreen() {
             sub="截止 / 开考前 24 小时和 2 小时各提醒一次"
             value={reminders}
             onValueChange={toggleReminders}
+          />
+          <SettingsToggleRow
+            icon="square.and.arrow.down"
+            iconBg="#f59e0b"
+            label="下载未开放课件"
+            sub="非官方接口，可能随时失效"
+            value={coursewarePreview}
+            onValueChange={toggleCoursewarePreview}
             last
           />
         </SettingsSection>
