@@ -82,7 +82,15 @@ function filterHomeworks(homeworks: HomeworkInfo[], tab: TabKey): HomeworkInfo[]
   }
 }
 
-function HomeworkCard({ hw, radius }: { hw: HomeworkInfo; radius: number }) {
+function HomeworkCard({
+  hw,
+  radius,
+  onPress,
+}: {
+  hw: HomeworkInfo;
+  radius: number;
+  onPress?: () => void;
+}) {
   const colors = useColors();
   const scheme = useColorScheme();
   const past = isPast(hw.deadlineIso);
@@ -108,7 +116,9 @@ function HomeworkCard({ hw, radius }: { hw: HomeworkInfo; radius: number }) {
   }
 
   return (
-    <View
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={onPress}
       style={{
         borderRadius: radius,
         backgroundColor: colors.background,
@@ -170,7 +180,7 @@ function HomeworkCard({ hw, radius }: { hw: HomeworkInfo; radius: number }) {
           </Text>
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -373,7 +383,17 @@ export default function HomeworkDetailScreen() {
         <FlatList
           data={filtered}
           keyExtractor={(item) => String(item.id)}
-          renderItem={({ item }) => <HomeworkCard hw={item} radius={r} />}
+          renderItem={({ item }) => (
+            <HomeworkCard
+              hw={item}
+              radius={r}
+              onPress={() =>
+                router.push(
+                  `/homework-item-detail?homeworkId=${item.id}&courseId=${item.courseId}&title=${encodeURIComponent(item.title)}`
+                )
+              }
+            />
+          )}
           contentContainerStyle={{ padding: 16, flexGrow: 1 }}
           showsVerticalScrollIndicator={false}
           refreshControl={
