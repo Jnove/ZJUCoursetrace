@@ -91,4 +91,17 @@ describe("parseHomeworkDetail", () => {
     expect(out.score).toBeNull();
     expect(out.comment).toBeNull();
   });
+  it("preserves a score of 0 / \"0\" (not nulled by a falsy check)", () => {
+    expect(parseHomeworkDetail({ id: 1, title: "T", submission: { score: 0 } }).score).toBe("0");
+    expect(parseHomeworkDetail({ id: 1, title: "T", score: "0" }).score).toBe("0");
+  });
+  it("nulls a blank/whitespace comment", () => {
+    expect(parseHomeworkDetail({ id: 1, title: "T", submission: { comment: "   " } }).comment).toBeNull();
+    expect(parseHomeworkDetail({ id: 1, title: "T", comment: "" }).comment).toBeNull();
+  });
+  it("falls back to top-level score/comment when submission is absent", () => {
+    const d = parseHomeworkDetail({ id: 1, title: "T", score: "88", comment: "ok" });
+    expect(d.score).toBe("88");
+    expect(d.comment).toBe("ok");
+  });
 });
