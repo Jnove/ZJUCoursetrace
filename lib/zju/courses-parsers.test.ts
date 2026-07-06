@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeFileName } from "./courses-parsers";
+import { sanitizeFileName, htmlToPlainText } from "./courses-parsers";
 
 describe("sanitizeFileName", () => {
   it("strips path separators to prevent traversal", () => {
@@ -16,5 +16,21 @@ describe("sanitizeFileName", () => {
   });
   it("removes characters illegal on common filesystems", () => {
     expect(sanitizeFileName('a:b*c?"<>|.txt')).toBe("abc.txt");
+  });
+});
+
+describe("htmlToPlainText", () => {
+  it("strips tags and keeps text", () => {
+    expect(htmlToPlainText("<p>请完成<strong>习题</strong>3.1</p>")).toBe("请完成习题3.1");
+  });
+  it("turns <br> and block ends into newlines", () => {
+    expect(htmlToPlainText("第一行<br/>第二行")).toBe("第一行\n第二行");
+    expect(htmlToPlainText("<p>A</p><p>B</p>")).toBe("A\nB");
+  });
+  it("decodes common entities", () => {
+    expect(htmlToPlainText("a &amp; b &lt;c&gt; &nbsp;d")).toBe("a & b <c> d");
+  });
+  it("handles empty/nullish", () => {
+    expect(htmlToPlainText("")).toBe("");
   });
 });
