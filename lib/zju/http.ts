@@ -104,3 +104,43 @@ export async function zGetCourse(url: string): Promise<string> {
   if (fin.includes("zjuam.zju.edu.cn")) throw new Error("__COURSES_EXPIRED__");
   return body;
 }
+
+/**
+ * 二进制 GET：走和 zGetCourse 相同的原生 cookie jar（会话天然有效）。
+ * 返回 base64（不含 data URI 前缀），供 expo-file-system 以 Base64 落盘。
+ * 会话失效判定交调用方（看 finalUrl 是否落到 zjuam）。
+ */
+export function xhrGetBinary(
+  url: string,
+  timeoutMs: number = 30000
+): Promise<{ base64: string; finalUrl: string; status: number }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", url, true);
+    xhr.timeout = timeoutMs;
+    xhr.responseType = "blob";
+    xhr.setRequestHeader("User-Agent", DATA_HDR["User-Agent"]);
+    xhr.setRequestHeader("Accept", "*/*");
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState !== 4) return;
+      const finalUrl = xhr.responseURL ?? url;
+      const status = xhr.status;
+      if (status < 200 || status >= 300) {
+        reject(new Error(`__HTTP_${status}__`));
+        return;
+      }
+      const blob = xhr.response as Blob;
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("文件读取失败"));
+      reader.onloadend = () => {
+        const dataUrl = String(reader.result ?? "");
+        const comma = dataUrl.indexOf(",");
+        resolve({ base64: comma >= 0 ? dataUrl.slice(comma + 1) : "", finalUrl, status });
+      };
+      reader.readAsDataURL(blob);
+    };
+    xhr.onerror = () => reject(new Error("网络请求失败"));
+    xhr.ontimeout = () => reject(new Error("下载超时，请重试"));
+    xhr.send(null);
+  });
+}
