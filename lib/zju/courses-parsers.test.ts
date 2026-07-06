@@ -30,6 +30,10 @@ describe("htmlToPlainText", () => {
   it("decodes common entities", () => {
     expect(htmlToPlainText("a &amp; b &lt;c&gt; &nbsp;d")).toBe("a & b <c> d");
   });
+  it("decodes &amp; last so escaped entities are not double-decoded", () => {
+    expect(htmlToPlainText("&amp;lt;")).toBe("&lt;");
+    expect(htmlToPlainText("a &amp; b &lt;c&gt;")).toBe("a & b <c>");
+  });
   it("handles empty/nullish", () => {
     expect(htmlToPlainText("")).toBe("");
   });
