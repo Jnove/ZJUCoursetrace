@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeFileName, htmlToPlainText, flattenActivitiesToFiles } from "./courses-parsers";
+import { sanitizeFileName, htmlToPlainText, flattenActivitiesToFiles, parseHomeworkDetail } from "./courses-parsers";
 
 describe("sanitizeFileName", () => {
   it("strips path separators to prevent traversal", () => {
@@ -67,5 +67,28 @@ describe("flattenActivitiesToFiles", () => {
   it("handles empty / malformed input", () => {
     expect(flattenActivitiesToFiles([])).toEqual([]);
     expect(flattenActivitiesToFiles([{}])).toEqual([]);
+  });
+});
+
+describe("parseHomeworkDetail", () => {
+  it("extracts title, body, attachments, score, comment", () => {
+    const raw = {
+      id: 7, title: "作业一",
+      description: "<p>完成 <b>3.1</b></p>",
+      uploads: [{ id: 1, reference_id: 11, name: "题目.pdf", size: 10, allow_download: true }],
+      submission: { score: "95", comment: "不错" },
+    };
+    expect(parseHomeworkDetail(raw)).toEqual({
+      id: 7, title: "作业一", bodyText: "完成 3.1",
+      attachments: [{ id: 1, referenceId: 11, name: "题目.pdf", size: 10, allowDownload: true }],
+      score: "95", comment: "不错",
+    });
+  });
+  it("nulls score/comment when absent and empty attachments", () => {
+    const out = parseHomeworkDetail({ id: 3, title: "T", content: "hi" });
+    expect(out.bodyText).toBe("hi");
+    expect(out.attachments).toEqual([]);
+    expect(out.score).toBeNull();
+    expect(out.comment).toBeNull();
   });
 });
