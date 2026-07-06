@@ -278,6 +278,7 @@ export async function downloadCourseFile(
     }
   }
   if (lastErr) throw new Error(file.allowDownload ? "课件下载失败，请重试" : "老师未开放该课件下载");
+  if (!base64) throw new Error(file.allowDownload ? "课件下载失败，请重试" : "老师未开放该课件下载");
 
   const dir = `${FileSystem.documentDirectory}courseware/${courseId}/`;
   await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
