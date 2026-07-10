@@ -11,17 +11,17 @@ import { fmtHwDdl } from "./parsers";
 import { flattenActivitiesToFiles, sanitizeFileName, parseHomeworkDetail } from "./courses-parsers";
 import type { ZjuSession, HomeworkInfo, CoursewareFile, HomeworkDetail } from "./types";
 
-// ─── Homework (courses.zju.edu.cn) ────────────────────────────────────────────
+// ─── Courses 会话建立（作业/课件共用） ────────────────────────────────────────
 
 /**
- * Fetch homework list for all current-semester courses.
+ * 确保 courses.zju.edu.cn(TronClass) 会话有效：先预热 GET（借 CAS TGT 静默换
+ * service ticket），落到 CAS 登录页则走完整登录流程。
+ * 返回 false 表示本地没有存储凭据（未登录），由调用方决定如何呈现。
  *
- * After CAS login the native cookie jar already holds the TGT, so a warm-up
- * GET to courses.zju.edu.cn performs the service-ticket exchange silently.
- * If that fails (account locked, network down) we re-throw with a user-
- * friendly message.
+ * 任何 courses API 裸调都可能拿到 401/错误 JSON 而非重定向（zPostJson 检测不到），
+ * 所以【必须】先调本函数再打 API——listMyCourses 曾因漏掉这步把 401 吞成「暂无课程」。
  */
-export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo[]> {
+async function ensureCoursesSession(): Promise<boolean> {
   // 预热：建立 courses 会话
   await xhrGet(COURSES_BASE, DATA_HDR["User-Agent"], 10000).catch((err) => {
     console.warn(`[zju-client-Homework] 预热失败:`, err);
@@ -83,7 +83,7 @@ export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo
     const exponent = pkJson.exponent as string | undefined;
     if (!modulus || !exponent) throw new Error("RSA 公钥获取失败");
     const creds = await loadCredentials();
-    if (!creds) return [];
+    if (!creds) return false;
     const password = creds.password;
     const username = creds.username;
     const pwdEnc = rsaEncrypt(password, modulus, exponent);
@@ -134,26 +134,54 @@ export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo
 
     console.log(`[zju-client] ✅ 登录成功: ${username}`);
   }
+  return true;
+}
+
+// ─── 课程列表（作业/课件共用） ────────────────────────────────────────────────
+
+// 与网页端一致的完整 fields —— 裁剪过的精简版曾导致接口行为不一致，保持原样。
+const MY_COURSES_PAYLOAD = {
+  fields: "id,name,course_code,department(id,name),grade(id,name),klass(id,name),course_type,cover,small_cover,start_date,end_date,is_started,is_closed,academic_year_id,semester_id,credit,compulsory,second_name,display_name,created_user(id,name),org(is_enterprise_or_organization),org_id,public_scope,audit_status,audit_remark,can_withdraw_course,imported_from,allow_clone,is_instructor,is_team_teaching,is_default_course_cover,archived,instructors(id,name,email,avatar_small_url),course_attributes(teaching_class_name,is_during_publish_period,copy_status,tip,data,audience_type,graduate_method),user_stick_course_record(id),classroom_schedule",
+  page: 1,
+  page_size: 1000,          // 一次拉取足够多的课程
+  conditions: {
+    status: ["ongoing", "notStarted"],
+    keyword: "",
+    classify_type: "recently_started",
+    display_studio_list: false
+  },
+  showScorePassedStatus: false
+};
+
+/**
+ * POST /api/my-courses（调用前必须 ensureCoursesSession）。
+ * `courses` 字段缺失说明响应异常（如未登录时的 401 JSON）——抛错，
+ * 绝不吞成空数组（否则 UI 会误报「暂无课程」）。
+ */
+async function postMyCourses(): Promise<{ id: number; name: string }[]> {
+  const text = await zPostJson(`${COURSES_BASE}/api/my-courses`, MY_COURSES_PAYLOAD);
+  const parsed = JSON.parse(text);
+  if (!Array.isArray(parsed.courses)) throw new Error("课程列表响应异常，请重试");
+  return parsed.courses.map((c: any) => ({ id: c.id as number, name: String(c.name ?? "") }));
+}
+
+// ─── Homework (courses.zju.edu.cn) ────────────────────────────────────────────
+
+/**
+ * Fetch homework list for all current-semester courses.
+ *
+ * After CAS login the native cookie jar already holds the TGT, so a warm-up
+ * GET to courses.zju.edu.cn performs the service-ticket exchange silently.
+ * If that fails (account locked, network down) we re-throw with a user-
+ * friendly message.
+ */
+export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo[]> {
+  if (!(await ensureCoursesSession())) return [];
 
   // 1. 获取课程列表（POST JSON）
-  const listPayload = {
-    fields: "id,name,course_code,department(id,name),grade(id,name),klass(id,name),course_type,cover,small_cover,start_date,end_date,is_started,is_closed,academic_year_id,semester_id,credit,compulsory,second_name,display_name,created_user(id,name),org(is_enterprise_or_organization),org_id,public_scope,audit_status,audit_remark,can_withdraw_course,imported_from,allow_clone,is_instructor,is_team_teaching,is_default_course_cover,archived,instructors(id,name,email,avatar_small_url),course_attributes(teaching_class_name,is_during_publish_period,copy_status,tip,data,audience_type,graduate_method),user_stick_course_record(id),classroom_schedule",
-    page: 1,
-    page_size: 1000,          // 一次拉取足够多的课程
-    conditions: {
-      status: ["ongoing", "notStarted"],
-      keyword: "",
-      classify_type: "recently_started",
-      display_studio_list: false
-    },
-    showScorePassedStatus: false
-  };
-
   let courses: Array<{ id: number; name: string }>;
   try {
-    const listText = await zPostJson(`${COURSES_BASE}/api/my-courses`, listPayload);
-    const parsed = JSON.parse(listText);
-    courses = parsed.courses ?? [];
+    courses = await postMyCourses();
   } catch (e: any) {
     throw new Error(`获取课程列表失败：${e?.message || "未知错误"}`);
   }
@@ -219,19 +247,14 @@ export async function fetchHomeworkDetail(homeworkId: number): Promise<HomeworkD
 
 // ─── Courseware (courses.zju.edu.cn) ──────────────────────────────────────────
 
-const MY_COURSES_PAYLOAD = {
-  fields: "id,name",
-  page: 1,
-  page_size: 1000,
-  conditions: { status: ["ongoing", "notStarted"], keyword: "", classify_type: "recently_started", display_studio_list: false },
-  showScorePassedStatus: false,
-};
-
-/** 列出「我的课程」(TronClass id + name)。会话失效抛 __COURSES_EXPIRED__。 */
+/**
+ * 列出「我的课程」(TronClass id + name)。
+ * 走与 fetchHomeworks 完全相同的会话链路（预热+登录），修复裸调 API 时
+ * 401 JSON 被吞成空数组、UI 误报「暂无课程」的问题。
+ */
 export async function listMyCourses(): Promise<{ id: number; name: string }[]> {
-  const text = await zPostJson(`${COURSES_BASE}/api/my-courses`, MY_COURSES_PAYLOAD);
-  const parsed = JSON.parse(text);
-  return (parsed.courses ?? []).map((c: any) => ({ id: c.id as number, name: String(c.name ?? "") }));
+  if (!(await ensureCoursesSession())) throw new Error("请先登录");
+  return postMyCourses();
 }
 
 /** 按课程名匹配 TronClass 课程 id（课表数据无此 id，需在此解析）。 */
