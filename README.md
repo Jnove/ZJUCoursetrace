@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/github/license/Jnove/ZJUCoursetrace?style=flat-square)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/Jnove/ZJUCoursetrace?style=flat-square&label=release)](https://github.com/Jnove/ZJUCoursetrace/releases/latest)
-[![Download APK](https://img.shields.io/github/downloads/Jnove/ZJUCoursetrace/total?style=flat-square&label=APK%20downloads&color=brightgreen&logo=android)](https://github.com/Jnove/ZJUCoursetrace/releases/download/v2.0.1/ZJUCoursetrace.v2.0.1.apk)
+[![Download APK](https://img.shields.io/github/downloads/Jnove/ZJUCoursetrace/total?style=flat-square&label=APK%20downloads&color=brightgreen&logo=android)](https://github.com/Jnove/ZJUCoursetrace/releases/download/v2.0.2/ZJUCoursetrace.v2.0.2.apk)
 
 浙江大学课程表应用，支持 iOS 和 Android。v2.0.0 起已完全移除后端服务，所有认证与数据请求均在客户端本地完成（因此 Web 端受浏览器跨域限制无法登录，仅用于开发预览）。
 
