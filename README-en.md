@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/github/license/Jnove/ZJUCoursetrace?style=flat-square)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/Jnove/ZJUCoursetrace?style=flat-square&label=release)](https://github.com/Jnove/ZJUCoursetrace/releases/latest)
-[![Download APK](https://img.shields.io/github/downloads/Jnove/ZJUCoursetrace/total?style=flat-square&label=APK%20downloads&color=brightgreen&logo=android)](https://github.com/Jnove/ZJUCoursetrace/releases/download/v2.0.1/ZJUCoursetrace.v2.0.1.apk)
+[![Download APK](https://img.shields.io/github/downloads/Jnove/ZJUCoursetrace/total?style=flat-square&label=APK%20downloads&color=brightgreen&logo=android)](https://github.com/Jnove/ZJUCoursetrace/releases/download/v2.0.2/ZJUCoursetrace.v2.0.2.apk)
 
 A Zhejiang University course schedule app for iOS and Android. Since v2.0.0, the backend server has been completely removed — all authentication and data requests are handled client-side (which means the Web build cannot log in due to browser CORS restrictions; it is for development preview only).
 
