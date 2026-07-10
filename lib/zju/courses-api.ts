@@ -12,13 +12,6 @@ import { flattenActivitiesToFiles, sanitizeFileName, parseHomeworkDetail } from 
 import { writeLog } from "@/lib/diagnostic-log";
 import type { ZjuSession, HomeworkInfo, CoursewareFile, HomeworkDetail } from "./types";
 
-// ─── 临时诊断：定位「课程列表响应异常」根因，确认后可移除 ────────────────────
-const __coursesDiag: {
-  warmupUrl?: string;
-  path?: "warm-ok" | "cas-login";
-  loginFinalUrl?: string;
-} = {};
-
 // ─── Courses 会话建立（作业/课件共用） ────────────────────────────────────────
 
 /**
@@ -52,12 +45,8 @@ async function ensureCoursesSession(): Promise<boolean> {
     console.warn(`[zju-client-Homework] 预热失败:`, err);
     throw new Error("无法连接课程平台，请检查网络");
   });
-  __coursesDiag.warmupUrl = warm.url.slice(0, 80);
 
-  if (onCourses(warm.url)) {
-    __coursesDiag.path = "warm-ok";
-    return true;
-  }
+  if (onCourses(warm.url)) return true;
 
   // ── 停在 CAS 登录页（service=identity broker + 一次性 state）→ 账密登录 ──
   if (!warm.url.includes("zjuam.zju.edu.cn")) {
@@ -97,8 +86,6 @@ async function ensureCoursesSession(): Promise<boolean> {
     ua,
     20000
   );
-  __coursesDiag.path = "cas-login";
-  __coursesDiag.loginFinalUrl = postResp.url.slice(0, 80);
 
   if (onCourses(postResp.url)) {
     console.log("[zju-client-Homework] ✅ courses 会话建立");
@@ -158,25 +145,14 @@ async function postMyCourses(): Promise<{ id: number; name: string }[]> {
   }
 
   if (!Array.isArray(parsed.courses)) {
-    // 带上真实证据：HTTP 状态、最终 URL、会话路径、JSON 顶层键、body 片段
-    const diag =
-      `status=${status}\n` +
-      `finalUrl=${finalUrl.slice(0, 60)}\n` +
-      `sessionPath=${__coursesDiag.path ?? "?"} warmup=${__coursesDiag.warmupUrl ?? "?"}\n` +
-      (__coursesDiag.loginFinalUrl ? `loginFinalUrl=${__coursesDiag.loginFinalUrl}\n` : "") +
-      `keys=${Object.keys(parsed).slice(0, 8).join(",")}\n` +
-      `body=${body.slice(0, 200)}`;
-    console.warn("[courses] my-courses 无 courses 字段:", diag);
+    console.warn(`[courses] my-courses 无 courses 字段: status=${status} body=${body.slice(0, 160)}`);
     void writeLog("NETWORK", "my-courses 响应无 courses 字段", "error", {
       status,
       finalUrl,
-      sessionPath: __coursesDiag.path,
-      warmupUrl: __coursesDiag.warmupUrl,
-      loginFinalUrl: __coursesDiag.loginFinalUrl,
       keys: Object.keys(parsed),
       bodyPrefix: body.slice(0, 300),
     });
-    throw new Error(`课程列表响应异常\n${diag}`);
+    throw new Error(`课程列表响应异常（status=${status}），请重试`);
   }
   return parsed.courses.map((c: any) => ({ id: c.id as number, name: String(c.name ?? "") }));
 }
@@ -195,7 +171,7 @@ export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo
   if (!(await ensureCoursesSession())) return [];
 
   // 1. 获取课程列表（POST JSON）
-  let courses: Array<{ id: number; name: string }>;
+  let courses: { id: number; name: string }[];
   try {
     courses = await postMyCourses();
   } catch (e: any) {

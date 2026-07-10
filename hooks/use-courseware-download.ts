@@ -14,7 +14,8 @@ export function useCoursewareDownload() {
   const openFile = async (
     file: CoursewareFile,
     courseId: number,
-    allowPreview: boolean
+    allowPreview: boolean,
+    courseName?: string
   ): Promise<string | null> => {
     if (downloadingId != null) return null;
     try {
@@ -28,7 +29,14 @@ export function useCoursewareDownload() {
       const session = await loadSession();
       if (!session) return "请先登录";
       const uri = await withRelogin(session, () => downloadCourseFile(file, courseId, allowPreview));
-      await putCachedFile(username, file.id, uri);
+      await putCachedFile(username, file.id, {
+        uri,
+        name: file.name || "未命名文件",
+        courseId,
+        courseName,
+        size: file.size || undefined,
+        at: Date.now(),
+      });
       await openCoursewareFile(uri);
       return null;
     } catch (e) {

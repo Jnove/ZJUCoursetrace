@@ -61,7 +61,7 @@ export default function CoursewareScreen() {
   useEffect(() => { load(); }, [load]);
 
   const onTapFile = async (file: CoursewareFile) => {
-    const err = await openFile(file, resolvedCourseId, allowPreview);
+    const err = await openFile(file, resolvedCourseId, allowPreview, courseName);
     if (err) setError(err);
   };
 

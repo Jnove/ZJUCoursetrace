@@ -23,7 +23,7 @@ import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFa
 
 // ─── Cache ────────────────────────────────────────────────────────────────────
 
-function cacheKey(type: "major_grade" | "all_grade" | "exams" | "homeworks", u: string) {
+function cacheKey(type: "major_grade" | "all_grade" | "exams" | "homeworks" | "cw_courses", u: string) {
   return `academic_${type}_${u}`;
 }
 async function readCache<T>(k: string): Promise<T | null> {
@@ -461,9 +461,10 @@ function CoursewareEntryCard({ loading, onPress, radius }: {
   );
 }
 
-function CoursewarePickerModal({ visible, courses, onSelect, onClose }: {
+function CoursewarePickerModal({ visible, courses, onSelect, onOpenDownloaded, onClose }: {
   visible: boolean; courses: {id:number;name:string}[];
-  onSelect: (c:{id:number;name:string})=>void; onClose: ()=>void;
+  onSelect: (c:{id:number;name:string})=>void;
+  onOpenDownloaded: ()=>void; onClose: ()=>void;
 }) {
   const colors = useColors();
   const { cardRadius, fontFamily } = useTheme();
@@ -486,6 +487,21 @@ function CoursewarePickerModal({ visible, courses, onSelect, onClose }: {
               查看该课程的课件
             </Text>
           </View>
+          <TouchableOpacity
+            onPress={onOpenDownloaded}
+            activeOpacity={0.7}
+            style={{
+              flexDirection: "row", alignItems: "center", gap: 12,
+              paddingHorizontal: 18, paddingVertical: 13,
+              borderTopWidth: 0.5, borderTopColor: colors.border,
+            }}
+          >
+            <IconSymbol name="square.and.arrow.down" size={16} color={colors.primary}/>
+            <Text style={{ flex: 1, fontSize: 14, fontWeight: "500", color: colors.primary, fontFamily: ff }}>
+              已下载课件
+            </Text>
+            <IconSymbol name="chevron.right" size={14} color={colors.muted}/>
+          </TouchableOpacity>
           <ScrollView style={{ maxHeight: 360 }}>
             {courses.length === 0 ? (
               <View style={{ paddingVertical: 24, alignItems: "center" }}>
@@ -794,12 +810,33 @@ export default function AcademicScreen() {
   },[gpaHidden]);
 
   const openCoursewarePicker = useCallback(async () => {
+    const u = await AsyncStorage.getItem("username");
+    const k = u ? cacheKey("cw_courses", u) : null;
+
+    // 有缓存：立刻打开选择器，再在后台静默刷新列表
+    const cached = k ? await readCache<{id:number;name:string}[]>(k) : null;
+    if (cached && cached.length > 0) {
+      setCwCourses(cached);
+      setCwModalOpen(true);
+      try {
+        const session = await loadSession();
+        if (session) {
+          const fresh = await withRelogin(session, () => listMyCourses());
+          setCwCourses(fresh);
+          if (k) await writeCache(k, fresh);
+        }
+      } catch {} // 静默刷新失败就继续用缓存
+      return;
+    }
+
+    // 无缓存：维持原加载态流程
     try {
       setCwLoading(true);
       const session = await loadSession();
       if (!session) { Alert.alert("请先登录"); return; }
       const courses = await withRelogin(session, () => listMyCourses());
       setCwCourses(courses);
+      if (k) await writeCache(k, courses);
       setCwModalOpen(true);
     } catch (e) {
       Alert.alert("错误", e instanceof Error ? e.message : "获取课程失败");
@@ -962,6 +999,10 @@ export default function AcademicScreen() {
         onSelect={(c)=>{
           setCwModalOpen(false);
           router.push(`/courseware?courseId=${c.id}&courseName=${encodeURIComponent(c.name)}`);
+        }}
+        onOpenDownloaded={()=>{
+          setCwModalOpen(false);
+          router.push("/downloaded-courseware");
         }}
         onClose={()=>setCwModalOpen(false)}
       />
