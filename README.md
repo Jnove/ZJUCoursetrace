@@ -32,6 +32,7 @@
 v2.0.0 起不再需要后端服务器。所有对浙大教务系统的请求均由客户端直接发起：
 - 利用 iOS NSURLSession / Android OkHttp 的 **native cookie jar** 自动维护会话
 - CAS 统一认证、课表、成绩、考试信息均直连 `zdbk.zju.edu.cn`
+- 作业、课件直连 `courses.zju.edu.cn`（学在浙大 / TronClass）
 - 凭据通过 `expo-secure-store` 加密保存，会话过期后自动重新登录
 
 **外部 API**
@@ -62,7 +63,9 @@ v2.0.0 起不再需要后端服务器。所有对浙大教务系统的请求均�
 - 主修绩点与全部绩点概览（含学分统计）
 - 成绩详情：分数分布图、逐课绩点进度条，主修 / 全部切换，按学期分组并显示学期均绩
 - 考试安排：按学期分组，显示考试时间、地点、座位号及倒计时
-- 作业查询：汇总各课程待交作业与截止时间，按 DDL 排序
+- 作业查询：汇总各课程待交作业与截止时间，按 DDL 排序，支持按标题 / 课程名搜索
+- 作业详情：查看题目正文、下载附件、查看得分与教师评语
+- 课件下载：浏览学在浙大课程课件并下载后用系统应用打开；已下载课件统一管理（打开 / 删除）；可选开启下载未开放课件
 - 数据本地缓存，后台静默刷新
 
 **通知与设置**
@@ -86,6 +89,10 @@ v2.0.0 起不再需要后端服务器。所有对浙大教务系统的请求均�
 │   │   └── settings.tsx           # 主题切换 + 退出登录
 │   ├── grade-detail.tsx           # 成绩详情页
 │   ├── course-detail.tsx          # 课程详情页
+│   ├── homework-detail.tsx        # 作业列表（搜索 / 筛选）
+│   ├── homework-item-detail.tsx   # 作业详情（正文 / 附件 / 得分评语）
+│   ├── courseware.tsx             # 课件列表 + 下载
+│   ├── downloaded-courseware.tsx  # 已下载课件管理
 │   ├── diagnostic-logs.tsx        # 诊断日志
 │   ├── personalization.tsx        # 个性化设置
 │   └── about.tsx                  # 关于 + 检查更新
@@ -95,7 +102,8 @@ v2.0.0 起不再需要后端服务器。所有对浙大教务系统的请求均�
 │   └── course-detail-content.tsx  # 课程详情组件
 │
 ├── lib/
-│   ├── zju-client.ts              # CAS 认证 + 全部数据请求（无服务端）
+│   ├── zju-client.ts              # ZJU 客户端出口（re-export lib/zju/）
+│   ├── zju/                       # CAS 认证 + 教务 / 学在浙大数据请求（无服务端）
 │   ├── auth-context.tsx           # 登录/登出状态管理
 │   ├── schedule-context.tsx       # 课程获取和缓存逻辑
 │   ├── semester-utils.ts          # 当前学期/周次计算工具（含农历）
