@@ -3,6 +3,7 @@ import {
   ActivityIndicator, Animated, RefreshControl, Platform, Alert, Modal,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
+import { SearchInput } from "@/components/common/search-input";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -418,8 +419,8 @@ function HomeworkSummaryCard({ homeworks, loading, error, onRetry, stale, radius
 
 // ─── Courseware entry card ─────────────────────────────────────────────────────
 
-function CoursewareEntryCard({ loading, onPress, radius }: {
-  loading: boolean; onPress: () => void; radius: number;
+function CoursewareEntryCard({ loading, onPress, onOpenDownloaded, radius }: {
+  loading: boolean; onPress: () => void; onOpenDownloaded: () => void; radius: number;
 }) {
   const colors = useColors();
   const scheme = useColorScheme();
@@ -427,18 +428,18 @@ function CoursewareEntryCard({ loading, onPress, radius }: {
   const ff = FONT_FAMILY_META[fontFamily].value;
 
   return (
-    <TouchableOpacity
-      activeOpacity={0.8}
-      onPress={onPress}
-      disabled={loading}
-      style={{
-        borderRadius:radius, backgroundColor:colors.background, overflow:"hidden",
-        ...cardShadow(scheme, { color:colors.primary, offsetY:2, opacity:0.1, radius:12, elevation:4 }),
-      }}
-    >
+    <View style={{
+      borderRadius:radius, backgroundColor:colors.background, overflow:"hidden",
+      ...cardShadow(scheme, { color:colors.primary, offsetY:2, opacity:0.1, radius:12, elevation:4 }),
+    }}>
       <View style={{height:3,backgroundColor:colors.primary}}/>
 
-      <View style={{padding:18,flexDirection:"row",alignItems:"center",gap:12}}>
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={onPress}
+        disabled={loading}
+        style={{padding:18,flexDirection:"row",alignItems:"center",gap:12}}
+      >
         <View style={{
           width:36,height:36,borderRadius:10,alignItems:"center",justifyContent:"center",
           backgroundColor:rgba(colors.primary,0.1),
@@ -456,20 +457,44 @@ function CoursewareEntryCard({ loading, onPress, radius }: {
             <IconSymbol name="chevron.right" size={12} color={colors.muted}/>
           </View>
         )}
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={onOpenDownloaded}
+        style={{
+          paddingHorizontal:18, paddingVertical:13,
+          flexDirection:"row", alignItems:"center", gap:12,
+          borderTopWidth:0.5, borderTopColor:colors.border,
+        }}
+      >
+        <View style={{width:36, alignItems:"center"}}>
+          <IconSymbol name="square.and.arrow.down" size={16} color={colors.muted}/>
+        </View>
+        <Text style={{flex:1, fontSize:13, fontWeight:"500", color:colors.foreground, fontFamily: ff}}>
+          已下载课件
+        </Text>
+        <IconSymbol name="chevron.right" size={12} color={colors.muted}/>
+      </TouchableOpacity>
+    </View>
   );
 }
 
-function CoursewarePickerModal({ visible, courses, onSelect, onOpenDownloaded, onClose }: {
+function CoursewarePickerModal({ visible, courses, onSelect, onClose }: {
   visible: boolean; courses: {id:number;name:string}[];
-  onSelect: (c:{id:number;name:string})=>void;
-  onOpenDownloaded: ()=>void; onClose: ()=>void;
+  onSelect: (c:{id:number;name:string})=>void; onClose: ()=>void;
 }) {
   const colors = useColors();
   const { cardRadius, fontFamily } = useTheme();
   const r = CARD_RADIUS_VALUES[cardRadius];
   const ff = FONT_FAMILY_META[fontFamily].value;
+  const [query, setQuery] = useState("");
+
+  // 每次打开时清空上次的搜索词
+  useEffect(() => { if (visible) setQuery(""); }, [visible]);
+
+  const kw = query.trim().toLowerCase();
+  const shown = kw ? courses.filter(c => c.name.toLowerCase().includes(kw)) : courses;
 
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
@@ -487,27 +512,19 @@ function CoursewarePickerModal({ visible, courses, onSelect, onOpenDownloaded, o
               查看该课程的课件
             </Text>
           </View>
-          <TouchableOpacity
-            onPress={onOpenDownloaded}
-            activeOpacity={0.7}
-            style={{
-              flexDirection: "row", alignItems: "center", gap: 12,
-              paddingHorizontal: 18, paddingVertical: 13,
-              borderTopWidth: 0.5, borderTopColor: colors.border,
-            }}
-          >
-            <IconSymbol name="square.and.arrow.down" size={16} color={colors.primary}/>
-            <Text style={{ flex: 1, fontSize: 14, fontWeight: "500", color: colors.primary, fontFamily: ff }}>
-              已下载课件
-            </Text>
-            <IconSymbol name="chevron.right" size={14} color={colors.muted}/>
-          </TouchableOpacity>
-          <ScrollView style={{ maxHeight: 360 }}>
-            {courses.length === 0 ? (
+          {courses.length > 0 && (
+            <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
+              <SearchInput value={query} onChangeText={setQuery} placeholder="搜索课程"/>
+            </View>
+          )}
+          <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+            {shown.length === 0 ? (
               <View style={{ paddingVertical: 24, alignItems: "center" }}>
-                <Text style={{ fontSize: 13, color: colors.muted, fontFamily: ff }}>暂无课程</Text>
+                <Text style={{ fontSize: 13, color: colors.muted, fontFamily: ff }}>
+                  {courses.length === 0 ? "暂无课程" : "未找到匹配的课程"}
+                </Text>
               </View>
-            ) : courses.map(c => (
+            ) : shown.map(c => (
               <TouchableOpacity
                 key={c.id}
                 onPress={() => onSelect(c)}
@@ -931,6 +948,7 @@ export default function AcademicScreen() {
           <CoursewareEntryCard
             loading={cwLoading}
             onPress={openCoursewarePicker}
+            onOpenDownloaded={()=>router.push("/downloaded-courseware")}
             radius={r}
           />
 
@@ -999,10 +1017,6 @@ export default function AcademicScreen() {
         onSelect={(c)=>{
           setCwModalOpen(false);
           router.push(`/courseware?courseId=${c.id}&courseName=${encodeURIComponent(c.name)}`);
-        }}
-        onOpenDownloaded={()=>{
-          setCwModalOpen(false);
-          router.push("/downloaded-courseware");
         }}
         onClose={()=>setCwModalOpen(false)}
       />

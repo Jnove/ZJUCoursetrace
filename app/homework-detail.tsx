@@ -18,6 +18,7 @@ import { useAuth } from "@/lib/auth-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { loadSession, withRelogin, fetchHomeworks, HomeworkInfo } from "@/lib/zju-client";
 import { CommonNavBar } from "@/components/common/nav-bar";
+import { SearchInput } from "@/components/common/search-input";
 import { ErrorCard } from "@/components/common/error-card";
 import { EmptyState } from "@/components/common/empty-state";
 import { LoadingView } from "@/components/common/loading-view";
@@ -276,6 +277,7 @@ export default function HomeworkDetailScreen() {
   const r = CARD_RADIUS_VALUES[cardRadius];
 
   const [activeTab, setActiveTab] = useState<TabKey>("pending");
+  const [query, setQuery] = useState("");
   const [homeworks, setHomeworks] = useState<HomeworkInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -337,7 +339,14 @@ export default function HomeworkDetailScreen() {
     }
   }, [authState.userToken]);
 
-  const filtered = useMemo(() => filterHomeworks(homeworks, activeTab), [homeworks, activeTab]);
+  const filtered = useMemo(() => {
+    const byTab = filterHomeworks(homeworks, activeTab);
+    const kw = query.trim().toLowerCase();
+    if (!kw) return byTab;
+    return byTab.filter(
+      (h) => h.title.toLowerCase().includes(kw) || h.courseName.toLowerCase().includes(kw)
+    );
+  }, [homeworks, activeTab, query]);
 
   const counts = useMemo(
     () => ({
@@ -383,6 +392,15 @@ export default function HomeworkDetailScreen() {
         <FlatList
           data={filtered}
           keyExtractor={(item) => String(item.id)}
+          keyboardShouldPersistTaps="handled"
+          ListHeaderComponent={
+            <SearchInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="搜索作业 / 课程"
+              style={{ backgroundColor: colors.background, marginBottom: 12 }}
+            />
+          }
           renderItem={({ item }) => (
             <HomeworkCard
               hw={item}
@@ -399,7 +417,9 @@ export default function HomeworkDetailScreen() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.violet} />
           }
-          ListEmptyComponent={<EmptyState message={`暂无${tabLabel}作业`} />}
+          ListEmptyComponent={
+            <EmptyState message={query.trim() ? "未找到匹配的作业" : `暂无${tabLabel}作业`} />
+          }
         />
       )}
     </ScreenContainer>
