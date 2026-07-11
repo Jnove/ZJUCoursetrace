@@ -5,7 +5,6 @@
 
 import { Platform } from "react-native";
 import * as Location from "expo-location";
-import Geolocation from "@react-native-community/geolocation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -67,16 +66,29 @@ type SimpleCoords = { latitude: number; longitude: number };
  * @react-native-community/geolocation 的 locationProvider: "auto" 有 GMS 时走
  * Play Services，没有时自动落回系统 LocationManager（GPS + 厂商网络定位），
  * 因此作为原生定位的首选。权限仍统一由 expo-location 申请（纯运行时权限，不依赖 GMS）。
+ *
+ * 必须惰性 require：这是原生模块，Expo Go 里没有链接，顶层 import 会在模块
+ * 求值时直接抛错炸掉整个路由。require 失败时返回 null，降级到缓存/IP 链路。
  */
-let geolocationConfigured = false;
-function configureGeolocation() {
-  if (geolocationConfigured) return;
-  geolocationConfigured = true;
-  Geolocation.setRNConfiguration({
-    skipPermissionRequests: true,
-    authorizationLevel: "whenInUse",
-    locationProvider: "auto",
-  });
+type GeolocationModule = typeof import("@react-native-community/geolocation").default;
+let geolocation: GeolocationModule | null | undefined;
+function getGeolocation(): GeolocationModule | null {
+  if (geolocation !== undefined) return geolocation;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- 惰性加载原生模块，Expo Go 下 import 会抛错
+    const mod = require("@react-native-community/geolocation");
+    const Geolocation: GeolocationModule = mod.default ?? mod;
+    Geolocation.setRNConfiguration({
+      skipPermissionRequests: true,
+      authorizationLevel: "whenInUse",
+      locationProvider: "auto",
+    });
+    geolocation = Geolocation;
+  } catch {
+    console.log('[Location] geolocation 原生模块不可用（Expo Go？），跳过系统定位');
+    geolocation = null;
+  }
+  return geolocation;
 }
 
 function getLocationViaGeolocation(opts: {
@@ -84,16 +96,21 @@ function getLocationViaGeolocation(opts: {
   timeout: number;
   maximumAge: number;
 }): Promise<SimpleCoords | null> {
-  configureGeolocation();
+  const Geolocation = getGeolocation();
+  if (!Geolocation) return Promise.resolve(null);
   return new Promise((resolve) => {
-    Geolocation.getCurrentPosition(
-      (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-      (err) => {
-        console.log('[Location] 系统定位失败:', err.message);
-        resolve(null);
-      },
-      opts,
-    );
+    try {
+      Geolocation.getCurrentPosition(
+        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        (err) => {
+          console.log('[Location] 系统定位失败:', err.message);
+          resolve(null);
+        },
+        opts,
+      );
+    } catch {
+      resolve(null);
+    }
   });
 }
 
