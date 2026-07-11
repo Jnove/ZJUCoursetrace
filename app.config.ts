@@ -106,7 +106,6 @@ const config: ExpoConfig = {
       "androidMode": "default"
     }],
     "expo-background-task",
-    // ["expo-gaode-map", { "androidKey": "", "iosKey": "" }]
   ],
   experiments: {
     typedRoutes: true,

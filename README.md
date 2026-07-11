@@ -20,7 +20,7 @@
 
 - [Expo](https://expo.dev) + [React Native](https://reactnative.dev) — 跨平台框架，一套代码支持 iOS、Android 和 Web
 - [Expo Router](https://expo.github.io/router) — 基于文件系统的路由方案
-- [expo-location](https://docs.expo.dev/versions/latest/sdk/location/) — 设备定位，支持 GPS 缓存和无 GMS 环境回退
+- [@react-native-community/geolocation](https://github.com/michalchudziak/react-native-geolocation) + [expo-location](https://docs.expo.dev/versions/latest/sdk/location/) — 设备定位；无 GMS 设备自动回退到系统 LocationManager，另有 GPS 缓存与 IP 定位兜底
 - [expo-notifications](https://docs.expo.dev/versions/latest/sdk/notifications/) — 课程常驻通知
 - [expo-background-task](https://docs.expo.dev/versions/latest/sdk/background-task/) + [expo-task-manager](https://docs.expo.dev/versions/latest/sdk/task-manager/) — App 处于后台时定期唤醒刷新课程通知倒计时（系统调度，约 15 分钟一次）
 - [expo-secure-store](https://docs.expo.dev/versions/latest/sdk/securestore/) — 凭据安全存储，支持会话过期后静默重新登录
@@ -49,7 +49,7 @@ v2.0.0 起不再需要后端服务器。所有对浙大教务系统的请求均�
 - 正在进行的课程显示实时倒计时进度条
 - 假期 / 学期间隙自动切换为「距开学 N 天」倒计时
 - 每日随机古典诗词
-- 实时天气：自动定位（GPS 缓存 → IP 定位），显示气温区间、降雨概率和出行提示；21 点后自动切换为明日天气
+- 实时天气：自动定位（系统定位 → GPS 缓存 → IP 定位，无 GMS 设备可用），显示气温区间、降雨概率和出行提示；21 点后自动切换为明日天气
 
 **课程表**
 - 周网格视图与日列表视图，一键切换
@@ -163,7 +163,7 @@ eas build --platform android --profile production
 
 - **仅支持单用户** — 每台设备上只能同时登录一个账户（native cookie jar 限制）
 - **学期检测不完整** — 处于学期之间的日期（如考试周、假期）返回空值，首页显示无数据
-- **Android 无 GMS 定位较慢** — 不预装 Google Play 服务的设备 GPS 冷启动较慢，首次定位会自动回退到 IP 定位
+- **Android 无 GMS 首次定位较慢** — 无 Google Play 服务的设备走系统 LocationManager 定位，冷启动可能较慢；超时会自动回退到 IP 定位
 - **iOS 不支持常驻通知** — 系统限制，课程通知在 iOS 上可被用户手动清除
 - **后台通知倒计时为粗粒度** — App 处于后台时由系统调度唤醒（约 15 分钟一次，iOS 尤甚），倒计时无法逐秒刷新；已通过「里程碑预排」缓解（距上课 60/30/10/5 分钟与上课时刻由系统闹钟准点更新），回到前台后立即恢复精确刷新
 - **Web 端无法登录** — CAS 认证依赖原生 cookie jar 跨域携带会话，浏览器受 CORS 限制无法完成登录，Web 端仅用于开发预览界面
