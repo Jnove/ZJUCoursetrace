@@ -508,7 +508,6 @@ const toggleAutoUpdate = async (value: boolean) => {
             value="httpbin.org/ip ↗"
             valueColor={primaryColor}
             onPress={() => openReleasePage("https://httpbin.org/ip")}
-            last
           />
           <InfoRow
             label="IP 定位"
