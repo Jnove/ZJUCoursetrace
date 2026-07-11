@@ -10,7 +10,7 @@ const LOG_KEY = "diag_logs_v1";
 const MAX_ENTRIES = 500;
 
 export type LogLevel = "info" | "warn" | "error";
-export type LogTag = "SCHEDULE" | "ACADEMIC" | "SESSION" | "CONTEXT" | "NETWORK";
+export type LogTag = "SCHEDULE" | "ACADEMIC" | "SESSION" | "CONTEXT" | "NETWORK" | "LOCATION";
 
 export interface LogEntry {
     id: string;
