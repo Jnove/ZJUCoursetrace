@@ -34,10 +34,20 @@ export function useAutoUpdate() {
         hasChecked.current = true;
 
         const check = async () => {
+            // 开发模式不做自动检查（GitHub 未认证 API 限额 60 次/小时/IP，
+            // 频繁 reload 很快耗尽并开始报 403）；「关于」页仍可手动检查
+            if (__DEV__) return;
+
             // 读取自动更新开关，默认为 true
             const autoUpdateEnabledStr = await AsyncStorage.getItem('autoUpdateEnabled');
             const autoUpdateEnabled = autoUpdateEnabledStr === null ? true : autoUpdateEnabledStr === 'true';
             if (!autoUpdateEnabled) return; // 关闭自动更新，不检查
+
+            // 6 小时节流：无论上次成功与否都算，避免限流环境下每次冷启动都撞 403
+            const CHECK_INTERVAL = 6 * 60 * 60 * 1000;
+            const lastStr = await AsyncStorage.getItem('updateLastCheckAt');
+            if (lastStr && Date.now() - Number(lastStr) < CHECK_INTERVAL) return;
+            await AsyncStorage.setItem('updateLastCheckAt', String(Date.now()));
 
             try {
                 const result = await checkForUpdate();
@@ -89,7 +99,8 @@ export function useAutoUpdate() {
                     buttons,
                 });
             } catch (error) {
-                console.error('自动更新检查失败', error);
+                // 后台静默检查失败（多为 GitHub API 限流）不值得一条 ERROR
+                console.log('自动更新检查失败（静默忽略）:', error instanceof Error ? error.message : error);
             }
         };
 
