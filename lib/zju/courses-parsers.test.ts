@@ -104,4 +104,21 @@ describe("parseHomeworkDetail", () => {
     expect(d.score).toBe("88");
     expect(d.comment).toBe("ok");
   });
+  it("reads the homework body from data.description (real TronClass shape)", () => {
+    // 作业活动的正文在 data.description，顶层 description 为 null —— 曾导致「无题目描述」
+    const d = parseHomeworkDetail({
+      id: 9, title: "T",
+      description: null,
+      data: { description: "<p>阅读第 4 章</p>" },
+    });
+    expect(d.bodyText).toBe("阅读第 4 章");
+  });
+  it("prefers data.description over top-level description", () => {
+    const d = parseHomeworkDetail({
+      id: 9, title: "T",
+      description: "outer",
+      data: { description: "inner" },
+    });
+    expect(d.bodyText).toBe("inner");
+  });
 });

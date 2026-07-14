@@ -57,7 +57,9 @@ export function flattenActivitiesToFiles(activities: any[]): CoursewareFile[] {
 
 /** 作业活动详情 JSON → HomeworkDetail（字段容错）。 */
 export function parseHomeworkDetail(raw: any): HomeworkDetail {
-  const body = raw?.description ?? raw?.content ?? "";
+  // 作业活动的题目正文在 data.description（顶层 description 对 homework 类型为空，
+  // 参考 fiz 的 homework["data"]["description"]）；顶层字段仅作兜底
+  const body = raw?.data?.description ?? raw?.description ?? raw?.content ?? "";
   const attachments = flattenActivitiesToFiles([{ uploads: raw?.uploads ?? [] }]);
   const score = raw?.submission?.score ?? raw?.score ?? null;
   const comment = raw?.submission?.comment ?? raw?.comment ?? null;
