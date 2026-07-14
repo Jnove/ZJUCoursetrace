@@ -498,7 +498,9 @@ function CoursewarePickerModal({ visible, courses, onSelect, onClose }: {
 
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center", padding: 24 }}>
+      {/* 顶部锚定而非垂直居中：居中布局在键盘弹出压缩窗口时会整体重新居中，
+          输入框大幅位移易触发键盘弹出/收起振荡（配合 app.config 的 pan 模式双保险） */}
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-start", alignItems: "center", paddingHorizontal: 24, paddingTop: 96 }}>
         <View style={{
           width: "100%", maxWidth: 340, maxHeight: "70%", borderRadius: r + 4,
           backgroundColor: colors.background, overflow: "hidden",
