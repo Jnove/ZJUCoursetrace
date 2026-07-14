@@ -236,7 +236,23 @@ export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo
 /** 单个作业详情（正文/附件/得分/评语）。会话失效抛 __COURSES_EXPIRED__。 */
 export async function fetchHomeworkDetail(homeworkId: number): Promise<HomeworkDetail> {
   const text = await zGetCourse(`${COURSES_BASE}/api/course/activities/${homeworkId}`);
-  return parseHomeworkDetail(JSON.parse(text));
+  const raw = JSON.parse(text);
+  const detail = parseHomeworkDetail(raw);
+
+  // ── 临时诊断：正文解析为空时打出响应结构，定位题目正文的真实字段（确认后移除） ──
+  if (!detail.bodyText) {
+    const diag = {
+      keys: Object.keys(raw ?? {}),
+      dataKeys: raw?.data && typeof raw.data === "object" ? Object.keys(raw.data) : String(raw?.data),
+      descriptionType: typeof raw?.description,
+      dataDescriptionType: typeof raw?.data?.description,
+      preview: text.slice(0, 600),
+    };
+    console.log("[hw-detail-diag]", JSON.stringify(diag));
+    void writeLog("NETWORK", `作业详情 ${homeworkId} 正文为空 — 响应结构`, "warn", diag);
+  }
+
+  return detail;
 }
 
 // ─── Courseware (courses.zju.edu.cn) ──────────────────────────────────────────
