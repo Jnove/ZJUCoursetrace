@@ -389,38 +389,42 @@ export default function HomeworkDetailScreen() {
           <ErrorCard message={error} onRetry={() => loadData(true)} />
         </View>
       ) : (
-        <FlatList
-          data={filtered}
-          keyExtractor={(item) => String(item.id)}
-          keyboardShouldPersistTaps="handled"
-          ListHeaderComponent={
+        <>
+          {/* 搜索框必须固定在 FlatList 之外——放 ListHeaderComponent 里会被
+              虚拟化卸载/重挂载，导致输入框失焦、键盘反复弹出收起 */}
+          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
             <SearchInput
               value={query}
               onChangeText={setQuery}
               placeholder="搜索作业 / 课程"
-              style={{ backgroundColor: colors.background, marginBottom: 12 }}
+              style={{ backgroundColor: colors.background }}
             />
-          }
-          renderItem={({ item }) => (
-            <HomeworkCard
-              hw={item}
-              radius={r}
-              onPress={() =>
-                router.push(
-                  `/homework-item-detail?homeworkId=${item.id}&courseId=${item.courseId}&title=${encodeURIComponent(item.title)}`
-                )
-              }
-            />
-          )}
-          contentContainerStyle={{ padding: 16, flexGrow: 1 }}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.violet} />
-          }
-          ListEmptyComponent={
-            <EmptyState message={query.trim() ? "未找到匹配的作业" : `暂无${tabLabel}作业`} />
-          }
-        />
+          </View>
+          <FlatList
+            data={filtered}
+            keyExtractor={(item) => String(item.id)}
+            keyboardShouldPersistTaps="handled"
+            renderItem={({ item }) => (
+              <HomeworkCard
+                hw={item}
+                radius={r}
+                onPress={() =>
+                  router.push(
+                    `/homework-item-detail?homeworkId=${item.id}&courseId=${item.courseId}&title=${encodeURIComponent(item.title)}`
+                  )
+                }
+              />
+            )}
+            contentContainerStyle={{ padding: 16, paddingTop: 12, flexGrow: 1 }}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.violet} />
+            }
+            ListEmptyComponent={
+              <EmptyState message={query.trim() ? "未找到匹配的作业" : `暂无${tabLabel}作业`} />
+            }
+          />
+        </>
       )}
     </ScreenContainer>
   );

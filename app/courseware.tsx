@@ -4,6 +4,7 @@ import { useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { CommonNavBar } from "@/components/common/nav-bar";
+import { SearchInput } from "@/components/common/search-input";
 import { ErrorCard } from "@/components/common/error-card";
 import { EmptyState } from "@/components/common/empty-state";
 import { LoadingView } from "@/components/common/loading-view";
@@ -34,7 +35,11 @@ export default function CoursewareScreen() {
   const [error, setError] = useState<string | null>(null);
   const [allowPreview, setAllowPreview] = useState(false);
   const [resolvedCourseId, setResolvedCourseId] = useState(0);
+  const [query, setQuery] = useState("");
   const { downloadingId, openFile } = useCoursewareDownload();
+
+  const kw = query.trim().toLowerCase();
+  const shown = kw ? files.filter((f) => (f.name || "").toLowerCase().includes(kw)) : files;
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -86,27 +91,41 @@ export default function CoursewareScreen() {
       ) : files.length === 0 ? (
         <EmptyState message="暂无课件，老师还没有上传课件" />
       ) : (
-        <FlatList
-          data={files}
-          keyExtractor={(f) => String(f.id)}
-          contentContainerStyle={{ padding: 16, gap: 10 }}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => onTapFile(item)}
-              style={[{ backgroundColor: colors.surface, borderRadius: 14, padding: 16, flexDirection: "row", alignItems: "center", gap: 12 }, cardShadow(scheme)]}
-            >
-              <IconSymbol name="list.bullet" size={22} color={colors.primary} />
-              <View style={{ flex: 1 }}>
-                <Text numberOfLines={2} style={{ color: colors.foreground, fontSize: 15, fontWeight: "500" }}>{item.name || "未命名文件"}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                  {[fmtSize(item.size), item.allowDownload ? "" : "未开放"].filter(Boolean).join(" · ")}
-                </Text>
-              </View>
-              {downloadingId === item.id ? <ActivityIndicator color={colors.primary} /> : <IconSymbol name="square.and.arrow.down" size={22} color={colors.muted} />}
-            </TouchableOpacity>
-          )}
-        />
+        <>
+          {/* 搜索框固定在 FlatList 之外（放 ListHeaderComponent 会因虚拟化
+              卸载导致输入框失焦、键盘反复弹出收起） */}
+          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+            <SearchInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="搜索课件"
+              style={{ backgroundColor: colors.background }}
+            />
+          </View>
+          <FlatList
+            data={shown}
+            keyExtractor={(f) => String(f.id)}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ padding: 16, paddingTop: 12, gap: 10, flexGrow: 1 }}
+            ListEmptyComponent={<EmptyState message="未找到匹配的课件" />}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => onTapFile(item)}
+                style={[{ backgroundColor: colors.surface, borderRadius: 14, padding: 16, flexDirection: "row", alignItems: "center", gap: 12 }, cardShadow(scheme)]}
+              >
+                <IconSymbol name="list.bullet" size={22} color={colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text numberOfLines={2} style={{ color: colors.foreground, fontSize: 15, fontWeight: "500" }}>{item.name || "未命名文件"}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                    {[fmtSize(item.size), item.allowDownload ? "" : "未开放"].filter(Boolean).join(" · ")}
+                  </Text>
+                </View>
+                {downloadingId === item.id ? <ActivityIndicator color={colors.primary} /> : <IconSymbol name="square.and.arrow.down" size={22} color={colors.muted} />}
+              </TouchableOpacity>
+            )}
+          />
+        </>
       )}
     </ScreenContainer>
   );
