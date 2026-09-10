@@ -73,6 +73,8 @@ package-lock.json
 .npmrc
 
 *.code-workspace
+.claude/
+.superpowers/
 *.md
 !README.md
 !README-en.md
