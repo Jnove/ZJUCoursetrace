@@ -64,7 +64,7 @@ No backend server required since v2.0.0. All requests to the ZJU academic system
 - Grade details: score distribution chart, per-course GPA progress bars, major/all toggle, grouped by semester with per-semester GPA
 - Exam schedule: grouped by semester, showing exam time, location, seat number, and countdown
 - Homework: aggregates pending assignments across courses with deadlines, sorted by due date, searchable by title / course name
-- Homework detail: view the assignment body, download attachments, and see the score and teacher's comment
+- Homework detail: tap a card to expand and view the assignment body + download attachments
 - Courseware download: browse and download course files from 学在浙大 (TronClass), opened with the system app; downloaded files managed in one place (open / delete); optional toggle to download unreleased courseware
 - Local data cache with silent background refresh
 
@@ -89,8 +89,7 @@ No backend server required since v2.0.0. All requests to the ZJU academic system
 │   │   └── settings.tsx           # Theme switching + logout
 │   ├── grade-detail.tsx           # Grade detail page
 │   ├── course-detail.tsx          # Course detail page
-│   ├── homework-detail.tsx        # Homework list (search / filter)
-│   ├── homework-item-detail.tsx   # Homework detail (body / attachments / score & comment)
+│   ├── homework-detail.tsx        # Homework list (search / filter / description preview / attachments inline expand)
 │   ├── courseware.tsx             # Courseware list + download
 │   ├── downloaded-courseware.tsx  # Downloaded courseware management
 │   ├── diagnostic-logs.tsx        # Diagnostic logs
