@@ -3,24 +3,25 @@ import {
   Text,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
 } from "react-native";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { cardShadow } from "@/lib/_core/shadow";
-import { useTheme, CARD_RADIUS_VALUES, DEFAULT_PRIMARY, FONT_FAMILY_META, FontFamily } from "@/lib/theme-provider";
+import { useTheme, CARD_RADIUS_VALUES, FONT_FAMILY_META } from "@/lib/theme-provider";
 import { useAuth } from "@/lib/auth-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { loadSession, fetchHomeworks, HomeworkInfo } from "@/lib/zju-client";
+import { loadSession, withRelogin, fetchHomeworks, HomeworkInfo, CoursewareFile } from "@/lib/zju-client";
+import { htmlToPlainText } from "@/lib/zju/courses-parsers";
 import { CommonNavBar } from "@/components/common/nav-bar";
+import { SearchInput } from "@/components/common/search-input";
 import { ErrorCard } from "@/components/common/error-card";
 import { EmptyState } from "@/components/common/empty-state";
 import { LoadingView } from "@/components/common/loading-view";
+import { useCoursewareDownload } from "@/hooks/use-courseware-download";
 
 // 作业紫用 colors.violet（随深浅色切换，与学业页一致）
 
@@ -82,7 +83,21 @@ function filterHomeworks(homeworks: HomeworkInfo[], tab: TabKey): HomeworkInfo[]
   }
 }
 
-function HomeworkCard({ hw, radius }: { hw: HomeworkInfo; radius: number }) {
+function HomeworkCard({
+  hw,
+  radius,
+  expanded,
+  onToggle,
+  onTapAttachment,
+  downloadingId,
+}: {
+  hw: HomeworkInfo;
+  radius: number;
+  expanded: boolean;
+  onToggle: () => void;
+  onTapAttachment: (att: CoursewareFile) => void;
+  downloadingId: number | null;
+}) {
   const colors = useColors();
   const scheme = useColorScheme();
   const past = isPast(hw.deadlineIso);
@@ -107,8 +122,14 @@ function HomeworkCard({ hw, radius }: { hw: HomeworkInfo; radius: number }) {
     tagBg = hexToRgba(colors.warning, 0.12);
   }
 
+  const hasExpandable = hw.description.trim() !== "" || hw.attachments.length > 0;
+  // 描述只展示前 3 行：lineHeight=20 × 3 = 60，加 paddingTop/Bottom≈70 高度
+  const descriptionPreview = hw.description ? htmlToPlainText(hw.description) : "";
+
   return (
-    <View
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={onToggle}
       style={{
         borderRadius: radius,
         backgroundColor: colors.background,
@@ -169,8 +190,97 @@ function HomeworkCard({ hw, radius }: { hw: HomeworkInfo; radius: number }) {
             截止 {hw.deadline}
           </Text>
         </View>
+
+        {hasExpandable && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
+            <IconSymbol
+              name={expanded ? "chevron.up" : "chevron.down"}
+              size={11}
+              color={colors.muted}
+            />
+            <Text style={{ fontSize: 11, color: colors.muted, fontFamily: ff }}>
+              {expanded ? "收起" : hw.attachments.length > 0 ? `展开（${hw.attachments.length} 个附件）` : "展开"}
+            </Text>
+          </View>
+        )}
+
+        {expanded && (
+          <View
+            style={{
+              marginTop: 8,
+              paddingTop: 10,
+              borderTopWidth: 0.5,
+              borderTopColor: colors.border,
+              gap: 10,
+            }}
+          >
+            {descriptionPreview && (
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: colors.foreground,
+                  fontFamily: ff,
+                  lineHeight: 20,
+                }}
+              >
+                {descriptionPreview}
+              </Text>
+            )}
+            {hw.attachments.length > 0 && (
+              <View style={{ gap: 6 }}>
+                {descriptionPreview && (
+                  <Text
+                    style={{ fontSize: 11, color: colors.muted, fontFamily: ff }}
+                  >
+                    附件
+                  </Text>
+                )}
+                {hw.attachments.map((att) => (
+                  <TouchableOpacity
+                    key={att.id}
+                    activeOpacity={0.7}
+                    onPress={() => onTapAttachment(att)}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                      paddingVertical: 8,
+                      paddingHorizontal: 10,
+                      borderRadius: 8,
+                      backgroundColor: colors.surface,
+                      borderWidth: 0.5,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <IconSymbol
+                      name="square.and.arrow.down"
+                      size={14}
+                      color={colors.violet}
+                    />
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        flex: 1,
+                        fontSize: 13,
+                        color: colors.foreground,
+                        fontFamily: ff,
+                      }}
+                    >
+                      {att.name || "未命名附件"}
+                    </Text>
+                    {downloadingId === att.id ? (
+                      <Text style={{ fontSize: 11, color: colors.muted }}>…</Text>
+                    ) : (
+                      <IconSymbol name="chevron.right" size={14} color={colors.muted} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -259,17 +369,21 @@ function HomeworkTabBar({
 }
 
 export default function HomeworkDetailScreen() {
-  const router = useRouter();
   const colors = useColors();
   const { cardRadius } = useTheme();
   const { state: authState } = useAuth();
   const r = CARD_RADIUS_VALUES[cardRadius];
+  const { downloadingId, openFile } = useCoursewareDownload();
 
   const [activeTab, setActiveTab] = useState<TabKey>("pending");
+  const [query, setQuery] = useState("");
   const [homeworks, setHomeworks] = useState<HomeworkInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 展开项用 Set 存，避免 FlatList 虚拟化卸载后丢状态
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [allowPreview, setAllowPreview] = useState(false);
 
   const loadData = useCallback(async (forceRefresh = false) => {
     const username = await AsyncStorage.getItem("username");
@@ -283,12 +397,16 @@ export default function HomeworkDetailScreen() {
     if (!forceRefresh) {
       const raw = await AsyncStorage.getItem(cacheKey);
       if (raw) {
-        setHomeworks(JSON.parse(raw));
+        try {
+          setHomeworks(JSON.parse(raw));
+        } catch {
+          // 旧缓存无 description/attachments 字段，丢掉重建
+        }
         setLoading(false);
         try {
           const session = await loadSession();
           if (session) {
-            const fresh = await fetchHomeworks(session);
+            const fresh = await withRelogin(session, () => fetchHomeworks(session));
             setHomeworks(fresh);
             await AsyncStorage.setItem(cacheKey, JSON.stringify(fresh));
           }
@@ -305,7 +423,7 @@ export default function HomeworkDetailScreen() {
         setError("请先登录");
         return;
       }
-      const result = await fetchHomeworks(session);
+      const result = await withRelogin(session, () => fetchHomeworks(session));
       setHomeworks(result);
       await AsyncStorage.setItem(cacheKey, JSON.stringify(result));
     } catch (e) {
@@ -323,11 +441,38 @@ export default function HomeworkDetailScreen() {
 
   useEffect(() => {
     if (authState.userToken) {
+      // 拉设置里的「下载未开放课件」开关，决定附件 openFile 时的降级行为
+      AsyncStorage.getItem("pref_courseware_preview").then((v) => setAllowPreview(v === "1"));
       loadData();
     }
-  }, [authState.userToken]);
+  }, [authState.userToken, loadData]);
 
-  const filtered = useMemo(() => filterHomeworks(homeworks, activeTab), [homeworks, activeTab]);
+  const onToggleExpanded = useCallback((id: number) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const onTapAttachment = useCallback(
+    async (att: CoursewareFile) => {
+      const hw = homeworks.find((h) => h.attachments.some((a) => a.id === att.id));
+      const err = await openFile(att, hw?.courseId ?? 0, allowPreview, hw?.courseName);
+      if (err) setError(err);
+    },
+    [homeworks, openFile, allowPreview]
+  );
+
+  const filtered = useMemo(() => {
+    const byTab = filterHomeworks(homeworks, activeTab);
+    const kw = query.trim().toLowerCase();
+    if (!kw) return byTab;
+    return byTab.filter(
+      (h) => h.title.toLowerCase().includes(kw) || h.courseName.toLowerCase().includes(kw)
+    );
+  }, [homeworks, activeTab, query]);
 
   const counts = useMemo(
     () => ({
@@ -370,17 +515,41 @@ export default function HomeworkDetailScreen() {
           <ErrorCard message={error} onRetry={() => loadData(true)} />
         </View>
       ) : (
-        <FlatList
-          data={filtered}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={({ item }) => <HomeworkCard hw={item} radius={r} />}
-          contentContainerStyle={{ padding: 16, flexGrow: 1 }}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.violet} />
-          }
-          ListEmptyComponent={<EmptyState message={`暂无${tabLabel}作业`} />}
-        />
+        <>
+          {/* 搜索框必须固定在 FlatList 之外——放 ListHeaderComponent 里会被
+              虚拟化卸载/重挂载，导致输入框失焦、键盘反复弹出收起 */}
+          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+            <SearchInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="搜索作业 / 课程"
+              style={{ backgroundColor: colors.background }}
+            />
+          </View>
+          <FlatList
+            data={filtered}
+            keyExtractor={(item) => String(item.id)}
+            keyboardShouldPersistTaps="handled"
+            renderItem={({ item }) => (
+              <HomeworkCard
+                hw={item}
+                radius={r}
+                expanded={expandedIds.has(item.id)}
+                onToggle={() => onToggleExpanded(item.id)}
+                onTapAttachment={onTapAttachment}
+                downloadingId={downloadingId}
+              />
+            )}
+            contentContainerStyle={{ padding: 16, paddingTop: 12, flexGrow: 1 }}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.violet} />
+            }
+            ListEmptyComponent={
+              <EmptyState message={query.trim() ? "未找到匹配的作业" : `暂无${tabLabel}作业`} />
+            }
+          />
+        </>
       )}
     </ScreenContainer>
   );

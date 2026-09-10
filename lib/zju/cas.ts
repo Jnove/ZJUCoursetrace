@@ -263,13 +263,15 @@ export async function login(username: string, password: string): Promise<ZjuSess
 
 /**
  * 会话过期时用已存凭据静默重登，并重试一次请求。
+ * 同时处理教务(ZDBK)会话 __SESSION_EXPIRED__ 与 courses(学在浙大/TronClass) 会话 __COURSES_EXPIRED__：
+ * 两者都靠刷新 CAS TGT 后重发请求恢复（courses 请求会顺着 CAS 重定向重新换取 service ticket）。
  */
 export async function withRelogin<T>(_session: ZjuSession, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   }
   catch (e: any) {
-    if (e.message !== "__SESSION_EXPIRED__") throw e;
+    if (e.message !== "__SESSION_EXPIRED__" && e.message !== "__COURSES_EXPIRED__") throw e;
     const creds = await loadCredentials();
     if (!creds) throw new Error("会话已过期，请重新登录");
     console.log("重新登录");

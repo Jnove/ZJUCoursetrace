@@ -65,4 +65,16 @@ export interface HomeworkInfo {
   /** raw ISO-8601, used for sorting */
   deadlineIso: string;
   submitted: boolean;
+  /** 原始 HTML 字符串（来自 data.description），列表卡片展开时 htmlToPlainText 渲染 */
+  description: string;
+  /** 附件（来自 uploads），点按走 useCoursewareDownload 走缓存/下载流程 */
+  attachments: CoursewareFile[];
+}
+
+export interface CoursewareFile {
+  id: number;            // upload id
+  referenceId: number;   // reference_id（开放下载走这个）
+  name: string;          // 清洗前的原始文件名
+  size: number;          // 字节；未知为 0
+  allowDownload: boolean;// false = 老师未开放
 }

@@ -98,9 +98,69 @@ export async function zPostJson(url: string, data: any): Promise<string> {
   return body;
 }
 
+/**
+ * 同 zPostJson，但额外返回 status / finalUrl，供需要区分「200 成功」与
+ * 「401 错误 JSON」的调用方使用（zPostJson 只返回 body，两者无法区分）。
+ */
+export async function zPostJsonEx(
+  url: string,
+  data: any
+): Promise<{ body: string; status: number; finalUrl: string }> {
+  const ua = DATA_HDR["User-Agent"];
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/plain, */*",
+    "X-Requested-With": "XMLHttpRequest",
+    "User-Agent": ua,
+  };
+  const { body, status, url: finalUrl } = await xhrPost(url, JSON.stringify(data), headers, ua, 15000);
+  if (finalUrl.includes("zjuam.zju.edu.cn")) throw new Error("__COURSES_EXPIRED__");
+  return { body, status, finalUrl };
+}
+
 /** courses.zju.edu.cn 的 GET（会话失效标记与 zdbk 区分开） */
 export async function zGetCourse(url: string): Promise<string> {
   const { body, url: fin } = await xhrGet(url, DATA_HDR["User-Agent"], 15000);
   if (fin.includes("zjuam.zju.edu.cn")) throw new Error("__COURSES_EXPIRED__");
   return body;
+}
+
+/**
+ * 二进制 GET：走和 zGetCourse 相同的原生 cookie jar（会话天然有效）。
+ * 返回 base64（不含 data URI 前缀），供 expo-file-system 以 Base64 落盘。
+ * 会话失效判定交调用方（看 finalUrl 是否落到 zjuam）。
+ */
+export function xhrGetBinary(
+  url: string,
+  timeoutMs: number = 30000
+): Promise<{ base64: string; finalUrl: string; status: number }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", url, true);
+    xhr.timeout = timeoutMs;
+    xhr.responseType = "blob";
+    xhr.setRequestHeader("User-Agent", DATA_HDR["User-Agent"]);
+    xhr.setRequestHeader("Accept", "*/*");
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState !== 4) return;
+      const finalUrl = xhr.responseURL ?? url;
+      const status = xhr.status;
+      if (status < 200 || status >= 300) {
+        reject(new Error(`__HTTP_${status}__`));
+        return;
+      }
+      const blob = xhr.response as Blob;
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("文件读取失败"));
+      reader.onloadend = () => {
+        const dataUrl = String(reader.result ?? "");
+        const comma = dataUrl.indexOf(",");
+        resolve({ base64: comma >= 0 ? dataUrl.slice(comma + 1) : "", finalUrl, status });
+      };
+      reader.readAsDataURL(blob);
+    };
+    xhr.onerror = () => reject(new Error("网络请求失败"));
+    xhr.ontimeout = () => reject(new Error("下载超时，请重试"));
+    xhr.send(null);
+  });
 }

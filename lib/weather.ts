@@ -1,10 +1,11 @@
 /**
- * 天气数据：定位（高德 → expo-location 缓存 → IP → watch 兜底）+ Open-Meteo 拉取。
+ * 天气数据：定位（系统定位(无 GMS 可用) → expo-location 缓存 → IP → GPS 兜底）+ Open-Meteo 拉取。
  * 纯数据层，无 UI。
  */
 
 import { Platform } from "react-native";
 import * as Location from "expo-location";
+import { writeLog } from "./diagnostic-log";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -56,78 +57,137 @@ export function getWeatherTip(data: WeatherData): string | null {
   return null;
 }
 
-// ─── Location: 优先使用高德地图，降级到 expo-location ────────────────────────
+// ─── Location: 系统定位（无 GMS 也可用）→ expo-location 缓存 → IP → GPS 兜底 ──
 
 type SimpleCoords = { latitude: number; longitude: number };
 
-/**
- * 尝试使用 expo-gaode-map 的定位服务（精度更高，适合中国大陆）。
- * 若未安装或未配置 API Key，自动降级到 expo-location + IP 定位。
- *
- * 使用前请在 app.json plugins 配置 expo-gaode-map：
- *   ["expo-gaode-map", { "androidKey": "YOUR_KEY", "iosKey": "YOUR_KEY" }]
- */
-async function getLocationViaGaode(): Promise<SimpleCoords | null> {
-  try {
-    // 动态引入，避免未安装时崩溃
-    // @ts-ignore
-    const gaode = require('expo-gaode-map');
-    const AMapLocation = gaode.AMapLocation ?? gaode.Location ?? gaode.default?.Location;
-    if (!AMapLocation) return null;
-
-    // 请求系统定位权限
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return null;
-
-    // 高德单次定位
-    const pos = await AMapLocation.getCurrentPosition({
-      accuracy: 'high',
-      timeout: 10000,
-      onceLocation: true,
-    });
-
-    const lat = pos?.latitude ?? pos?.coords?.latitude;
-    const lng = pos?.longitude ?? pos?.coords?.longitude;
-    if (lat && lng) {
-      console.log('[Location] 高德定位成功:', lat, lng, pos?.city ?? '');
-      return { latitude: lat, longitude: lng };
-    }
-    return null;
-  } catch {
-    // expo-gaode-map 未安装或未配置，静默降级
-    return null;
-  }
+// GeolocationPositionError 等宿主对象不是 Error 实例，String() 只会得到 "[object …]"
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  const o = e as { message?: unknown; code?: unknown } | null;
+  if (o && typeof o.message === "string" && o.message) return o.message;
+  if (o && o.code !== undefined) return `code ${o.code}`;
+  return String(e);
 }
 
-const getLocationViaWatch = (): Promise<Location.LocationObject> => {
-  return new Promise((resolve, reject) => {
-    let sub: Location.LocationSubscription | undefined;
-    const timer = setTimeout(() => { sub?.remove(); reject(new Error('定位超时')); }, 15000);
-    Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.Low },
-      (loc) => { clearTimeout(timer); sub?.remove(); resolve(loc); }
-    ).then(s => { sub = s; });
+/**
+ * expo-location 在 Android 上依赖 Google Play 服务的 Fused Location Provider，
+ * 无 GMS 的设备（国产 ROM 大多数）会报 "Location provider is unavailable"。
+ * @react-native-community/geolocation 的 locationProvider: "auto" 有 GMS 时走
+ * Play Services，没有时自动落回系统 LocationManager（GPS + 厂商网络定位），
+ * 因此作为原生定位的首选。权限仍统一由 expo-location 申请（纯运行时权限，不依赖 GMS）。
+ *
+ * 必须惰性 require：这是原生模块，Expo Go 里没有链接，顶层 import 会在模块
+ * 求值时直接抛错炸掉整个路由。require 失败时返回 null，降级到缓存/IP 链路。
+ */
+type GeolocationModule = typeof import("@react-native-community/geolocation").default;
+let geolocation: GeolocationModule | null | undefined;
+function getGeolocation(): GeolocationModule | null {
+  if (geolocation !== undefined) return geolocation;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- 惰性加载原生模块，Expo Go 下 import 会抛错
+    const mod = require("@react-native-community/geolocation");
+    const Geolocation: GeolocationModule = mod.default ?? mod;
+    Geolocation.setRNConfiguration({
+      skipPermissionRequests: true,
+      authorizationLevel: "whenInUse",
+      locationProvider: "auto",
+    });
+    geolocation = Geolocation;
+  } catch {
+    console.log('[Location] geolocation 原生模块不可用（Expo Go？），跳过系统定位');
+    geolocation = null;
+  }
+  return geolocation;
+}
+
+function getLocationViaGeolocation(opts: {
+  enableHighAccuracy: boolean;
+  timeout: number;
+  maximumAge: number;
+}): Promise<{ pos: SimpleCoords | null; error?: string }> {
+  const Geolocation = getGeolocation();
+  if (!Geolocation) return Promise.resolve({ pos: null, error: "原生模块不可用" });
+  return new Promise((resolve) => {
+    try {
+      Geolocation.getCurrentPosition(
+        (pos) => resolve({ pos: { latitude: pos.coords.latitude, longitude: pos.coords.longitude } }),
+        (err) => resolve({ pos: null, error: errMsg(err) }),
+        opts,
+      );
+    } catch (e) {
+      resolve({ pos: null, error: errMsg(e) });
+    }
   });
-};
+}
 
 export const getLocation = async (): Promise<SimpleCoords | null> => {
-  // 1. 优先高德定位（中国大陆更精准）
-  const gaodePos = await getLocationViaGaode();
-  if (gaodePos) return gaodePos;
+  // 整条链路的每一步都记入 steps，结束时汇总写一条诊断日志（LOCATION tag）
+  const steps: string[] = [];
+  const finish = (source: string | null, pos: SimpleCoords | null): SimpleCoords | null => {
+    const ok = source !== null && pos !== null;
+    console.log('[Location]', ok ? `定位成功（${source}）` : '定位失败', steps.join(' → '));
+    void writeLog(
+      "LOCATION",
+      ok ? `定位成功（${source}）` : "定位失败（所有途径均失败）",
+      ok ? "info" : "warn",
+      {
+        steps,
+        ...(pos ? { lat: +pos.latitude.toFixed(4), lon: +pos.longitude.toFixed(4) } : {}),
+      },
+    );
+    return pos;
+  };
 
-  // 2. Web 平台直接用浏览器 API
+  // 1. Web 平台直接用浏览器 API
   if (Platform.OS === 'web') {
-    const loc = await Location.getCurrentPositionAsync();
-    return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+    try {
+      const loc = await Location.getCurrentPositionAsync();
+      steps.push('浏览器定位: 成功');
+      return finish('浏览器', { latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+    } catch (e) {
+      steps.push(`浏览器定位: 失败（${errMsg(e)}）`);
+      return finish(null, null);
+    }
   }
 
-  // 3. expo-location 缓存定位
+  // 2. 申请定位权限；被拒则直接跳到 IP 兜底
+  let granted = false;
   try {
-    const last = await Location.getLastKnownPositionAsync({ maxAge: 1000 * 60 * 60 * 24, requiredAccuracy: 5000 });
-    if (last) return { latitude: last.coords.latitude, longitude: last.coords.longitude };
-  } catch { /* ignore */ }
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    granted = status === 'granted';
+    steps.push(`权限: ${status}`);
+  } catch (e) {
+    steps.push(`权限: 请求异常（${errMsg(e)}）`);
+  }
 
-  // 4. IP 定位兜底
+  if (granted) {
+    // 3. 系统定位：低精度（网络定位，快），接受 1 小时内的缓存
+    const { pos, error } = await getLocationViaGeolocation({
+      enableHighAccuracy: false,
+      timeout: 10000,
+      maximumAge: 1000 * 60 * 60,
+    });
+    if (pos) {
+      steps.push('系统定位(低精度): 成功');
+      return finish('系统定位', pos);
+    }
+    steps.push(`系统定位(低精度): 失败（${error}）`);
+
+    // 4. expo-location 缓存定位（有 GMS 的老设备可能还留有缓存）
+    try {
+      const last = await Location.getLastKnownPositionAsync({ maxAge: 1000 * 60 * 60 * 24, requiredAccuracy: 5000 });
+      if (last) {
+        steps.push('expo-location 缓存: 命中');
+        return finish('expo-location 缓存', { latitude: last.coords.latitude, longitude: last.coords.longitude });
+      }
+      steps.push('expo-location 缓存: 无');
+    } catch (e) {
+      steps.push(`expo-location 缓存: 异常（${errMsg(e)}）`);
+    }
+  }
+
+  // 5. IP 定位兜底
   try {
     const ipRes = await fetch('https://httpbin.org/ip');
     const { origin } = await ipRes.json();
@@ -135,14 +195,29 @@ export const getLocation = async (): Promise<SimpleCoords | null> => {
     const json = await res.json();
     const data = json.data;
     if (data?.latitude && data?.longitude) {
-      console.log('[Location] IP 定位:', data.city);
-      return { latitude: parseFloat(data.latitude), longitude: parseFloat(data.longitude) };
+      steps.push(`IP 定位: 成功（${data.city ?? '未知城市'}）`);
+      return finish('IP', { latitude: parseFloat(data.latitude), longitude: parseFloat(data.longitude) });
     }
-  } catch { /* ignore */ }
+    steps.push('IP 定位: 返回无坐标');
+  } catch (e) {
+    steps.push(`IP 定位: 失败（${errMsg(e)}）`);
+  }
 
-  // 5. 最终降级：watch 定位
-  const loc = await getLocationViaWatch();
-  return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+  // 6. 最终降级：GPS 单次定位（室外可用，室内大概率超时）
+  if (granted) {
+    const { pos, error } = await getLocationViaGeolocation({
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    });
+    if (pos) {
+      steps.push('GPS 兜底: 成功');
+      return finish('GPS', pos);
+    }
+    steps.push(`GPS 兜底: 失败（${error}）`);
+  }
+
+  return finish(null, null);
 };
 
 // ─── Weather fetch (含风速/湿度/逐小时) ──────────────────────────────────────

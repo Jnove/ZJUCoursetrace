@@ -60,6 +60,7 @@ const MAPPING = {
   // Misc symbols (原 emoji/字符替换)
   "checkmark":                             "check",
   "xmark":                                 "close",
+  "magnifyingglass":                       "magnify",
   "beach.umbrella.fill":                   "beach",
   "party.popper.fill":                     "party-popper",
   "exclamationmark.triangle.fill":         "alert",

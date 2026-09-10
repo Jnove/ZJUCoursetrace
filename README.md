@@ -20,7 +20,7 @@
 
 - [Expo](https://expo.dev) + [React Native](https://reactnative.dev) — 跨平台框架，一套代码支持 iOS、Android 和 Web
 - [Expo Router](https://expo.github.io/router) — 基于文件系统的路由方案
-- [expo-location](https://docs.expo.dev/versions/latest/sdk/location/) — 设备定位，支持 GPS 缓存和无 GMS 环境回退
+- [@react-native-community/geolocation](https://github.com/michalchudziak/react-native-geolocation) + [expo-location](https://docs.expo.dev/versions/latest/sdk/location/) — 设备定位；无 GMS 设备自动回退到系统 LocationManager，另有 GPS 缓存与 IP 定位兜底
 - [expo-notifications](https://docs.expo.dev/versions/latest/sdk/notifications/) — 课程常驻通知
 - [expo-background-task](https://docs.expo.dev/versions/latest/sdk/background-task/) + [expo-task-manager](https://docs.expo.dev/versions/latest/sdk/task-manager/) — App 处于后台时定期唤醒刷新课程通知倒计时（系统调度，约 15 分钟一次）
 - [expo-secure-store](https://docs.expo.dev/versions/latest/sdk/securestore/) — 凭据安全存储，支持会话过期后静默重新登录
@@ -32,6 +32,7 @@
 v2.0.0 起不再需要后端服务器。所有对浙大教务系统的请求均由客户端直接发起：
 - 利用 iOS NSURLSession / Android OkHttp 的 **native cookie jar** 自动维护会话
 - CAS 统一认证、课表、成绩、考试信息均直连 `zdbk.zju.edu.cn`
+- 作业、课件直连 `courses.zju.edu.cn`（学在浙大 / TronClass）
 - 凭据通过 `expo-secure-store` 加密保存，会话过期后自动重新登录
 
 **外部 API**
@@ -48,7 +49,7 @@ v2.0.0 起不再需要后端服务器。所有对浙大教务系统的请求均�
 - 正在进行的课程显示实时倒计时进度条
 - 假期 / 学期间隙自动切换为「距开学 N 天」倒计时
 - 每日随机古典诗词
-- 实时天气：自动定位（GPS 缓存 → IP 定位），显示气温区间、降雨概率和出行提示；21 点后自动切换为明日天气
+- 实时天气：自动定位（系统定位 → GPS 缓存 → IP 定位，无 GMS 设备可用），显示气温区间、降雨概率和出行提示；21 点后自动切换为明日天气
 
 **课程表**
 - 周网格视图与日列表视图，一键切换
@@ -62,7 +63,9 @@ v2.0.0 起不再需要后端服务器。所有对浙大教务系统的请求均�
 - 主修绩点与全部绩点概览（含学分统计）
 - 成绩详情：分数分布图、逐课绩点进度条，主修 / 全部切换，按学期分组并显示学期均绩
 - 考试安排：按学期分组，显示考试时间、地点、座位号及倒计时
-- 作业查询：汇总各课程待交作业与截止时间，按 DDL 排序
+- 作业查询：汇总各课程待交作业与截止时间，按 DDL 排序，支持按标题 / 课程名搜索
+- 作业详情：作业卡片可展开查看题目正文与下载附件
+- 课件下载：浏览学在浙大课程课件并下载后用系统应用打开；已下载课件统一管理（打开 / 删除）；可选开启下载未开放课件
 - 数据本地缓存，后台静默刷新
 
 **通知与设置**
@@ -86,6 +89,9 @@ v2.0.0 起不再需要后端服务器。所有对浙大教务系统的请求均�
 │   │   └── settings.tsx           # 主题切换 + 退出登录
 │   ├── grade-detail.tsx           # 成绩详情页
 │   ├── course-detail.tsx          # 课程详情页
+│   ├── homework-detail.tsx        # 作业列表（搜索 / 筛选 / 描述预览 / 附件 inline 展开）
+│   ├── courseware.tsx             # 课件列表 + 下载
+│   ├── downloaded-courseware.tsx  # 已下载课件管理
 │   ├── diagnostic-logs.tsx        # 诊断日志
 │   ├── personalization.tsx        # 个性化设置
 │   └── about.tsx                  # 关于 + 检查更新
@@ -95,7 +101,8 @@ v2.0.0 起不再需要后端服务器。所有对浙大教务系统的请求均�
 │   └── course-detail-content.tsx  # 课程详情组件
 │
 ├── lib/
-│   ├── zju-client.ts              # CAS 认证 + 全部数据请求（无服务端）
+│   ├── zju-client.ts              # ZJU 客户端出口（re-export lib/zju/）
+│   ├── zju/                       # CAS 认证 + 教务 / 学在浙大数据请求（无服务端）
 │   ├── auth-context.tsx           # 登录/登出状态管理
 │   ├── schedule-context.tsx       # 课程获取和缓存逻辑
 │   ├── semester-utils.ts          # 当前学期/周次计算工具（含农历）
@@ -155,7 +162,7 @@ eas build --platform android --profile production
 
 - **仅支持单用户** — 每台设备上只能同时登录一个账户（native cookie jar 限制）
 - **学期检测不完整** — 处于学期之间的日期（如考试周、假期）返回空值，首页显示无数据
-- **Android 无 GMS 定位较慢** — 不预装 Google Play 服务的设备 GPS 冷启动较慢，首次定位会自动回退到 IP 定位
+- **Android 无 GMS 首次定位较慢** — 无 Google Play 服务的设备走系统 LocationManager 定位，冷启动可能较慢；超时会自动回退到 IP 定位
 - **iOS 不支持常驻通知** — 系统限制，课程通知在 iOS 上可被用户手动清除
 - **后台通知倒计时为粗粒度** — App 处于后台时由系统调度唤醒（约 15 分钟一次，iOS 尤甚），倒计时无法逐秒刷新；已通过「里程碑预排」缓解（距上课 60/30/10/5 分钟与上课时刻由系统闹钟准点更新），回到前台后立即恢复精确刷新
 - **Web 端无法登录** — CAS 认证依赖原生 cookie jar 跨域携带会话，浏览器受 CORS 限制无法完成登录，Web 端仅用于开发预览界面

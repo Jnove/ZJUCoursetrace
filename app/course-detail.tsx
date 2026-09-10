@@ -32,6 +32,7 @@ export default function CourseDetailScreen() {
             classroom={classroom}
             weekType={weekType}
             examInfo={examInfo}
+            onOpenCourseware={() => router.push(`/courseware?courseName=${encodeURIComponent(courseName)}`)}
           />
         </View>
       </ScrollView>

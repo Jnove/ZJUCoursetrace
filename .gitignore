@@ -64,12 +64,17 @@ Thumbs.db
 #design
 INTEGRATION.
 
+# brainstorming / design specs (local only, never commit)
+docs/superpowers/
+
 package-lock.json
 
 #npm config
 .npmrc
 
 *.code-workspace
+.claude/
+.superpowers/
 *.md
 !README.md
 !README-en.md

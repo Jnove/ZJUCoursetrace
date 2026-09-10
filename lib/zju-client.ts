@@ -21,6 +21,7 @@ export type {
   ExamInfo,
   SemesterOption,
   HomeworkInfo,
+  CoursewareFile,
 } from "./zju/types";
 
 export {
@@ -41,8 +42,15 @@ export {
   fetchExams,
   fetchStudentName,
   loadStoredStudentName,
-  fetchHomeworks,
 } from "./zju/api";
+
+export {
+  fetchHomeworks,
+  listMyCourses,
+  resolveCourseId,
+  fetchCourseFiles,
+  downloadCourseFile,
+} from "./zju/courses-api";
 
 export {
   parseKbList,

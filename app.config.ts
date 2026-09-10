@@ -19,7 +19,7 @@ const env = {
 const config: ExpoConfig = {
   name: env.appName,
   slug: env.appSlug,
-  version: "2.0.2",
+  version: "2.0.3",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: env.scheme,
@@ -44,6 +44,10 @@ const config: ExpoConfig = {
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
+    // 键盘弹出时窗口平移而非压缩重排（adjustPan）。默认的 resize 在
+    // edge-to-edge + 部分国产 ROM 输入法上会形成「弹出→重排→失焦→收起」
+    // 振荡环（作业搜索框/课程选择器/自定义课程表单均复现过）
+    softwareKeyboardLayoutMode: "pan",
     package: env.androidPackage,
     intentFilters: [
       {
@@ -106,13 +110,15 @@ const config: ExpoConfig = {
       "androidMode": "default"
     }],
     "expo-background-task",
-    // ["expo-gaode-map", { "androidKey": "", "iosKey": "" }]
   ],
   experiments: {
     typedRoutes: true,
     reactCompiler: true,
   },
   "extra": {
+    "eas": {
+      "projectId": "e8306b59-4fc5-4e4f-aaee-85eb788278ed"
+    },
   },
 };
 

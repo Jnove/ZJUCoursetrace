@@ -36,6 +36,7 @@ const TAG_LABELS: Record<LogTag, string> = {
   SESSION:  "会话",
   CONTEXT:  "上下文",
   NETWORK:  "网络",
+  LOCATION: "定位",
 };
 
 type LevelStyle = { label: string; bg: string; text: string };
@@ -56,6 +57,7 @@ const FILTER_DEFS: { key: Filter; label: string }[] = [
   { key: "ACADEMIC", label: "学业"    },
   { key: "SESSION",  label: "会话"    },
   { key: "CONTEXT",  label: "上下文"  },
+  { key: "LOCATION", label: "定位"    },
 ];
 
 // ─── 工具函数 ──────────────────────────────────────────────────────────────────

@@ -480,6 +480,18 @@ const toggleAutoUpdate = async (value: boolean) => {
             onPress={() => openReleasePage("https://github.com/zjuers/celechron")}
           />
           <InfoRow
+            label="课件/作业参考"
+            value="zju-learning-assistant ↗"
+            valueColor={primaryColor}
+            onPress={() => openReleasePage("https://github.com/PeiPei233/zju-learning-assistant")}
+          />
+          <InfoRow
+            label="课件/作业参考"
+            value="fiz ↗"
+            valueColor={primaryColor}
+            onPress={() => openReleasePage("https://github.com/CrazySpottedDove/fiz")}
+          />
+          <InfoRow
             label="天气数据"
             value="Open-Meteo ↗"
             valueColor={primaryColor}
@@ -496,7 +508,6 @@ const toggleAutoUpdate = async (value: boolean) => {
             value="httpbin.org/ip ↗"
             valueColor={primaryColor}
             onPress={() => openReleasePage("https://httpbin.org/ip")}
-            last
           />
           <InfoRow
             label="IP 定位"
