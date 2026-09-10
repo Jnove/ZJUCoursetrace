@@ -8,9 +8,9 @@ import { xhrGet, xhrPost, zPostJsonEx, zGetCourse, xhrGetBinary } from "./http";
 import { rsaEncrypt } from "./rsa";
 import { loadCredentials, parseCasForm, buildFormBody } from "./cas";
 import { fmtHwDdl } from "./parsers";
-import { flattenActivitiesToFiles, sanitizeFileName, parseHomeworkDetail } from "./courses-parsers";
+import { flattenActivitiesToFiles, sanitizeFileName } from "./courses-parsers";
 import { writeLog } from "@/lib/diagnostic-log";
-import type { ZjuSession, HomeworkInfo, CoursewareFile, HomeworkDetail } from "./types";
+import type { ZjuSession, HomeworkInfo, CoursewareFile } from "./types";
 
 // ─── Courses 会话建立（作业/课件共用） ────────────────────────────────────────
 
@@ -185,6 +185,8 @@ export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo
   //    以前失败被静默吞成 []，一旦会话/网络瞬时异常导致全部课程同时失败，
   //    结果就会误报「作业 0 项」。改为：失败的课程重试一次；若全部课程都失败，
   //    抛错让 UI 显示重试，而不是把用户骗成「没有作业」。
+  //    列表项的 description / uploads 也在这里一并抽出来，详情渲染不再依赖
+  //    单条 detail 端点（参见 homework.rs 同样的做法）。
   const fetchCourseHw = async (c: { id: number; name: string }): Promise<HomeworkInfo[]> => {
     const url = `${COURSES_BASE}/api/courses/${c.id}/homework-activities?page=1&page_size=1000`;
     const body = await zGetCourse(url); // 作业列表仍为 GET 请求
@@ -200,6 +202,8 @@ export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo
           deadline: hw.deadline ? fmtHwDdl(hw.deadline as string) : "未知",
           deadlineIso: (hw.deadline as string) ?? "",
           submitted: !!(hw.submitted),
+          description: typeof hw?.data?.description === "string" ? hw.data.description : "",
+          attachments: flattenActivitiesToFiles([{ uploads: hw?.uploads ?? [] }]),
         })
       );
   };
@@ -234,27 +238,8 @@ export async function fetchHomeworks(_session: ZjuSession): Promise<HomeworkInfo
 }
 
 /** 单个作业详情（正文/附件/得分/评语）。会话失效抛 __COURSES_EXPIRED__。 */
-export async function fetchHomeworkDetail(homeworkId: number): Promise<HomeworkDetail> {
-  const text = await zGetCourse(`${COURSES_BASE}/api/course/activities/${homeworkId}`);
-  const raw = JSON.parse(text);
-  const detail = parseHomeworkDetail(raw);
-
-  // ── 临时诊断：正文解析为空时打出响应结构，定位题目正文的真实字段（确认后移除） ──
-  if (!detail.bodyText) {
-    const diag = {
-      keys: Object.keys(raw ?? {}),
-      dataKeys: raw?.data && typeof raw.data === "object" ? Object.keys(raw.data) : String(raw?.data),
-      descriptionType: typeof raw?.description,
-      dataDescriptionType: typeof raw?.data?.description,
-      preview: text.slice(0, 600),
-    };
-    console.log("[hw-detail-diag]", JSON.stringify(diag));
-    void writeLog("NETWORK", `作业详情 ${homeworkId} 正文为空 — 响应结构`, "warn", diag);
-  }
-
-  return detail;
-}
-
+// 分数与评语属于另一批端点（detail 端点的响应结构与 LIST 不一致，且 score/comment
+// 仅对当前用户可见，不会出现在课程级 LIST 里）。后续接 score/comment 时另起函数。
 // ─── Courseware (courses.zju.edu.cn) ──────────────────────────────────────────
 
 /**

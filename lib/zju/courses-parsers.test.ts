@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeFileName, htmlToPlainText, flattenActivitiesToFiles, parseHomeworkDetail } from "./courses-parsers";
+import { sanitizeFileName, htmlToPlainText, flattenActivitiesToFiles } from "./courses-parsers";
 
 describe("sanitizeFileName", () => {
   it("strips path separators to prevent traversal", () => {
@@ -67,58 +67,5 @@ describe("flattenActivitiesToFiles", () => {
   it("handles empty / malformed input", () => {
     expect(flattenActivitiesToFiles([])).toEqual([]);
     expect(flattenActivitiesToFiles([{}])).toEqual([]);
-  });
-});
-
-describe("parseHomeworkDetail", () => {
-  it("extracts title, body, attachments, score, comment", () => {
-    const raw = {
-      id: 7, title: "作业一",
-      description: "<p>完成 <b>3.1</b></p>",
-      uploads: [{ id: 1, reference_id: 11, name: "题目.pdf", size: 10, allow_download: true }],
-      submission: { score: "95", comment: "不错" },
-    };
-    expect(parseHomeworkDetail(raw)).toEqual({
-      id: 7, title: "作业一", bodyText: "完成 3.1",
-      attachments: [{ id: 1, referenceId: 11, name: "题目.pdf", size: 10, allowDownload: true }],
-      score: "95", comment: "不错",
-    });
-  });
-  it("nulls score/comment when absent and empty attachments", () => {
-    const out = parseHomeworkDetail({ id: 3, title: "T", content: "hi" });
-    expect(out.bodyText).toBe("hi");
-    expect(out.attachments).toEqual([]);
-    expect(out.score).toBeNull();
-    expect(out.comment).toBeNull();
-  });
-  it("preserves a score of 0 / \"0\" (not nulled by a falsy check)", () => {
-    expect(parseHomeworkDetail({ id: 1, title: "T", submission: { score: 0 } }).score).toBe("0");
-    expect(parseHomeworkDetail({ id: 1, title: "T", score: "0" }).score).toBe("0");
-  });
-  it("nulls a blank/whitespace comment", () => {
-    expect(parseHomeworkDetail({ id: 1, title: "T", submission: { comment: "   " } }).comment).toBeNull();
-    expect(parseHomeworkDetail({ id: 1, title: "T", comment: "" }).comment).toBeNull();
-  });
-  it("falls back to top-level score/comment when submission is absent", () => {
-    const d = parseHomeworkDetail({ id: 1, title: "T", score: "88", comment: "ok" });
-    expect(d.score).toBe("88");
-    expect(d.comment).toBe("ok");
-  });
-  it("reads the homework body from data.description (real TronClass shape)", () => {
-    // 作业活动的正文在 data.description，顶层 description 为 null —— 曾导致「无题目描述」
-    const d = parseHomeworkDetail({
-      id: 9, title: "T",
-      description: null,
-      data: { description: "<p>阅读第 4 章</p>" },
-    });
-    expect(d.bodyText).toBe("阅读第 4 章");
-  });
-  it("prefers data.description over top-level description", () => {
-    const d = parseHomeworkDetail({
-      id: 9, title: "T",
-      description: "outer",
-      data: { description: "inner" },
-    });
-    expect(d.bodyText).toBe("inner");
   });
 });

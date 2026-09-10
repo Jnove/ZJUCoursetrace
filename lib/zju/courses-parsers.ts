@@ -3,7 +3,7 @@
  * 不 import react-native —— 供 vitest 在 node 下直接运行。
  */
 
-import type { CoursewareFile, HomeworkDetail } from "./types";
+import type { CoursewareFile } from "./types";
 
 /** 文件名清洗：取路径末段，去掉文件系统非法字符，防路径穿越。 */
 export function sanitizeFileName(name: string): string {
@@ -53,22 +53,4 @@ export function flattenActivitiesToFiles(activities: any[]): CoursewareFile[] {
     }
   }
   return out;
-}
-
-/** 作业活动详情 JSON → HomeworkDetail（字段容错）。 */
-export function parseHomeworkDetail(raw: any): HomeworkDetail {
-  // 作业活动的题目正文在 data.description（顶层 description 对 homework 类型为空，
-  // 参考 fiz 的 homework["data"]["description"]）；顶层字段仅作兜底
-  const body = raw?.data?.description ?? raw?.description ?? raw?.content ?? "";
-  const attachments = flattenActivitiesToFiles([{ uploads: raw?.uploads ?? [] }]);
-  const score = raw?.submission?.score ?? raw?.score ?? null;
-  const comment = raw?.submission?.comment ?? raw?.comment ?? null;
-  return {
-    id: Number(raw?.id ?? 0),
-    title: String(raw?.title ?? ""),
-    bodyText: htmlToPlainText(String(body)),
-    attachments,
-    score: score != null ? String(score) : null,
-    comment: comment != null && String(comment).trim() !== "" ? String(comment) : null,
-  };
 }

@@ -22,7 +22,6 @@ export type {
   SemesterOption,
   HomeworkInfo,
   CoursewareFile,
-  HomeworkDetail,
 } from "./zju/types";
 
 export {
@@ -47,7 +46,6 @@ export {
 
 export {
   fetchHomeworks,
-  fetchHomeworkDetail,
   listMyCourses,
   resolveCourseId,
   fetchCourseFiles,

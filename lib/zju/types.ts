@@ -65,6 +65,10 @@ export interface HomeworkInfo {
   /** raw ISO-8601, used for sorting */
   deadlineIso: string;
   submitted: boolean;
+  /** 原始 HTML 字符串（来自 data.description），列表卡片展开时 htmlToPlainText 渲染 */
+  description: string;
+  /** 附件（来自 uploads），点按走 useCoursewareDownload 走缓存/下载流程 */
+  attachments: CoursewareFile[];
 }
 
 export interface CoursewareFile {
@@ -73,13 +77,4 @@ export interface CoursewareFile {
   name: string;          // 清洗前的原始文件名
   size: number;          // 字节；未知为 0
   allowDownload: boolean;// false = 老师未开放
-}
-
-export interface HomeworkDetail {
-  id: number;
-  title: string;
-  bodyText: string;      // 已 htmlToPlainText
-  attachments: CoursewareFile[];
-  score: string | null;  // 得分，无则 null
-  comment: string | null;// 评语，无则 null
 }
