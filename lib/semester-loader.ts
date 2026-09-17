@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getSemesterOptions as zjuGetSemesterOptions, ZjuSession, checkSemesterHasCourses } from "@/lib/zju-client";
 import { writeLog } from "@/lib/diagnostic-log";
-
+import { resolve } from "path";
 export interface SemesterOption {
   yearValue: string;
   termValue: string;
@@ -23,30 +23,51 @@ export async function loadActiveSemesters(username: string): Promise<SemesterOpt
     return loadingPromise;
   }
 
+  const mergeSemesters = (...semesterSets: SemesterOption[][]): SemesterOption[] => {
+    const mergedMap = new Map<string, SemesterOption>();
+    for (const semesterSet of semesterSets) {
+      for (const semester of semesterSet) {
+        const key = `${semester.yearValue}_${semester.termValue}`;
+        if (!mergedMap.has(key)) {
+          mergedMap.set(key, semester);
+        }
+      }
+    }
+    return Array.from(mergedMap.values());
+  };
+
   loadingPromise = (async () => {
+    let cachedSemesters: SemesterOption[] = [];
     try {
-      // 1. 优先读取缓存
       const cached = await AsyncStorage.getItem(`activeSemesters_${username}`);
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed.length > 0) {
-          writeLog("SCHEDULE", `缓存学期列表命中: ${parsed.length} 个`, "info");
-          return parsed;
+        if (Array.isArray(parsed)) {
+          cachedSemesters = parsed.filter(
+            (item): item is SemesterOption =>
+              item &&
+              typeof item.yearValue === "string" &&
+              typeof item.termValue === "string" &&
+              typeof item.yearText === "string" &&
+              typeof item.termText === "string" &&
+              typeof item.label === "string"
+          );
         }
       }
+    } catch (cacheError) {
+      writeLog("SCHEDULE", `读取缓存学期列表失败: ${cacheError instanceof Error ? cacheError.message : String(cacheError)}`, "error");
+    }
 
-      // 2. 缓存无效，发起网络请求
-      writeLog("SCHEDULE", "缓存不存在或为空，开始网络拉取学期列表", "info");
+    try {
+      // 1. 优先发起网络请求
+      writeLog("SCHEDULE", "开始网络拉取学期列表", "info");
       const session: ZjuSession = { username, jsessionId: "native", routeCookie: null };
-      //console.log(session);
-      //if (session) console.log("[session已建立]");
       const opts = await zjuGetSemesterOptions(session);
-      //console.log(opts);
-      const allSemesters: SemesterOption[] = [];
+      const networkSemesters: SemesterOption[] = [];
       for (const yo of opts.yearOptions) {
         for (const to of opts.termOptions) {
           if (await checkSemesterHasCourses(session, yo.value, to.value)) {
-            allSemesters.push({
+            networkSemesters.push({
               yearValue: yo.value,
               termValue: to.value,
               yearText: yo.text,
@@ -57,15 +78,26 @@ export async function loadActiveSemesters(username: string): Promise<SemesterOpt
         }
       }
 
-      if (allSemesters.length > 0) {
-        await AsyncStorage.setItem(`activeSemesters_${username}`, JSON.stringify(allSemesters));
-        writeLog("SCHEDULE", `网络拉取成功，共 ${allSemesters.length} 个有效学期`, "info");
-        return allSemesters;
-      } else {
-        writeLog("SCHEDULE", "网络返回有效学期为 0", "error");
-        return null;
+      const mergedSemesters = mergeSemesters(cachedSemesters, networkSemesters);
+      if (mergedSemesters.length > 0) {
+        await AsyncStorage.setItem(`activeSemesters_${username}`, JSON.stringify(mergedSemesters));
+        writeLog(
+          "SCHEDULE",
+          `网络拉取成功，缓存与网络结果并集后共 ${mergedSemesters.length} 个有效学期`,
+          "info"
+        );
+        return mergedSemesters;
       }
+
+      writeLog("SCHEDULE", "网络返回有效学期为 0，且缓存为空", "error");
+      return null;
     } catch (e) {
+      // 2. 网络请求失败，回退到缓存并集
+      if (cachedSemesters.length > 0) {
+        writeLog("SCHEDULE", `网络拉取失败，返回缓存学期列表: ${cachedSemesters.length} 个`, "warn");
+        return cachedSemesters;
+      }
+
       writeLog("SCHEDULE", `加载学期列表失败: ${e instanceof Error ? e.message : String(e)}`, "error");
       return null;
     } finally {

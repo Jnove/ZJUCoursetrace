@@ -15,7 +15,6 @@ import type { ZjuSession, RawCourse, Grade, ExamInfo, SemesterOption } from "./t
 export { PT };
 
 // ─── Semester options ─────────────────────────────────────────────────────────
-
 export async function getSemesterOptions(session: ZjuSession) {
   const text = await withRelogin(session, () =>
     zGet(`${ZDBK_BASE}/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${session.username}`)
@@ -33,6 +32,7 @@ export async function getSemesterOptions(session: ZjuSession) {
     return opts;
   };
   const yo = parseSelect("xnm"), to = parseSelect("xqm");
+  console.log(yo, to);
   return {
     yearOptions: yo, termOptions: to,
     currentYear: yo.find(o => o.selected)?.text ?? yo[0]?.text ?? "",
@@ -53,20 +53,26 @@ export async function fetchTimetable(
   const dy = yearValue;  // 学年显示文本（学年值本身就是显示文本）
   const dt = termDisplay;
 
-  const text = await withRelogin(session, () =>
-    zPost(
-      `${ZDBK_BASE}/jwglxt/kbcx/xskbcx_cxXsKb.html?gnmkdm=N253508&su=${session.username}`,
-      new URLSearchParams({
-        xnm: yearValue,
-        xqm: termValue,
-        xqmmc: termDisplay,
-        xxqf: "0",
-        xsfs: "0",
-        captcha_value: captchaAnswer ?? "",
-      }).toString()
-    )
-  );
-
+  let text = "";
+  for (let attempt = 1; attempt < 4; attempt++) {
+    text = await withRelogin(session, () =>
+      zPost(
+        `${ZDBK_BASE}/jwglxt/kbcx/xskbcx_cxXsKb.html?gnmkdm=N253508&su=${session.username}`,
+        new URLSearchParams({
+          xnm: yearValue,
+          xqm: termValue,
+          xqmmc: termDisplay,
+          xxqf: "0",
+          xsfs: "0",
+          captcha_value: captchaAnswer ?? "",
+        }).toString()
+      )
+    );
+    console.log(yearValue, termValue, text);
+    if (!text.includes("请求过于频繁，请稍后再试！")) break;
+    await new Promise<void>((resolve) => setTimeout(resolve, attempt*500));
+  }
+  
   const t = text.trim();
   if (t.includes("captcha_error")) {
     const img = await zGet(`${ZDBK_BASE}/jwglxt/kaptcha?time=${Date.now()}`);

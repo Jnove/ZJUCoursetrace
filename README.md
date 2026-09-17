@@ -1,5 +1,5 @@
 # ZJU课迹 （ZJUCoursetrace）
-
+[项目展示页https://project.jnove.dpdns.org/zjucoursetrace](https://project.jnove.dpdns.org/zjucoursetrace)
 <p align="center">
   <br>中文 | <a href="README-en.md">English</a>
 </p>
@@ -9,6 +9,9 @@
 [![Download APK](https://img.shields.io/github/downloads/Jnove/ZJUCoursetrace/total?style=flat-square&label=APK%20downloads&color=brightgreen&logo=android)](https://github.com/Jnove/ZJUCoursetrace/releases/download/v2.0.2/ZJUCoursetrace.v2.0.2.apk)
 
 浙江大学课程表应用，支持 iOS 和 Android。v2.0.0 起已完全移除后端服务，所有认证与数据请求均在客户端本地完成（因此 Web 端受浏览器跨域限制无法登录，仅用于开发预览）。
+| 首页 | 课表 | 课表（日历模式，左右滑切换） | 学业 | 设置 |
+| --- | --- | --- | --- | --- |
+| ![](./docs/UI截图/首页.png) | ![](./docs/UI截图/课表_表格模式.png) | ![](./docs/UI截图/课表_日历模式.png) | ![](./docs/UI截图/课表_日历模式.png) | ![](./docs/UI截图/设置.png) |
 
 ## 说明
 
