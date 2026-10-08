@@ -910,7 +910,11 @@ export default function ScheduleScreen() {
     return () => { cancelled = true; };
   }, []);
 
-  const handleSemesterChange = async (yv: string, tv: string) => {
+  const handleSemesterChange = async (
+    yv: string,
+    tv: string,
+    semesterList: SemesterOption[] = semesters,
+  ) => {
     const key = semesterKey(yv, tv);
     setSelectedSemester(key); setShowSemesterPicker(false);
     const u = await AsyncStorage.getItem("username");
@@ -918,7 +922,7 @@ export default function ScheduleScreen() {
     await fetchScheduleBySemester(yv, tv);
 
     const combined: Course[] = [];
-    for (const s of semesters) {
+    for (const s of semesterList) {
       try {
         const cacheKey = `schedule_${s.yearValue}_${s.termValue}`;
         const raw = await AsyncStorage.getItem(cacheKey);
@@ -931,23 +935,51 @@ export default function ScheduleScreen() {
   const handleRefresh = async () => {
     if (isRefreshing || !selectedSemester) return;
     setIsRefreshing(true);
+
+    let latestSemesters = semesters;
+
     try {
-      const all = semesters.map(s => ({ yearValue: s.yearValue, termValue: s.termValue }));
-      if (!all.length) { Alert.alert("提示", "学期列表未加载"); return; }
-      const { success, failedCount } = await refreshAllSemesters(all);
-  
+      const username = await AsyncStorage.getItem("username");
+
+      if (username) {
+        const refreshed = await loadActiveSemesters(username, {
+          forceRefresh: true,
+        });
+
+        if (refreshed && refreshed.length > 0) {
+          latestSemesters = refreshed;
+          setSemesters(refreshed);
+        }
+      }
+
+      const all = latestSemesters.map(s => ({
+        yearValue: s.yearValue,
+        termValue: s.termValue,
+      }));
+
+      if (!all.length) {
+        Alert.alert("提示", "学期列表未加载");
+        return;
+      }
+
+      const { failedCount } = await refreshAllSemesters(all);
+
       if (failedCount > 0) {
         Alert.alert(
           "刷新完成",
-          `${failedCount} 个学期因网络问题未能更新，已保留原有数据。\n请在网络恢复后重试。`
+          `${failedCount} 个学期因网络问题未能更新，已保留原有数据。\n请在网络恢复后重试。`,
         );
       } else {
-        Alert.alert("完成", "所有学期课表已更新");
+        Alert.alert("完成", "学期列表及所有学期课表已更新");
       }
-    } catch (e: any) { Alert.alert("错误", e.message || "刷新失败"); }
-    finally { setIsRefreshing(false); }
+    } catch (e: any) {
+      Alert.alert("错误", e.message || "刷新失败");
+    } finally {
+      setIsRefreshing(false);
+    }
+
     const [yv, tv] = parseKey(selectedSemester);
-    await handleSemesterChange(yv, tv);
+    await handleSemesterChange(yv, tv, latestSemesters);
   };
 
   const handleDownload = async () => {

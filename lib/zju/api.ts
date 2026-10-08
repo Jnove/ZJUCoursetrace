@@ -32,7 +32,6 @@ export async function getSemesterOptions(session: ZjuSession) {
     return opts;
   };
   const yo = parseSelect("xnm"), to = parseSelect("xqm");
-  console.log(yo, to);
   return {
     yearOptions: yo, termOptions: to,
     currentYear: yo.find(o => o.selected)?.text ?? yo[0]?.text ?? "",
@@ -54,7 +53,7 @@ export async function fetchTimetable(
   const dt = termDisplay;
 
   let text = "";
-  for (let attempt = 1; attempt < 4; attempt++) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
     text = await withRelogin(session, () =>
       zPost(
         `${ZDBK_BASE}/jwglxt/kbcx/xskbcx_cxXsKb.html?gnmkdm=N253508&su=${session.username}`,
@@ -68,11 +67,17 @@ export async function fetchTimetable(
         }).toString()
       )
     );
-    console.log(yearValue, termValue, text);
+
     if (!text.includes("请求过于频繁，请稍后再试！")) break;
-    await new Promise<void>((resolve) => setTimeout(resolve, attempt*500));
+
+    // 第三次已经没有下一次重试，不再额外等待。
+    if (attempt < 3) {
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, attempt * 500)
+      );
+    }
   }
-  
+
   const t = text.trim();
   if (t.includes("captcha_error")) {
     const img = await zGet(`${ZDBK_BASE}/jwglxt/kaptcha?time=${Date.now()}`);
@@ -102,7 +107,7 @@ export async function checkSemesterHasCourses(
   session: ZjuSession,
   yearValue: string,
   termValue: string,
-): Promise<boolean> {
+): Promise<boolean | null> {
   try {
     const result = await Promise.race([
       fetchTimetable(session, yearValue, termValue, ""),
@@ -112,9 +117,9 @@ export async function checkSemesterHasCourses(
     ]);
     return (result.rawCourses?.length ?? 0) > 0;
   } catch (e) {
-    // 如果请求失败，保守认为有课
+    // null 表示此次网络检查无法判断，不把它误当成“有课”。
     console.warn(`检查学期 ${yearValue} ${termValue} 失败:`, e);
-    return true;
+    return null;
   }
 }
 
@@ -208,4 +213,3 @@ export async function fetchStudentName(username: string): Promise<string | null>
     return null;
   }
 }
-
